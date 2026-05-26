@@ -1,0 +1,2 @@
+runtime: typescript
+entrypoint: dist/cli.js start

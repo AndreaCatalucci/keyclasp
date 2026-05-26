@@ -1,0 +1,33 @@
+{
+  "$schema": "https://registry.modelcontextprotocol.io/schemas/server.schema.json",
+  "name": "io.github.aarifmms.keyblind",
+  "displayName": "Keyblind",
+  "version": "0.1.1",
+  "description": "Encrypted secrets vault with MCP for AI agents. Secrets resolved at runtime, never leaked to LLM conversations.",
+  "publisher": {
+    "name": "Keyblind",
+    "url": "https://github.com/aarifmms/keyblind"
+  },
+  "homepage": "https://github.com/aarifmms/keyblind",
+  "repository": "https://github.com/aarifmms/keyblind",
+  "license": "MIT",
+  "runtime": "node",
+  "transport": "stdio",
+  "entrypoint": "dist/cli.js",
+  "args": ["start"],
+  "categories": ["security", "developer-tools"],
+  "tags": ["secrets", "encryption", "vault", "api-keys", "sandbox"],
+  "tools": [
+    { "name": "resolve_secret", "description": "Resolve a secret at runtime (value hidden from LLM transcript)" },
+    { "name": "store_secret", "description": "Encrypt and store a secret in the vault" },
+    { "name": "list_secrets", "description": "List all stored secret names (values never revealed)" },
+    { "name": "sandbox_env", "description": "Replace .env values with deterministic fakes" },
+    { "name": "unsandbox_env", "description": "Restore real .env values from the vault" },
+    { "name": "delete_secret", "description": "Delete a secret from the vault" }
+  ],
+  "requirements": {
+    "node": ">=20.0.0",
+    "platforms": ["macos", "linux", "windows"],
+    "storage": "~/.keyblind/ (AES-256-GCM encrypted SQLite)"
+  }
+}

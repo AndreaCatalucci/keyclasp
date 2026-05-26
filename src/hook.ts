@@ -13,8 +13,8 @@ const SECRET_PATTERNS: { name: string; regex: RegExp }[] = [
   { name: "Google API Key", regex: /AIza[0-9A-Za-z_-]{35}/g },
   { name: "Private Key", regex: /-----BEGIN (?:RSA |OPENSSH |EC )?PRIVATE KEY-----/g },
   { name: "JWT Token", regex: /eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g },
-  { name: "Generic Password", regex: /(?:password|passwd|pwd)\s*[:=]\s*["']?[^\s'"]{8,}["']?/gi },
-  { name: "Generic Secret", regex: /(?:secret|token|api[_-]?key)\s*[:=]\s*["']?[^\s'"]{8,}["']?/gi },
+  { name: "Generic Password", regex: /(?:password|passwd|pwd)\s*[:=]\s*["'][^\s'"]{8,}["']/gi },
+  { name: "Generic Secret", regex: /(?:secret|token|api[_-]?key)\s*[:=]\s*["'][^\s'"]{8,}["']/gi },
   { name: "NPM Token", regex: /npm_[A-Za-z0-9]{36}/g },
   { name: "Basic Auth", regex: /https?:\/\/[^:]+:[^@]+@/g },
 ];
