@@ -4,7 +4,7 @@
   "description": "Blind AI to your keys — encrypted secrets vault with MCP for AI agents",
   "type": "module",
   "bin": {
-    "keyblind": "./dist/cli.js"
+    "keyblind": "dist/cli.js"
   },
   "main": "./dist/index.js",
   "files": [
@@ -35,7 +35,7 @@
   "author": "Keyblind",
   "repository": {
     "type": "git",
-    "url": "https://github.com/keyblind/keyblind"
+    "url": "git+https://github.com/keyblind/keyblind.git"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",

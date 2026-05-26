@@ -3,3 +3,4 @@ dist
 *.tsbuildinfo
 .git
 .DS_Store
+.mcp.json
