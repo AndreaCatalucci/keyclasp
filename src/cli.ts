@@ -466,6 +466,11 @@ async function main(): Promise<void> {
       }
 
       case "start": {
+        // Auto-initialize vault for Docker/Glama when KEYBLIND_AUTO_INIT is set
+        if (!isInitialized() && process.env.KEYBLIND_AUTO_INIT === "true") {
+          initializeVault("");
+          console.log("Vault auto-initialized for demo/container.");
+        }
         if (!isInitialized()) {
           console.error("Keyblind not initialized. Run: keyblind init");
           process.exit(1);

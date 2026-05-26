@@ -184,11 +184,17 @@ export async function startServer(): Promise<void> {
 export async function startHttpServer(port: number = 3100): Promise<void> {
   const mcpServer = createServer();
 
+  // Single transport instance handles all requests with session management
+  const transport = new StreamableHTTPServerTransport({
+    sessionIdGenerator: undefined,
+  });
+  await mcpServer.connect(transport);
+
   const httpServer = http.createServer(async (req, res) => {
     // CORS for browser-based clients
     res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Mcp-Session-Id");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Mcp-Session-Id, Accept");
 
     if (req.method === "OPTIONS") {
       res.writeHead(204);
@@ -199,16 +205,12 @@ export async function startHttpServer(port: number = 3100): Promise<void> {
     // Health check
     if (req.url === "/health" || req.url === "/") {
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ status: "ok", server: "keyblind", version: "0.1.2" }));
+      res.end(JSON.stringify({ status: "ok", server: "keyblind", version: "0.1.4" }));
       return;
     }
 
     // MCP endpoint
     if (req.url === "/mcp" || req.url?.startsWith("/mcp")) {
-      const transport = new StreamableHTTPServerTransport({
-        sessionIdGenerator: undefined, // let the transport handle it
-      });
-      await mcpServer.connect(transport);
       await transport.handleRequest(req, res);
       return;
     }
