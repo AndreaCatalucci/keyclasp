@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import path from "node:path";
 import os from "node:os";
 import fs from "node:fs";
+import { sessionActive } from "./auth.js";
 
 const ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 12;
@@ -11,8 +12,25 @@ const KEY_LENGTH = 32;
 const PBKDF2_ITERATIONS = 600_000;
 const SALT_LENGTH = 32;
 
+let _projectName: string | null = null;
+
+export function setProjectName(name: string | null): void {
+  _projectName = name;
+  // Clear caches so they reload from the new project directory
+  _key = null;
+  closeDb();
+}
+
+export function getProjectName(): string | null {
+  return _projectName;
+}
+
 function getVaultDir(): string {
-  return path.join(os.homedir(), ".keyblind");
+  const base = path.join(os.homedir(), ".keyblind");
+  if (_projectName) {
+    return path.join(base, "projects", _projectName);
+  }
+  return base;
 }
 
 function getVaultPath(): string {
@@ -48,9 +66,18 @@ export function decrypt(encrypted: Buffer, iv: Buffer, authTag: Buffer, key: Buf
 
 let _db: Database.Database | null = null;
 let _key: Buffer | null = null;
+let _requireSession = false;
+
+export function setRequireSession(requireSession: boolean): void {
+  _requireSession = requireSession;
+}
 
 export function getKey(): Buffer {
   if (_key) return _key;
+
+  if (_requireSession && !sessionActive()) {
+    throw new Error("Biometric session expired or not started. Run: keyblind unlock");
+  }
 
   const keyDir = getVaultDir();
   if (!fs.existsSync(keyDir)) {
@@ -79,7 +106,7 @@ export function getKey(): Buffer {
 export function initializeVault(passphrase: string): void {
   const vaultDir = getVaultDir();
   if (!fs.existsSync(vaultDir)) {
-    fs.mkdirSync(vaultDir, { mode: 0o700 });
+    fs.mkdirSync(vaultDir, { mode: 0o700, recursive: true });
   }
 
   if (fs.existsSync(getKeyPath())) {

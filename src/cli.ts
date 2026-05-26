@@ -1,8 +1,10 @@
 #!/usr/bin/env node
-import { initializeVault, getKey, storeSecret, listSecrets, resolveSecret, deleteSecret, isInitialized, closeDb } from "./vault.js";
+import { initializeVault, getKey, storeSecret, listSecrets, resolveSecret, deleteSecret, isInitialized, closeDb, setRequireSession, setProjectName, getProjectName } from "./vault.js";
 import { startServer } from "./server.js";
 import { sandboxEnvFile, unsandboxEnvFile } from "./sandbox.js";
 import { setBackend, getBackend, listAvailableBackends } from "./backends.js";
+import { authenticateWithBiometric, biometricAvailable, createSession, sessionActive, clearSession } from "./auth.js";
+import { installHook, checkAndReport, getStagedFiles, scanFiles } from "./hook.js";
 import { spawn } from "node:child_process";
 import readline from "node:readline";
 import { stdin, stdout } from "node:process";
@@ -19,11 +21,18 @@ Usage:
   keyblind list                List all stored secret names
   keyblind delete <name>       Delete a secret
   keyblind start               Start the MCP server (for AI agents)
+  keyblind start --biometric   Start MCP server with Touch ID requirement
+  keyblind unlock              Authenticate with Touch ID (macOS)
   keyblind run <command...>    Run a command with secrets as env vars
   keyblind sandbox [.env]      Replace real env values with deterministic fakes
   keyblind unsandbox [.env]    Restore real env values from vault
   keyblind backends            List available secret backends
+  keyblind install-hook        Install pre-commit hook to detect secrets
+  keyblind check-secrets       Scan staged files for secrets (used by hook)
   keyblind help                Show this help
+
+Global flags:
+  --project <name>            Use a project-specific vault (isolated per project)
 
 Examples:
   keyblind init
@@ -33,6 +42,7 @@ Examples:
   keyblind sandbox             # Fake your .env, backup real values to vault
   keyblind run -- npm start    # Run with real secrets injected
   keyblind unsandbox           # Restore real .env values
+  keyblind unlock              # Touch ID auth to unlock vault
   `);
 }
 
@@ -88,7 +98,17 @@ async function promptSecret(prompt: string): Promise<string> {
 }
 
 async function main(): Promise<void> {
-  const args = process.argv.slice(2);
+  const rawArgs = process.argv.slice(2);
+
+  // Parse --project flag
+  const projectIdx = rawArgs.indexOf("--project");
+  if (projectIdx !== -1 && projectIdx + 1 < rawArgs.length) {
+    const projectName = rawArgs[projectIdx + 1];
+    setProjectName(projectName);
+    rawArgs.splice(projectIdx, 2); // Remove --project and its value
+  }
+
+  const args = rawArgs;
   const command = args[0];
 
   if (!command || command === "help" || command === "--help" || command === "-h") {
@@ -97,13 +117,15 @@ async function main(): Promise<void> {
   }
 
   try {
+    const projectLabel = getProjectName() ? ` [project: ${getProjectName()}]` : "";
+
     switch (command) {
       case "init": {
         if (isInitialized()) {
-          console.log("Keyblind is already initialized. To reset, delete ~/.keyblind/");
+          console.log(`Keyblind is already initialized${projectLabel}. To reset, delete ~/.keyblind/${getProjectName() ? `projects/${getProjectName()}/` : ""}`);
           return;
         }
-        console.log("🔑 Initializing Keyblind vault...");
+        console.log(`🔑 Initializing Keyblind vault${projectLabel}...`);
         const passphrase = await promptSecret("Enter vault passphrase (or empty for machine-only key): ");
         initializeVault(passphrase);
         getKey(); // Verify key works
@@ -242,6 +264,44 @@ async function main(): Promise<void> {
         break;
       }
 
+      case "install-hook": {
+        try {
+          const hookPath = installHook();
+          console.log(`Pre-commit hook installed at ${hookPath}`);
+          console.log("The hook will scan staged files for secrets before each commit.");
+        } catch (err: any) {
+          console.error(err.message);
+          process.exit(1);
+        }
+        break;
+      }
+
+      case "check-secrets": {
+        const result = checkAndReport();
+        if (result.found > 0) {
+          console.log(result.output);
+          process.exit(1);
+        }
+        break;
+      }
+
+      case "scan-secrets": {
+        const files = args.slice(1);
+        if (files.length === 0) {
+          console.error("Usage: keyblind scan-secrets <file...>");
+          process.exit(1);
+        }
+        const findings = scanFiles(files);
+        if (findings.length === 0) {
+          console.log("No secrets found.");
+        } else {
+          for (const f of findings) {
+            console.log(`${f.file}:${f.line} [${f.pattern}] ${f.match}`);
+          }
+        }
+        break;
+      }
+
       case "backend": {
         const backendName = args[1];
         if (!backendName) {
@@ -259,9 +319,42 @@ async function main(): Promise<void> {
           console.error("Keyblind not initialized. Run: keyblind init");
           process.exit(1);
         }
+        const biometric = args.includes("--biometric");
+        if (biometric) {
+          if (!biometricAvailable()) {
+            console.error("Touch ID is not available on this system.");
+            process.exit(1);
+          }
+          if (!sessionActive()) {
+            console.error("Biometric session required. Run 'keyblind unlock' first.");
+            process.exit(1);
+          }
+          setRequireSession(true);
+          console.log("Touch ID gate enabled — session expires in 15 minutes.");
+        }
         // Verify key works before starting
         getKey();
         await startServer();
+        break;
+      }
+
+      case "unlock": {
+        if (!isInitialized()) {
+          console.error("Keyblind not initialized. Run: keyblind init");
+          process.exit(1);
+        }
+        if (!biometricAvailable()) {
+          console.error("Touch ID is not available on this system. Only supported on macOS with Touch ID.");
+          process.exit(1);
+        }
+        console.log("🔐 Authenticate with Touch ID to unlock the vault...");
+        const ok = authenticateWithBiometric("Keyblind vault unlock");
+        if (!ok) {
+          console.error("Authentication failed or was cancelled.");
+          process.exit(1);
+        }
+        createSession();
+        console.log("Vault unlocked. Session active for 15 minutes.");
         break;
       }
 
