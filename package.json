@@ -35,7 +35,7 @@
   "author": "Keyblind",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/keyblind/keyblind.git"
+    "url": "git+https://github.com/aarifmms/keyblind.git"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
