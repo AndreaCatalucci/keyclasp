@@ -1,17 +1,17 @@
 FROM node:22-alpine
 
+# Build tools for better-sqlite3 native compilation
+RUN apk add --no-cache python3 make g++
+
 WORKDIR /app
 
-# Install all deps (including devDeps for typescript build)
 COPY package.json package-lock.json ./
 RUN npm ci
 
-# Copy source and build
 COPY tsconfig.json ./
 COPY src/ src/
 RUN npm run build
 
-# Copy Docker helper scripts
 COPY docker-entrypoint.sh docker-init.js ./
 RUN chmod +x docker-entrypoint.sh
 
