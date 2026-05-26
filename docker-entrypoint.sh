@@ -9,4 +9,4 @@ if [ ! -f "$KEY_FILE" ]; then
   echo "Vault auto-initialized for demo."
 fi
 
-exec node dist/cli.js start --http --port "${KEYBLIND_HTTP_PORT:-3100}"
+exec node dist/cli.js start --http --port "${PORT:-3000}"

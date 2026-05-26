@@ -15,8 +15,8 @@ RUN npm run build
 COPY docker-entrypoint.sh docker-init.js ./
 RUN chmod +x docker-entrypoint.sh
 
-ENV KEYBLIND_HTTP_PORT=3100
+ENV PORT=3000
 ENV NODE_ENV=production
-EXPOSE 3100
+EXPOSE 3000
 
 ENTRYPOINT ["./docker-entrypoint.sh"]
