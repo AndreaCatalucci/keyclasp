@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.aarifmms/keyblind",
   "title": "Keyblind",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Encrypted secrets vault for AI agents — secrets resolved at runtime, never seen by LLMs.",
   "websiteUrl": "https://github.com/aarifmms/keyblind",
   "repository": {
@@ -15,7 +15,7 @@
       "identifier": "keyblind",
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "transport": {
         "type": "stdio"
       },
