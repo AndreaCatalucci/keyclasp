@@ -3,3 +3,5 @@ export { createServer, startServer } from "./server.js";
 export { sandboxEnvFile, unsandboxEnvFile, getEnvBackups } from "./sandbox.js";
 export { setBackend, getBackend, listAvailableBackends, type SecretBackend } from "./backends.js";
 export { authenticateWithBiometric, biometricAvailable, createSession, sessionActive, clearSession } from "./auth.js";
+export { watchEnvFile } from "./watch.js";
+export { teamInit, teamPush, teamPull, teamList, teamResolve, teamDelete } from "./team.js";

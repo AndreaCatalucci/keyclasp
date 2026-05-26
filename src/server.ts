@@ -1,6 +1,8 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
+import http from "node:http";
 import { storeSecret, listSecrets, deleteSecret, isInitialized } from "./vault.js";
 import { getBackend } from "./backends.js";
 import { sandboxEnvFile, unsandboxEnvFile } from "./sandbox.js";
@@ -177,4 +179,50 @@ export async function startServer(): Promise<void> {
   const server = createServer();
   const transport = new StdioServerTransport();
   await server.connect(transport);
+}
+
+export async function startHttpServer(port: number = 3100): Promise<void> {
+  const mcpServer = createServer();
+
+  const httpServer = http.createServer(async (req, res) => {
+    // CORS for browser-based clients
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Mcp-Session-Id");
+
+    if (req.method === "OPTIONS") {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+
+    // Health check
+    if (req.url === "/health" || req.url === "/") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ status: "ok", server: "keyblind", version: "0.1.2" }));
+      return;
+    }
+
+    // MCP endpoint
+    if (req.url === "/mcp" || req.url?.startsWith("/mcp")) {
+      const transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: undefined, // let the transport handle it
+      });
+      await mcpServer.connect(transport);
+      await transport.handleRequest(req, res);
+      return;
+    }
+
+    res.writeHead(404);
+    res.end("Not found");
+  });
+
+  return new Promise((resolve) => {
+    httpServer.listen(port, () => {
+      console.log(`Keyblind MCP HTTP server listening on http://localhost:${port}`);
+      console.log(`  MCP endpoint: http://localhost:${port}/mcp`);
+      console.log(`  Health:       http://localhost:${port}/health`);
+      resolve();
+    });
+  });
 }

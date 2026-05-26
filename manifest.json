@@ -1,0 +1,34 @@
+{
+  "mcpb_version": "0.1",
+  "name": "keyblind",
+  "version": "0.1.1",
+  "description": "Encrypted secrets vault that prevents API keys from leaking to AI conversations. AES-256-GCM encrypted storage with MCP runtime resolution — plaintext never touches the LLM transcript.",
+  "author": {
+    "name": "Keyblind",
+    "url": "https://github.com/aarifmms/keyblind"
+  },
+  "homepage": "https://github.com/aarifmms/keyblind",
+  "license": "MIT",
+  "server": {
+    "type": "node",
+    "entry_point": "dist/cli.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/dist/cli.js", "start"]
+    }
+  },
+  "categories": ["security", "developer-tools"],
+  "tags": ["secrets", "encryption", "vault", "api-keys", "sandbox", "mcp"],
+  "tools": [
+    "resolve_secret",
+    "store_secret",
+    "list_secrets",
+    "sandbox_env",
+    "unsandbox_env",
+    "delete_secret"
+  ],
+  "compatibility": {
+    "platforms": ["macos", "linux", "windows"],
+    "node": ">=20.0.0"
+  }
+}

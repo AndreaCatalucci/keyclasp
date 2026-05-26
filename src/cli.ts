@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 import { initializeVault, getKey, storeSecret, listSecrets, resolveSecret, deleteSecret, isInitialized, closeDb, setRequireSession, setProjectName, getProjectName } from "./vault.js";
-import { startServer } from "./server.js";
+import { startServer, startHttpServer } from "./server.js";
 import { sandboxEnvFile, unsandboxEnvFile } from "./sandbox.js";
 import { setBackend, getBackend, listAvailableBackends } from "./backends.js";
 import { authenticateWithBiometric, biometricAvailable, createSession, sessionActive, clearSession } from "./auth.js";
 import { installHook, checkAndReport, getStagedFiles, scanFiles } from "./hook.js";
+import { watchEnvFile } from "./watch.js";
+import { teamInit, teamPush, teamPull, teamList, teamDelete } from "./team.js";
 import { spawn } from "node:child_process";
 import readline from "node:readline";
 import { stdin, stdout } from "node:process";
@@ -20,15 +22,21 @@ Usage:
   keyblind get <name>          Resolve and print a secret value
   keyblind list                List all stored secret names
   keyblind delete <name>       Delete a secret
-  keyblind start               Start the MCP server (for AI agents)
-  keyblind start --biometric   Start MCP server with Touch ID requirement
-  keyblind unlock              Authenticate with Touch ID (macOS)
+  keyblind start               Start the MCP server (stdio)
+  keyblind start --http        Start MCP HTTP server (for Smithery, remote)
+  keyblind start --biometric   Start MCP server with biometric requirement
+  keyblind unlock              Authenticate with biometric (cross-platform)
   keyblind run <command...>    Run a command with secrets as env vars
   keyblind sandbox [.env]      Replace real env values with deterministic fakes
   keyblind unsandbox [.env]    Restore real env values from vault
   keyblind backends            List available secret backends
   keyblind install-hook        Install pre-commit hook to detect secrets
   keyblind check-secrets       Scan staged files for secrets (used by hook)
+  keyblind watch [.env]        Watch .env and auto-sandbox on change
+  keyblind team init [path]    Create a shared team vault (git-safe)
+  keyblind team push <name>     Push a local secret to the team vault
+  keyblind team pull            Import all team secrets to local vault
+  keyblind team list            List secrets in the team vault
   keyblind help                Show this help
 
 Global flags:
@@ -240,6 +248,15 @@ async function main(): Promise<void> {
         break;
       }
 
+      case "watch": {
+        if (!isInitialized()) {
+          console.error("Keyblind not initialized. Run: keyblind init");
+          process.exit(1);
+        }
+        watchEnvFile(args[1]);
+        break;
+      }
+
       case "unsandbox": {
         if (!isInitialized()) {
           console.error("Keyblind not initialized. Run: keyblind init");
@@ -314,15 +331,150 @@ async function main(): Promise<void> {
         break;
       }
 
+      case "team": {
+        if (!isInitialized()) {
+          console.error("Keyblind not initialized. Run: keyblind init");
+          process.exit(1);
+        }
+        const teamCmd = args[1];
+        if (!teamCmd) {
+          console.error("Usage: keyblind team <init|push|pull|list|delete>");
+          process.exit(1);
+        }
+
+        switch (teamCmd) {
+          case "init": {
+            const vaultPath = args[2];
+            const passphrase = await promptSecret("Enter team passphrase: ");
+            if (!passphrase) {
+              console.error("Passphrase is required for team vault.");
+              process.exit(1);
+            }
+            const confirm = await promptSecret("Confirm passphrase: ");
+            if (passphrase !== confirm) {
+              console.error("Passphrases do not match.");
+              process.exit(1);
+            }
+            try {
+              const created = teamInit(passphrase, vaultPath);
+              console.log(`Team vault created at ${created}`);
+              console.log("This file is encrypted and safe to commit to git.");
+              console.log("Team members can join with: keyblind team pull");
+            } catch (err: any) {
+              console.error(err.message);
+              process.exit(1);
+            }
+            break;
+          }
+
+          case "push": {
+            const pushName = args[2];
+            if (!pushName) {
+              console.error("Usage: keyblind team push <name>");
+              process.exit(1);
+            }
+            const localValue = resolveSecret(pushName);
+            if (localValue === null) {
+              console.error(`Secret "${pushName}" not found in local vault.`);
+              process.exit(1);
+            }
+            const passphrase = await promptSecret("Enter team passphrase: ");
+            if (!passphrase) {
+              console.error("Passphrase is required.");
+              process.exit(1);
+            }
+            try {
+              teamPush(pushName, localValue, passphrase);
+              console.log(`Pushed "${pushName}" to team vault.`);
+            } catch (err: any) {
+              console.error(err.message);
+              process.exit(1);
+            }
+            break;
+          }
+
+          case "pull": {
+            const passphrase = await promptSecret("Enter team passphrase: ");
+            if (!passphrase) {
+              console.error("Passphrase is required.");
+              process.exit(1);
+            }
+            try {
+              const imported = teamPull(passphrase);
+              if (imported.length === 0) {
+                console.log("No secrets in team vault.");
+              } else {
+                console.log(`Imported ${imported.length} secret(s) from team vault:`);
+                for (const name of imported) {
+                  console.log(`  - ${name}`);
+                }
+              }
+            } catch (err: any) {
+              console.error(err.message);
+              process.exit(1);
+            }
+            break;
+          }
+
+          case "list": {
+            const passphrase = await promptSecret("Enter team passphrase: ");
+            if (!passphrase) {
+              console.error("Passphrase is required.");
+              process.exit(1);
+            }
+            try {
+              const secrets = teamList(passphrase);
+              if (secrets.length === 0) {
+                console.log("(no secrets in team vault)");
+              } else {
+                secrets.forEach((n) => console.log(`  - ${n}`));
+              }
+            } catch (err: any) {
+              console.error(err.message);
+              process.exit(1);
+            }
+            break;
+          }
+
+          case "delete": {
+            const delName = args[2];
+            if (!delName) {
+              console.error("Usage: keyblind team delete <name>");
+              process.exit(1);
+            }
+            const passphrase = await promptSecret("Enter team passphrase: ");
+            if (!passphrase) {
+              console.error("Passphrase is required.");
+              process.exit(1);
+            }
+            try {
+              const deleted = teamDelete(delName, passphrase);
+              console.log(deleted ? `Deleted "${delName}" from team vault.` : `"${delName}" not found in team vault.`);
+            } catch (err: any) {
+              console.error(err.message);
+              process.exit(1);
+            }
+            break;
+          }
+
+          default:
+            console.error(`Unknown team command: ${teamCmd}`);
+            console.error("Available: init, push, pull, list, delete");
+            process.exit(1);
+        }
+        break;
+      }
+
       case "start": {
         if (!isInitialized()) {
           console.error("Keyblind not initialized. Run: keyblind init");
           process.exit(1);
         }
         const biometric = args.includes("--biometric");
+        const httpMode = args.includes("--http");
         if (biometric) {
           if (!biometricAvailable()) {
-            console.error("Touch ID is not available on this system.");
+            console.error("Biometric auth is not available on this system.");
             process.exit(1);
           }
           if (!sessionActive()) {
@@ -330,11 +482,16 @@ async function main(): Promise<void> {
             process.exit(1);
           }
           setRequireSession(true);
-          console.log("Touch ID gate enabled — session expires in 15 minutes.");
+          console.log("Biometric gate enabled — session expires in 15 minutes.");
         }
-        // Verify key works before starting
         getKey();
-        await startServer();
+        if (httpMode) {
+          const portIdx = args.indexOf("--port");
+          const port = portIdx !== -1 ? parseInt(args[portIdx + 1], 10) : 3100;
+          await startHttpServer(port);
+        } else {
+          await startServer();
+        }
         break;
       }
 
