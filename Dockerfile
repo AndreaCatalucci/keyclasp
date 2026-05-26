@@ -6,7 +6,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
 COPY dist/ dist/
-COPY docker-entrypoint.sh ./
+COPY docker-entrypoint.sh docker-init.js ./
 RUN chmod +x docker-entrypoint.sh
 
 ENV KEYBLIND_HTTP_PORT=3100
