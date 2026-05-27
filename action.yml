@@ -1,0 +1,76 @@
+name: 'Keyblind — Blind AI to your keys'
+description: 'Decrypt and inject secrets into GitHub Actions workflows using Keyblind encrypted vault'
+branding:
+  icon: 'lock'
+  color: 'gray-dark'
+inputs:
+  passphrase:
+    description: 'Team vault passphrase (store in GitHub Secrets, never expose in plaintext)'
+    required: true
+  vault-file:
+    description: 'Path to team vault file (default: .keyblind/team.vault)'
+    required: false
+  secrets:
+    description: 'Specific secrets to export, comma-separated (default: all secrets from vault)'
+    required: false
+  project:
+    description: 'Project name for project-specific vault'
+    required: false
+outputs:
+  count:
+    description: 'Number of secrets resolved and injected'
+    value: ${{ steps.inject.outputs.count }}
+runs:
+  using: 'composite'
+  steps:
+    - name: Install Keyblind
+      shell: bash
+      run: npm install -g keyblind@latest
+    - name: Inject secrets
+      id: inject
+      shell: bash
+      env:
+        KEYBLIND_PASSPHRASE: ${{ inputs.passphrase }}
+        KEYBLIND_VAULT_FILE: ${{ inputs.vault-file }}
+        KEYBLIND_SECRETS: ${{ inputs.secrets }}
+        KEYBLIND_PROJECT: ${{ inputs.project }}
+      run: |
+        set -euo pipefail
+
+        # Auto-init vault (machine-only key for CI)
+        export KEYBLIND_AUTO_INIT=true
+
+        # Use project vault if specified
+        PROJECT_FLAG=""
+        if [ -n "${KEYBLIND_PROJECT:-}" ]; then
+          PROJECT_FLAG="--project $KEYBLIND_PROJECT"
+        fi
+
+        # Pull from team vault if it exists
+        TEAM_VAULT="${KEYBLIND_VAULT_FILE:-.keyblind/team.vault}"
+        if [ -f "$TEAM_VAULT" ]; then
+          echo "Pulling secrets from team vault: $TEAM_VAULT"
+          echo "$KEYBLIND_PASSPHRASE" | npx keyblind team pull "$TEAM_VAULT" $PROJECT_FLAG
+        fi
+
+        # Determine which secrets to export
+        if [ -n "${KEYBLIND_SECRETS:-}" ]; then
+          NAMES=$(echo "$KEYBLIND_SECRETS" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+        else
+          NAMES=$(npx keyblind list $PROJECT_FLAG 2>/dev/null | grep '^\s*-' | sed 's/^[[:space:]]*-[[:space:]]*//')
+        fi
+
+        # Export each secret as a masked environment variable
+        COUNT=0
+        while IFS= read -r name; do
+          [ -z "$name" ] && continue
+          value=$(npx keyblind get "$name" $PROJECT_FLAG 2>/dev/null) || continue
+          if [ -n "$value" ]; then
+            echo "::add-mask::$value"
+            echo "$name=$value" >> "$GITHUB_ENV"
+            COUNT=$((COUNT + 1))
+          fi
+        done <<< "$NAMES"
+
+        echo "count=$COUNT" >> "$GITHUB_OUTPUT"
+        echo "Keyblind injected $COUNT secret(s) into environment"

@@ -11,6 +11,17 @@ import { spawn } from "node:child_process";
 import readline from "node:readline";
 import { stdin, stdout } from "node:process";
 
+async function readPassphrase(prompt: string): Promise<string> {
+  if (!stdin.isTTY) {
+    const chunks: Buffer[] = [];
+    for await (const chunk of stdin) {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    }
+    return Buffer.concat(chunks).toString().trim();
+  }
+  return promptSecret(prompt);
+}
+
 function printHelp(): void {
   console.log(`
 🔑 Keyblind — Blind AI to your keys
@@ -134,7 +145,7 @@ async function main(): Promise<void> {
           return;
         }
         console.log(`🔑 Initializing Keyblind vault${projectLabel}...`);
-        const passphrase = await promptSecret("Enter vault passphrase (or empty for machine-only key): ");
+        const passphrase = await readPassphrase("Enter vault passphrase (or empty for machine-only key): ");
         initializeVault(passphrase);
         getKey(); // Verify key works
         console.log("Keyblind vault created at ~/.keyblind/");
@@ -345,12 +356,12 @@ async function main(): Promise<void> {
         switch (teamCmd) {
           case "init": {
             const vaultPath = args[2];
-            const passphrase = await promptSecret("Enter team passphrase: ");
+            const passphrase = await readPassphrase("Enter team passphrase: ");
             if (!passphrase) {
               console.error("Passphrase is required for team vault.");
               process.exit(1);
             }
-            const confirm = await promptSecret("Confirm passphrase: ");
+            const confirm = stdin.isTTY ? await promptSecret("Confirm passphrase: ") : passphrase;
             if (passphrase !== confirm) {
               console.error("Passphrases do not match.");
               process.exit(1);
@@ -378,7 +389,7 @@ async function main(): Promise<void> {
               console.error(`Secret "${pushName}" not found in local vault.`);
               process.exit(1);
             }
-            const passphrase = await promptSecret("Enter team passphrase: ");
+            const passphrase = await readPassphrase("Enter team passphrase: ");
             if (!passphrase) {
               console.error("Passphrase is required.");
               process.exit(1);
@@ -394,13 +405,14 @@ async function main(): Promise<void> {
           }
 
           case "pull": {
-            const passphrase = await promptSecret("Enter team passphrase: ");
+            const passphrase = await readPassphrase("Enter team passphrase: ");
             if (!passphrase) {
               console.error("Passphrase is required.");
               process.exit(1);
             }
+            const pullFile = args[2];
             try {
-              const imported = teamPull(passphrase);
+              const imported = teamPull(passphrase, pullFile);
               if (imported.length === 0) {
                 console.log("No secrets in team vault.");
               } else {
@@ -417,7 +429,7 @@ async function main(): Promise<void> {
           }
 
           case "list": {
-            const passphrase = await promptSecret("Enter team passphrase: ");
+            const passphrase = await readPassphrase("Enter team passphrase: ");
             if (!passphrase) {
               console.error("Passphrase is required.");
               process.exit(1);
@@ -442,7 +454,7 @@ async function main(): Promise<void> {
               console.error("Usage: keyblind team delete <name>");
               process.exit(1);
             }
-            const passphrase = await promptSecret("Enter team passphrase: ");
+            const passphrase = await readPassphrase("Enter team passphrase: ");
             if (!passphrase) {
               console.error("Passphrase is required.");
               process.exit(1);
