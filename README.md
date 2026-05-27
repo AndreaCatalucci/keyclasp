@@ -54,7 +54,8 @@ keyblind list
 
 Keyblind is **MCP-first** — it works with every AI tool that speaks the Model Context Protocol:
 
-**Claude Code** — add to `.mcp.json`:
+**Claude Code, Cursor, Copilot, Windsurf, Cline, Zed** — add a `.mcp.json` to your project root:
+
 ```json
 {
   "mcpServers": {
@@ -66,7 +67,22 @@ Keyblind is **MCP-first** — it works with every AI tool that speaks the Model 
 }
 ```
 
-**Cursor, Windsurf, Copilot, Cline, Zed** — any MCP-compatible editor.
+With biometric gate (Touch ID required before secrets are resolved):
+
+```json
+{
+  "mcpServers": {
+    "keyblind": {
+      "command": "npx",
+      "args": ["keyblind", "start", "--biometric"]
+    }
+  }
+}
+```
+
+> **Note**: `--biometric` requires running `keyblind unlock` first to authenticate. Session expires after 15 minutes.
+
+[Full editor-specific configs →](docs/editors.md)
 
 ### MCP Tools
 
