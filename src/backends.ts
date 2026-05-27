@@ -1,5 +1,5 @@
 import { execSync } from "node:child_process";
-import { resolveSecret, listSecrets, storeSecret, isInitialized } from "./vault.js";
+import { resolveSecret, listSecrets, storeSecret } from "./vault.js";
 
 export interface SecretBackend {
   name: string;
@@ -17,7 +17,7 @@ function createLocalBackend(): SecretBackend {
     resolve: (name) => resolveSecret(name),
     list: () => listSecrets().filter((n: string) => !n.startsWith("__keyblind")),
     store: (name, value) => storeSecret(name, value),
-    isAvailable: () => isInitialized(),
+    isAvailable: () => true, // Local backend is always available (errors surfaced at operation level)
   };
 }
 
