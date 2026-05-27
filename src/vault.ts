@@ -149,6 +149,21 @@ export function getDb(): Database.Database {
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     )
   `);
+  _db.exec(`
+    CREATE TABLE IF NOT EXISTS audit_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      secret_name TEXT NOT NULL,
+      action TEXT NOT NULL CHECK(action IN ('resolve','store','delete')),
+      client_info TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+  _db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_audit_log_secret ON audit_log(secret_name);
+  `);
+  _db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_audit_log_created ON audit_log(created_at);
+  `);
   return _db;
 }
 
@@ -167,6 +182,7 @@ export function storeSecret(name: string, value: string): void {
       updated_at = datetime('now')
   `);
   stmt.run(name, encrypted, iv, authTag);
+  auditLog(name, "store");
 }
 
 export function resolveSecret(name: string): string | null {
@@ -177,19 +193,88 @@ export function resolveSecret(name: string): string | null {
     | undefined;
 
   if (!row) return null;
+  auditLog(name, "resolve");
   return decrypt(row.encrypted_value, row.iv, row.auth_tag, key);
 }
 
 export function listSecrets(): string[] {
   const db = getDb();
-  const rows = db.prepare("SELECT name FROM secrets ORDER BY name").all() as { name: string }[];
+  const rows = db.prepare("SELECT name FROM secrets WHERE name NOT LIKE '@_@_%' ESCAPE '@' ORDER BY name").all() as { name: string }[];
   return rows.map((r) => r.name);
 }
 
 export function deleteSecret(name: string): boolean {
   const db = getDb();
-  const result = db.prepare("DELETE FROM secrets WHERE name = ?").run(name);
+  auditLog(name, "delete");
+  const result = db.prepare("DELETE FROM secrets WHERE name = ? AND name NOT LIKE '@_@_expiry:%' ESCAPE '@' AND name NOT LIKE '@_@_keyblind%' ESCAPE '@'").run(name);
+  // Also delete any expiry entry
+  db.prepare("DELETE FROM secrets WHERE name = ?").run(`__expiry:${name}`);
   return result.changes > 0;
+}
+
+// --- Audit Log ---
+
+let _clientInfo: string | null = null;
+
+export function setClientInfo(info: string | null): void {
+  _clientInfo = info;
+}
+
+function auditLog(secretName: string, action: "resolve" | "store" | "delete"): void {
+  const db = getDb();
+  db.prepare("INSERT INTO audit_log (secret_name, action, client_info) VALUES (?, ?, ?)").run(
+    secretName, action, _clientInfo,
+  );
+}
+
+export function getAuditLog(limit: number = 50): { secretName: string; action: string; clientInfo: string | null; timestamp: string }[] {
+  const db = getDb();
+  return db.prepare("SELECT secret_name, action, client_info, created_at FROM audit_log ORDER BY id DESC LIMIT ?").all(limit) as any[];
+}
+
+// --- Secret Expiry ---
+
+export function setExpiry(name: string, expiresAt: string): boolean {
+  const db = getDb();
+  const row = db.prepare("SELECT name FROM secrets WHERE name = ?").get(name) as { name: string } | undefined;
+  if (!row) return false;
+  // Store expiry in a __keyblind_meta style - using a separate metadata approach
+  // For now, we store expiry as a special prefixed secret
+  db.prepare("DELETE FROM secrets WHERE name = ?").run(`__keyblind_expiry:${name}`);
+  // We'll use a simpler approach: store expiry as a separate row in a metadata approach
+  // Actually, let's store it directly in the audit or use a simple approach
+  // Store in a meta row
+  const key = getKey();
+  const { encrypted, iv, authTag } = encrypt(expiresAt, key);
+  db.prepare("INSERT INTO secrets (name, encrypted_value, iv, auth_tag) VALUES (?, ?, ?, ?) ON CONFLICT(name) DO UPDATE SET encrypted_value = excluded.encrypted_value, iv = excluded.iv, auth_tag = excluded.auth_tag").run(`__expiry:${name}`, encrypted, iv, authTag);
+  return true;
+}
+
+export function getExpiry(name: string): string | null {
+  const db = getDb();
+  const key = getKey();
+  const row = db.prepare("SELECT encrypted_value, iv, auth_tag FROM secrets WHERE name = ?").get(`__expiry:${name}`) as
+    | { encrypted_value: Buffer; iv: Buffer; auth_tag: Buffer }
+    | undefined;
+  if (!row) return null;
+  return decrypt(row.encrypted_value, row.iv, row.auth_tag, key);
+}
+
+export function checkExpired(): string[] {
+  const db = getDb();
+  const key = getKey();
+  const rows = db.prepare("SELECT name, encrypted_value, iv, auth_tag FROM secrets WHERE name LIKE '@_@_expiry:%' ESCAPE '@'").all() as
+    { name: string; encrypted_value: Buffer; iv: Buffer; auth_tag: Buffer }[];
+  const now = new Date();
+  const expired: string[] = [];
+  for (const row of rows) {
+    const secretName = row.name.replace("__expiry:", "");
+    const expiresAt = new Date(decrypt(row.encrypted_value, row.iv, row.auth_tag, key));
+    if (expiresAt <= now) {
+      expired.push(secretName);
+    }
+  }
+  return expired;
 }
 
 export function closeDb(): void {

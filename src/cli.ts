@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { initializeVault, getKey, storeSecret, listSecrets, resolveSecret, deleteSecret, isInitialized, closeDb, setRequireSession, setProjectName, getProjectName } from "./vault.js";
+import { initializeVault, getKey, storeSecret, listSecrets, resolveSecret, deleteSecret, isInitialized, closeDb, setRequireSession, setProjectName, getProjectName, getAuditLog, checkExpired, setExpiry, setClientInfo } from "./vault.js";
 import { startServer, startHttpServer } from "./server.js";
 import { sandboxEnvFile, unsandboxEnvFile } from "./sandbox.js";
 import { setBackend, getBackend, listAvailableBackends } from "./backends.js";
@@ -43,6 +43,9 @@ Usage:
   keyblind backends            List available secret backends
   keyblind install-hook        Install pre-commit hook to detect secrets
   keyblind check-secrets       Scan staged files for secrets (used by hook)
+  keyblind audit               Show secret resolution audit log
+  keyblind check --expired     List secrets past their expiry date
+  keyblind rotate <name>       Update a secret (prompts for new value)
   keyblind watch [.env]        Watch .env and auto-sandbox on change
   keyblind team init [path]    Create a shared team vault (git-safe)
   keyblind team push <name>     Push a local secret to the team vault
@@ -474,6 +477,70 @@ async function main(): Promise<void> {
             console.error("Available: init, push, pull, list, delete");
             process.exit(1);
         }
+        break;
+      }
+
+      case "audit": {
+        if (!isInitialized()) {
+          console.error("Keyblind not initialized. Run: keyblind init");
+          process.exit(1);
+        }
+        const entries = getAuditLog(50);
+        if (entries.length === 0) {
+          console.log("(no audit entries yet)");
+        } else {
+          for (const e of entries) {
+            const client = e.clientInfo || "cli";
+            console.log(`  ${e.timestamp}  ${e.action.padEnd(8)} ${e.secretName.padEnd(30)} ${client}`);
+          }
+        }
+        break;
+      }
+
+      case "check": {
+        if (!isInitialized()) {
+          console.error("Keyblind not initialized. Run: keyblind init");
+          process.exit(1);
+        }
+        if (args[1] === "--expired") {
+          const expired = checkExpired();
+          if (expired.length === 0) {
+            console.log("No expired secrets.");
+          } else {
+            console.log(`${expired.length} expired secret(s):`);
+            for (const name of expired) {
+              console.log(`  - ${name}`);
+            }
+          }
+        } else {
+          console.error("Usage: keyblind check --expired");
+          process.exit(1);
+        }
+        break;
+      }
+
+      case "rotate": {
+        if (!isInitialized()) {
+          console.error("Keyblind not initialized. Run: keyblind init");
+          process.exit(1);
+        }
+        const rotateName = args[1];
+        if (!rotateName) {
+          console.error("Usage: keyblind rotate <name>");
+          process.exit(1);
+        }
+        const oldValue = resolveSecret(rotateName);
+        if (oldValue === null) {
+          console.error(`Secret "${rotateName}" not found.`);
+          process.exit(1);
+        }
+        const newValue = await readPassphrase(`Enter new value for ${rotateName}: `);
+        if (!newValue) {
+          console.error("No value provided.");
+          process.exit(1);
+        }
+        storeSecret(rotateName, newValue);
+        console.log(`Rotated "${rotateName}"`);
         break;
       }
 

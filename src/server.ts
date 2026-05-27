@@ -3,14 +3,16 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
 import http from "node:http";
-import { storeSecret, listSecrets, deleteSecret, isInitialized } from "./vault.js";
+import { storeSecret, listSecrets, deleteSecret, isInitialized, getAuditLog, setClientInfo } from "./vault.js";
 import { getBackend } from "./backends.js";
 import { sandboxEnvFile, unsandboxEnvFile } from "./sandbox.js";
 
 export function createServer(): McpServer {
+  setClientInfo("mcp");
+
   const server = new McpServer({
     name: "keyblind",
-    version: "0.1.0",
+    version: "0.1.4",
   });
 
   server.tool(
@@ -172,6 +174,26 @@ export function createServer(): McpServer {
     },
   );
 
+  server.tool(
+    "audit_log",
+    "View the audit log of secret resolutions, stores, and deletes. Shows who accessed which secret and when.",
+    {
+      limit: z.number().optional().describe("Maximum number of entries to return (default: 50)"),
+    },
+    async ({ limit }) => {
+      if (!isInitialized()) {
+        return {
+          content: [{ type: "text", text: JSON.stringify({ entries: [] }) }],
+        };
+      }
+
+      const entries = getAuditLog(limit ?? 50);
+      return {
+        content: [{ type: "text", text: JSON.stringify({ entries }) }],
+      };
+    },
+  );
+
   return server;
 }
 
@@ -205,7 +227,7 @@ export async function startHttpServer(port: number = 3100): Promise<void> {
     // Health check
     if (req.url === "/health" || req.url === "/") {
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ status: "ok", server: "keyblind", version: "0.1.4" }));
+      res.end(JSON.stringify({ status: "ok", server: "keyblind", version: "0.1.5" }));
       return;
     }
 
