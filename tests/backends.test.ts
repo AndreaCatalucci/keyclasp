@@ -9,12 +9,15 @@ describe("backends", () => {
 
   it("lists available backends", () => {
     const backends = listAvailableBackends();
-    expect(backends.length).toBeGreaterThanOrEqual(4);
+    expect(backends.length).toBeGreaterThanOrEqual(7);
     const names = backends.map((b) => b.name);
     expect(names).toContain("local");
     expect(names).toContain("1password");
     expect(names).toContain("bitwarden");
     expect(names).toContain("env");
+    expect(names).toContain("aws");
+    expect(names).toContain("gcp");
+    expect(names).toContain("azure");
   });
 
   it("env backend is always available", () => {

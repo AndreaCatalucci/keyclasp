@@ -111,6 +111,9 @@ keyblind backend bitwarden                 # Switch to Bitwarden
 | **1password** | ✓ | ✓ | `op` CLI |
 | **bitwarden** | ✓ | — | `bw` CLI |
 | **env** | ✓ | — | Nothing |
+| **aws** | ✓ | ✓ | `aws` CLI |
+| **gcp** | ✓ | ✓ | `gcloud` CLI |
+| **azure** | ✓ | ✓ | `az` CLI |
 
 ## Keyblind vs Cloak
 

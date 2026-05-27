@@ -121,6 +121,145 @@ function createEnvBackend(): SecretBackend {
   };
 }
 
+// --- AWS Secrets Manager ---
+
+function createAwsBackend(): SecretBackend {
+  return {
+    name: "aws",
+    resolve: (name) => {
+      try {
+        const result = execSync(
+          `aws secretsmanager get-secret-value --secret-id "${name}" --query SecretString --output text`,
+          { encoding: "utf-8", stdio: ["pipe", "pipe", "ignore"] },
+        );
+        return result.trim();
+      } catch {
+        return null;
+      }
+    },
+    list: () => {
+      try {
+        const result = execSync(
+          "aws secretsmanager list-secrets --query SecretList[].Name --output text",
+          { encoding: "utf-8", stdio: ["pipe", "pipe", "ignore"] },
+        );
+        return result.trim().split(/\s+/).filter(Boolean);
+      } catch {
+        return [];
+      }
+    },
+    store: (name, value) => {
+      execSync(`aws secretsmanager create-secret --name "${name}" --secret-string "${value}"`, {
+        stdio: "ignore",
+      });
+    },
+    isAvailable: () => {
+      try {
+        execSync("aws --version", { stdio: "ignore" });
+        return true;
+      } catch {
+        return false;
+      }
+    },
+  };
+}
+
+// --- GCP Secret Manager ---
+
+function createGcpBackend(): SecretBackend {
+  return {
+    name: "gcp",
+    resolve: (name) => {
+      try {
+        const result = execSync(
+          `gcloud secrets versions access latest --secret="${name}"`,
+          { encoding: "utf-8", stdio: ["pipe", "pipe", "ignore"] },
+        );
+        return result.trim();
+      } catch {
+        return null;
+      }
+    },
+    list: () => {
+      try {
+        const result = execSync(
+          "gcloud secrets list --format='value(name)'",
+          { encoding: "utf-8", stdio: ["pipe", "pipe", "ignore"] },
+        );
+        return result.trim().split("\n").filter(Boolean);
+      } catch {
+        return [];
+      }
+    },
+    store: (name, value) => {
+      execSync(`echo "${value}" | gcloud secrets create "${name}" --data-file=- --replication-policy=automatic 2>/dev/null || echo "${value}" | gcloud secrets versions add "${name}" --data-file=-`, {
+        stdio: "ignore",
+      });
+    },
+    isAvailable: () => {
+      try {
+        execSync("gcloud --version", { stdio: "ignore" });
+        return true;
+      } catch {
+        return false;
+      }
+    },
+  };
+}
+
+// --- Azure Key Vault ---
+
+function createAzureBackend(): SecretBackend {
+  return {
+    name: "azure",
+    resolve: (name) => {
+      try {
+        // name format: vault-name/secret-name
+        const [vault, ...secretParts] = name.split("/");
+        const secret = secretParts.join("/");
+        if (!secret) return null;
+        const result = execSync(
+          `az keyvault secret show --vault-name "${vault}" --name "${secret}" --query value -o tsv`,
+          { encoding: "utf-8", stdio: ["pipe", "pipe", "ignore"] },
+        );
+        return result.trim();
+      } catch {
+        return null;
+      }
+    },
+    list: () => {
+      try {
+        // List requires a vault name — default to checking common env vars
+        const vault = process.env.AZURE_KEY_VAULT || process.env.KEYBLIND_AZURE_VAULT;
+        if (!vault) return [];
+        const result = execSync(
+          `az keyvault secret list --vault-name "${vault}" --query [].id -o tsv`,
+          { encoding: "utf-8", stdio: ["pipe", "pipe", "ignore"] },
+        );
+        return result.trim().split("\n").filter(Boolean).map((id: string) => id.split("/").pop() || id);
+      } catch {
+        return [];
+      }
+    },
+    store: (name, value) => {
+      const [vault, ...secretParts] = name.split("/");
+      const secret = secretParts.join("/");
+      if (!secret) throw new Error("Azure backend requires name format: vault-name/secret-name");
+      execSync(`az keyvault secret set --vault-name "${vault}" --name "${secret}" --value "${value}"`, {
+        stdio: "ignore",
+      });
+    },
+    isAvailable: () => {
+      try {
+        execSync("az --version", { stdio: "ignore" });
+        return true;
+      } catch {
+        return false;
+      }
+    },
+  };
+}
+
 // --- Registry ---
 
 const BACKEND_FACTORIES: Record<string, () => SecretBackend> = {
@@ -128,6 +267,9 @@ const BACKEND_FACTORIES: Record<string, () => SecretBackend> = {
   "1password": create1PasswordBackend,
   bitwarden: createBitwardenBackend,
   env: createEnvBackend,
+  aws: createAwsBackend,
+  gcp: createGcpBackend,
+  azure: createAzureBackend,
 };
 
 let _currentBackend: SecretBackend | null = null;
