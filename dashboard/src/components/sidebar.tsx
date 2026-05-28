@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { Key, Shield, Clock, Users, FileText, Settings } from "lucide-react";
+import { useRouter, usePathname } from "next/navigation";
+import { Key, Shield, Clock, Users, FileText, LogOut } from "lucide-react";
 
 const navItems = [
   { href: "/", label: "Overview", icon: Shield },
@@ -14,6 +14,12 @@ const navItems = [
 
 export function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
+
+  async function handleSignOut() {
+    await fetch("/api/auth/signout", { method: "POST" });
+    router.push("/login");
+  }
 
   return (
     <aside className="w-56 bg-[#161b22] border-r border-[#21262d] flex flex-col min-h-screen">
@@ -42,6 +48,15 @@ export function Sidebar() {
           );
         })}
       </nav>
+      <div className="p-3 border-t border-[#21262d]">
+        <button
+          onClick={handleSignOut}
+          className="flex items-center gap-3 px-3 py-2 rounded-md text-sm text-[#8b949e] hover:text-[#c9d1d9] hover:bg-[#21262d] w-full transition-colors"
+        >
+          <LogOut className="w-4 h-4" />
+          Sign Out
+        </button>
+      </div>
     </aside>
   );
 }
