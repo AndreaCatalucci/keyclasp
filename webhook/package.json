@@ -1,0 +1,16 @@
+{
+  "name": "keyblind-webhook",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "deploy": "vercel deploy --prod"
+  },
+  "dependencies": {
+    "resend": "^4.0.0",
+    "stripe": "^17.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.5.0"
+  }
+}

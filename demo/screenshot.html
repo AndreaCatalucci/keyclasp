@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=800, initial-scale=1.0">
+<title>Keyblind — Terminal Screenshot</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #1e1e2e;
+    display: flex; justify-content: center; align-items: center;
+    min-height: 100vh; font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+    padding: 40px;
+  }
+  .terminal {
+    background: #1a1b26;
+    border-radius: 10px;
+    width: 780px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    border: 1px solid #313244;
+  }
+  .titlebar {
+    background: #11111b;
+    border-radius: 10px 10px 0 0;
+    padding: 12px 16px;
+    display: flex; align-items: center; gap: 8px;
+    border-bottom: 1px solid #313244;
+  }
+  .dot { width: 13px; height: 13px; border-radius: 50%; }
+  .dot.red { background: #f38ba8; }
+  .dot.yellow { background: #f9e2af; }
+  .dot.green { background: #a6e3a1; }
+  .title { color: #6c7086; font-size: 13px; margin-left: 8px; }
+  .body { padding: 20px 24px; font-size: 14px; line-height: 1.7; color: #cdd6f4; }
+  .prompt { color: #a6e3a1; }
+  .cmd { color: #cdd6f4; }
+  .output { color: #89b4fa; }
+  .dim { color: #6c7086; }
+  .green { color: #a6e3a1; }
+  .yellow { color: #f9e2af; }
+  .red { color: #f38ba8; }
+  .hl { color: #cba6f7; }
+  pre { margin: 0; }
+  .line { margin-bottom: 2px; }
+</style>
+</head>
+<body>
+<div class="terminal">
+  <div class="titlebar">
+    <span class="dot red"></span>
+    <span class="dot yellow"></span>
+    <span class="dot green"></span>
+    <span class="title">Terminal — keyblind — zsh</span>
+  </div>
+  <div class="body">
+    <div class="line"><span class="dim"># Real .env — exposed API keys</span></div>
+    <div class="line"><span class="prompt">❯</span> <span class="cmd">cat .env</span></div>
+    <div class="line"><span class="output">OPENAI_API_KEY=sk-proj-abc123xyz890</span></div>
+    <div class="line"><span class="output">DATABASE_URL=postgresql://admin:s3cret@db.example.com/prod</span></div>
+    <div class="line"><span class="output">STRIPE_SECRET=sk_live_abc123def456</span></div>
+    <div class="line"></div>
+    <div class="line"><span class="dim"># Store secrets in encrypted vault</span></div>
+    <div class="line"><span class="prompt">❯</span> <span class="cmd">echo "sk-proj-abc123xyz890" | keyblind set OPENAI_API_KEY</span></div>
+    <div class="line"><span class="green">Stored "OPENAI_API_KEY"</span></div>
+    <div class="line"><span class="prompt">❯</span> <span class="cmd">keyblind set DATABASE_URL -</span></div>
+    <div class="line"><span class="green">Stored "DATABASE_URL"</span></div>
+    <div class="line"><span class="prompt">❯</span> <span class="cmd">keyblind set STRIPE_SECRET -</span></div>
+    <div class="line"><span class="green">Stored "STRIPE_SECRET"</span></div>
+    <div class="line"></div>
+    <div class="line"><span class="dim"># Sandbox .env — AI agents see fakes</span></div>
+    <div class="line"><span class="prompt">❯</span> <span class="cmd">keyblind sandbox</span></div>
+    <div class="line">Sandboxed <span class="hl">3 value(s)</span> in .env:</div>
+    <div class="line">  <span class="yellow">- DATABASE_URL → fake</span></div>
+    <div class="line">  <span class="yellow">- OPENAI_API_KEY → fake</span></div>
+    <div class="line">  <span class="yellow">- STRIPE_SECRET → fake</span></div>
+    <div class="line"></div>
+    <div class="line"><span class="prompt">❯</span> <span class="cmd">cat .env</span></div>
+    <div class="line"><span class="red">OPENAI_API_KEY=sandbox_a3f2e1b4c5d6_OPENAI_API_KEY</span></div>
+    <div class="line"><span class="red">DATABASE_URL=sandbox_b7c8d9e0f1a2_DATABASE_URL</span></div>
+    <div class="line"><span class="red">STRIPE_SECRET=sandbox_c3d4e5f6a7b8_STRIPE_SECRET</span></div>
+    <div class="line"></div>
+    <div class="line"><span class="dim"># Run commands with real secrets injected as env vars</span></div>
+    <div class="line"><span class="prompt">❯</span> <span class="cmd">keyblind run -- npm test</span></div>
+    <div class="line"><span class="green">✓ tests passed (3 secrets injected)</span></div>
+    <div class="line"></div>
+    <div class="line"><span class="dim"># Unsandbox to restore real values</span></div>
+    <div class="line"><span class="prompt">❯</span> <span class="cmd">keyblind unsandbox</span></div>
+    <div class="line">Restored <span class="hl">3 value(s)</span> in .env:</div>
+    <div class="line">  <span class="green">- DATABASE_URL → real</span></div>
+    <div class="line">  <span class="green">- OPENAI_API_KEY → real</span></div>
+    <div class="line">  <span class="green">- STRIPE_SECRET → real</span></div>
+    <div class="line"></div>
+    <div class="line"><span class="dim"># Works with every AI editor</span></div>
+    <div class="line"><span class="hl">Claude Code · Cursor · Copilot · Windsurf · Cline · Zed</span></div>
+    <div class="line"></div>
+    <div class="line"><span class="dim">npm install -g keyblind &nbsp;|&nbsp; github.com/aarifmms/keyblind &nbsp;|&nbsp; MIT</span></div>
+    <div class="line"><span class="prompt">❯</span> <span class="cmd">&nbsp;</span></div>
+  </div>
+</div>
+</body>
+</html>

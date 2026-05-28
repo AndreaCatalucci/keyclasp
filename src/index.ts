@@ -5,3 +5,4 @@ export { setBackend, getBackend, listAvailableBackends, type SecretBackend } fro
 export { authenticateWithBiometric, biometricAvailable, createSession, sessionActive, clearSession } from "./auth.js";
 export { watchEnvFile } from "./watch.js";
 export { teamInit, teamPush, teamPull, teamList, teamResolve, teamDelete } from "./team.js";
+export { activateLicense, deactivateLicense, getLicenseInfo, isActivated, isPro, isTeam, getSecretLimit, featuresEnabled, type LicenseInfo } from "./license.js";

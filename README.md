@@ -95,6 +95,33 @@ With biometric gate (Touch ID required before secrets are resolved):
 | `unsandbox_env` | Restore real `.env` values from vault |
 | `delete_secret` | Delete a secret |
 
+## Pricing
+
+| | Free | Pro | Team |
+|------|------|-----|------|
+| **Price** | $0 | $79/year | $29/user/month |
+| **Secrets** | 5 | Unlimited | Unlimited |
+| **Local vault** | ✓ | ✓ | ✓ |
+| **Sandbox / Unsandbox** | ✓ | ✓ | ✓ |
+| **MCP server** | ✓ | ✓ | ✓ |
+| **7 backends** | ✓ | ✓ | ✓ |
+| **Team vaults** | — | ✓ | ✓ |
+| **Audit log** | — | ✓ | ✓ |
+| **Secret rotation** | — | ✓ | ✓ |
+| **CI/CD integration** | — | ✓ | ✓ |
+| **Biometric gate** | — | ✓ | ✓ |
+| **Cloud backends** | — | ✓ | ✓ |
+
+```bash
+# Activate a Pro or Team license
+keyblind activate <your-license-key>
+
+# Check your current status
+keyblind status
+```
+
+> **Coming soon:** Purchase licenses at [keyblind.dev](https://keyblind.dev). For early access, open a GitHub issue or contact the maintainer.
+
 ## Backends
 
 Keyblind supports multiple secret backends:
@@ -127,6 +154,8 @@ keyblind backend bitwarden                 # Switch to Bitwarden
 | **CI/CD** | `keyblind run` for env injection | — |
 | **Network** | Zero (fully local) | Zero |
 | **License** | MIT | Proprietary |
+| **Free tier** | ✓ (5 secrets) | ✓ |
+| **Pro** | $79/year (unlimited) | — |
 
 ## Security
 
@@ -151,6 +180,16 @@ keyblind run <command...>     Run command with secrets as env vars
 keyblind start                Start MCP server (for AI agents)
 keyblind backends             List available backends
 keyblind backend <name>       Switch backend
+keyblind activate <key>       Activate a Pro/Team license
+keyblind deactivate           Remove current license
+keyblind status               Show license and vault status
+keyblind audit                Show secret resolution audit log
+keyblind check --expired      List secrets past expiry
+keyblind rotate <name>        Update a secret value
+keyblind team init [path]     Create a shared team vault
+keyblind team push <name>     Push a secret to team vault
+keyblind team pull            Pull secrets from team vault
+keyblind team list            List secrets in team vault
 ```
 
 ## Development
