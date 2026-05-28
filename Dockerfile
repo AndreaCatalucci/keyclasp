@@ -1,16 +1,34 @@
-FROM node:22-slim
+# ---- Build Stage ----
+FROM node:22-alpine AS builder
+
+WORKDIR /app
+COPY package.json package-lock.json* ./
+RUN npm ci --omit=dev && npm cache clean --force
+
+# ---- Runtime Stage ----
+FROM node:22-alpine
+
+RUN addgroup -g 1001 keyblind && \
+    adduser -u 1001 -G keyblind -s /bin/sh -D keyblind
 
 WORKDIR /app
 
-COPY package.json package-lock.json ./
-RUN npm ci
+COPY --from=builder /app/node_modules ./node_modules
+COPY dist ./dist
+COPY package.json ./
 
-COPY tsconfig.json ./
-COPY src/ src/
-RUN npm run build
+RUN mkdir -p /home/keyblind/.keyblind && \
+    chown -R keyblind:keyblind /home/keyblind/.keyblind /app
 
-ENV PORT=3000
+USER keyblind
+
+EXPOSE 3100
+
 ENV KEYBLIND_AUTO_INIT=true
-EXPOSE 3000
+ENV NODE_ENV=production
 
-CMD ["node", "dist/cli.js", "start", "--http", "--port", "3000"]
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD wget -qO- http://localhost:3100/health || exit 1
+
+ENTRYPOINT ["node", "dist/cli.js"]
+CMD ["start", "--http", "--port", "3100"]

@@ -1,0 +1,61 @@
+name: "Keyblind CI Sandbox"
+description: "Unsandbox .env files in CI, injecting real secrets from the Keyblind vault"
+branding:
+  icon: "shield"
+  color: "blue"
+
+inputs:
+  vault-passphrase:
+    description: "Passphrase for the Keyblind vault (leave empty for machine-only key)"
+    required: false
+    default: ""
+  env-file:
+    description: "Path to the .env file to unsandbox"
+    required: false
+    default: ".env"
+  backend:
+    description: "Backend to use (local, 1password, bitwarden, aws, gcp, azure, env)"
+    required: false
+    default: "local"
+
+outputs:
+  secrets-injected:
+    description: "Number of secrets injected"
+    value: ${{ steps.unsandbox.outputs.count }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install Keyblind
+      shell: bash
+      run: npm install -g keyblind@latest
+
+    - name: Initialize vault
+      shell: bash
+      run: |
+        if [ -n "${{ inputs.vault-passphrase }}" ]; then
+          echo "Using passphrase-protected vault"
+        fi
+      env:
+        KEYBLIND_VAULT_PASSPHRASE: ${{ inputs.vault-passphrase }}
+
+    - name: Unlock and inject secrets
+      id: unsandbox
+      shell: bash
+      run: |
+        set +o pipefail
+        keyblind unsandbox ${{ inputs.env-file }} 2>&1 | tee unsandbox.log
+        COUNT=$(grep -c "→ real" unsandbox.log || echo "0")
+        echo "count=$COUNT" >> $GITHUB_OUTPUT
+        if [ $COUNT -gt 0 ]; then
+          echo "✅ Injected $COUNT secret(s)"
+        else
+          echo "⚠️ No secrets injected — .env may already be unsandboxed"
+        fi
+
+    - name: Sanitize on failure
+      if: failure()
+      shell: bash
+      run: |
+        echo "⚠️ Secret injection failed. Re-sandboxing for safety."
+        keyblind sandbox ${{ inputs.env-file }}

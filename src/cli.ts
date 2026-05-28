@@ -11,6 +11,8 @@ import { activateLicense, deactivateLicense, getLicenseInfo, isPro, featuresEnab
 import { readConfig, mergeConfig, generateSecret, parseEnvFile, formatEnvFile } from "./config.js";
 import { runDoctor } from "./doctor.js";
 import { generateBash, generateZsh, generateFish, detectShell, getInstallInstructions } from "./completions.js";
+import { saveHistory, getSecretHistory, rollbackSecret, ensureHistoryTable, getExpiringSoon, createSyncBundle, applySyncBundle, migrateSecrets } from "./sync.js";
+import { configureAlerts, loadAlertsFromConfig, fireAlert } from "./alerts.js";
 import fs from "node:fs";
 import { spawn } from "node:child_process";
 import readline from "node:readline";
@@ -69,6 +71,13 @@ Usage:
   keyblind config <key> <val>   Set a config option (backend, projectName, expiryDays, autoSandbox)
   keyblind doctor               Run vault health and security check
   keyblind completions [bash|zsh|fish]  Generate shell completion script
+  keyblind history <name>    Show version history for a secret
+  keyblind rollback <name>   Restore previous version of a secret
+  keyblind expiring          List secrets expiring within 30 days
+  keyblind sync export       Create encrypted sync bundle
+  keyblind sync import <file> Apply a sync bundle from another machine
+  keyblind migrate <from> <to> Migrate secrets between backends
+  keyblind alerts <url>      Configure Slack/Discord webhook alerts
   keyblind help                Show this help
 
 Global flags:
@@ -889,6 +898,165 @@ async function main(): Promise<void> {
             process.exit(1);
         }
         console.error(`\n# ${getInstallInstructions(shell)}`);
+        break;
+      }
+
+      case "history": {
+        if (!isInitialized()) {
+          console.error("Keyblind not initialized. Run: keyblind init");
+          process.exit(1);
+        }
+        const histName = args[1];
+        if (!histName) {
+          console.error("Usage: keyblind history <name>");
+          process.exit(1);
+        }
+        const versions = getSecretHistory(histName);
+        if (versions.length === 0) {
+          console.log(`No history for "${histName}"`);
+        } else {
+          for (const v of versions) {
+            console.log(`  v${v.version}  ${v.createdAt}  **** (${v.value.length} chars)`);
+          }
+        }
+        break;
+      }
+
+      case "rollback": {
+        if (!isInitialized()) {
+          console.error("Keyblind not initialized. Run: keyblind init");
+          process.exit(1);
+        }
+        const rbName = args[1];
+        if (!rbName) {
+          console.error("Usage: keyblind rollback <name> [version]");
+          process.exit(1);
+        }
+        const rbVersion = args[2] ? parseInt(args[2], 10) : undefined;
+        const ok = rollbackSecret(rbName, rbVersion);
+        if (ok) {
+          console.log(`Rolled back "${rbName}"${rbVersion ? ` to v${rbVersion}` : " to previous version"}`);
+        } else {
+          console.error(`No history found for "${rbName}"`);
+          process.exit(1);
+        }
+        break;
+      }
+
+      case "expiring": {
+        if (!isInitialized()) {
+          console.error("Keyblind not initialized. Run: keyblind init");
+          process.exit(1);
+        }
+        const daysThreshold = parseInt(args[1], 10) || 30;
+        const warnings = getExpiringSoon(daysThreshold);
+        if (warnings.length === 0) {
+          console.log(`No secrets expiring within ${daysThreshold} days.`);
+        } else {
+          console.log(`${warnings.length} secret(s) expiring within ${daysThreshold} days:`);
+          for (const w of warnings) {
+            const urgency = w.daysLeft <= 7 ? "URGENT" : w.daysLeft <= 14 ? "SOON" : "UPCOMING";
+            console.log(`  ${urgency.padEnd(9)} ${w.name.padEnd(30)} ${w.daysLeft}d left (expires ${w.expiresAt})`);
+          }
+        }
+        break;
+      }
+
+      case "sync": {
+        const syncSub = args[1];
+        if (!syncSub) {
+          console.error("Usage: keyblind sync <export|import>");
+          process.exit(1);
+        }
+        if (syncSub === "export") {
+          const bundle = createSyncBundle();
+          console.log(bundle);
+          console.error("\n# Share this file to sync vaults between machines.");
+          console.error("# The bundle is encrypted — only machines with the same vault key can decrypt it.");
+        } else if (syncSub === "import") {
+          const syncFile = args[2];
+          let bundleJson: string;
+          try {
+            bundleJson = syncFile
+              ? fs.readFileSync(syncFile, "utf8")
+              : await readPassphrase("Paste sync bundle: ");
+          } catch {
+            console.error("Could not read sync bundle.");
+            process.exit(1);
+          }
+          try {
+            const result = applySyncBundle(bundleJson);
+            console.log(`Synced: ${result.imported} imported, ${result.skipped} skipped (up-to-date)`);
+          } catch (err: any) {
+            console.error(`Sync failed: ${err.message}`);
+            process.exit(1);
+          }
+        } else {
+          console.error(`Unknown sync command: ${syncSub}. Use export or import.`);
+          process.exit(1);
+        }
+        break;
+      }
+
+      case "migrate": {
+        requirePro();
+        if (!isInitialized()) {
+          console.error("Keyblind not initialized. Run: keyblind init");
+          process.exit(1);
+        }
+        const from = args[1];
+        const to = args[2];
+        if (!from || !to) {
+          console.error("Usage: keyblind migrate <from-backend> <to-backend>");
+          console.error("Available:", listAvailableBackends().filter(b => b.available).map(b => b.name).join(", "));
+          process.exit(1);
+        }
+        try {
+          const result = migrateSecrets(from, to);
+          console.log(`Migrated ${result.migrated} secret(s) from ${from} to ${to}`);
+          if (result.failed.length > 0) {
+            console.log(`Failed: ${result.failed.join(", ")}`);
+          }
+        } catch (err: any) {
+          console.error(`Migration failed: ${err.message}`);
+          process.exit(1);
+        }
+        break;
+      }
+
+      case "alerts": {
+        requirePro();
+        const alertUrl = args[1];
+        const alertEvents = args.slice(2).filter(a => !a.startsWith("--"));
+
+        if (!alertUrl) {
+          const cfg = readConfig();
+          if (cfg && (cfg as any).alertWebhooks) {
+            const hooks = (cfg as any).alertWebhooks;
+            console.log(`${hooks.length} webhook(s) configured:`);
+            for (const h of hooks) {
+              console.log(`  ${h.url} → events: ${h.events.join(", ")}`);
+            }
+          } else {
+            console.log("No alert webhooks configured.");
+            console.log("Usage: keyblind alerts <webhook-url> [resolve,store,delete,rotate,expiry]");
+            console.log("Example: keyblind alerts https://hooks.slack.com/... resolve rotate expiry");
+          }
+          break;
+        }
+
+        const events = alertEvents.length > 0
+          ? alertEvents as ("resolve" | "store" | "delete" | "rotate" | "expiry")[]
+          : ["resolve", "store", "delete", "rotate", "expiry"];
+
+        const cfg = readConfig() || {};
+        const hooks = (cfg as any).alertWebhooks || [];
+        hooks.push({ url: alertUrl, events });
+        (cfg as any).alertWebhooks = hooks;
+        mergeConfig(cfg as any);
+        loadAlertsFromConfig();
+        console.log(`Alert webhook configured: ${alertUrl}`);
+        console.log(`Events: ${events.join(", ")}`);
         break;
       }
 

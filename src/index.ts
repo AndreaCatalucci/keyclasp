@@ -9,3 +9,5 @@ export { activateLicense, deactivateLicense, getLicenseInfo, isActivated, isPro,
 export { readConfig, writeConfig, mergeConfig, generateSecret, parseEnvFile, formatEnvFile, type ProjectConfig } from "./config.js";
 export { runDoctor } from "./doctor.js";
 export { generateBash, generateZsh, generateFish, detectShell, getInstallInstructions } from "./completions.js";
+export { ensureHistoryTable, saveHistory, getSecretHistory, rollbackSecret, getExpiringSoon, createSyncBundle, applySyncBundle, migrateSecrets, type SecretVersion, type ExpiryWarning } from "./sync.js";
+export { configureAlerts, loadAlertsFromConfig, fireAlert, formatSlackPayload, formatDiscordPayload } from "./alerts.js";

@@ -1,8 +1,8 @@
 class Keyblind < Formula
   desc "Encrypted secrets vault that blinds AI agents to your API keys"
   homepage "https://keyblind.dev"
-  url "https://registry.npmjs.org/keyblind/-/keyblind-0.2.2.tgz"
-  sha256 "5375fb93590577af4b6b5b7962188660862962ed"
+  url "https://registry.npmjs.org/keyblind/-/keyblind-0.4.0.tgz"
+  sha256 "464267d6f2032517a7c22bf12b421ea5b262c8a33f111082548331742f2dafba"
   license "MIT"
 
   depends_on "node"
