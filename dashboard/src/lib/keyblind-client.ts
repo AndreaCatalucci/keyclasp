@@ -4,24 +4,19 @@ export class KeyblindClient {
     private token?: string
   ) {}
 
-  private async call(tool: string, args: Record<string, any> = {}) {
-    const res = await fetch(`${this.baseUrl}/mcp`, {
-      method: "POST",
+  private async rest(path: string, options: RequestInit = {}): Promise<any> {
+    const res = await fetch(`${this.baseUrl}${path}`, {
       headers: {
         "Content-Type": "application/json",
         ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}),
       },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        method: "tools/call",
-        params: { name: tool, arguments: args },
-        id: Date.now(),
-      }),
+      ...options,
     });
-    if (!res.ok) throw new Error(`MCP call failed: ${res.status}`);
-    const data = await res.json();
-    if (data.error) throw new Error(data.error.message || "MCP error");
-    return JSON.parse(data.result?.content?.[0]?.text || "{}");
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || `HTTP ${res.status}`);
+    }
+    return res.json();
   }
 
   async checkHealth(): Promise<boolean> {
@@ -34,25 +29,30 @@ export class KeyblindClient {
   }
 
   async getSecrets(): Promise<string[]> {
-    const result = await this.call("list_secrets");
+    const result = await this.rest("/api/secrets");
     return result.secrets || [];
   }
 
   async getSecret(name: string): Promise<string> {
-    const result = await this.call("resolve_secret", { name });
+    const result = await this.rest(`/api/secrets/${encodeURIComponent(name)}`);
     return result.value || "";
   }
 
   async storeSecret(name: string, value: string): Promise<void> {
-    await this.call("store_secret", { name, value });
+    await this.rest("/api/secrets", {
+      method: "POST",
+      body: JSON.stringify({ name, value }),
+    });
   }
 
   async deleteSecret(name: string): Promise<void> {
-    await this.call("delete_secret", { name });
+    await this.rest(`/api/secrets/${encodeURIComponent(name)}`, {
+      method: "DELETE",
+    });
   }
 
   async getAuditLog(limit: number = 50): Promise<any[]> {
-    const result = await this.call("audit_log", { limit });
+    const result = await this.rest(`/api/audit?limit=${limit}`);
     return result.entries || [];
   }
 }

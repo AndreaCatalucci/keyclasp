@@ -16,7 +16,7 @@ export default function SecretsPage() {
   async function loadSecrets() {
     try {
       const names = await client.getSecrets();
-      setSecrets(names.filter((n) => !n.startsWith("__")));
+      setSecrets(names);
     } catch {
       setError("Failed to load secrets. Is the server running?");
     } finally {

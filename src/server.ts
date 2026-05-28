@@ -12,6 +12,15 @@ import { getDeadmanStatus, checkin } from "./deadman.js";
 import { getSSOToken, isSSOAuthenticated } from "./sso.js";
 import { createHttpsServer, certExists, certExpiringSoon, provisionCert, startAutoRenewal, type ACMEOptions } from "./https.js";
 
+function readBody(req: http.IncomingMessage): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let body = "";
+    req.on("data", (chunk: Buffer) => { body += chunk.toString(); });
+    req.on("end", () => resolve(body));
+    req.on("error", reject);
+  });
+}
+
 export function createServer(): McpServer {
   setClientInfo("mcp");
 
@@ -379,7 +388,59 @@ export async function startHttpServer(port: number = 3100, httpsConfig?: ACMEOpt
     // Health check
     if (req.url === "/health" || req.url === "/") {
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ status: "ok", server: "keyblind", version: "0.5.1" }));
+      res.end(JSON.stringify({ status: "ok", server: "keyblind", version: "0.5.1", secretCount: isInitialized() ? listSecrets().filter((n: string) => !n.startsWith("_keyblind") && !n.startsWith("_totp")).length : 0 }));
+      return;
+    }
+
+    // ── REST API (for browser dashboard) ──
+    if (req.url === "/api/secrets" && req.method === "GET") {
+      if (!isInitialized()) { res.writeHead(500, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "Not initialized" })); return; }
+      const names = listSecrets().filter((n: string) => !n.startsWith("_keyblind") && !n.startsWith("_totp") && !n.startsWith("__keyblind"));
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ secrets: names }));
+      return;
+    }
+
+    if (req.url === "/api/secrets" && req.method === "POST") {
+      if (!isInitialized()) { res.writeHead(500, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "Not initialized" })); return; }
+      const body = await readBody(req);
+      try {
+        const { name, value } = JSON.parse(body);
+        if (!name || value === undefined) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "name and value required" })); return; }
+        storeSecret(name, value);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ stored: name }));
+      } catch { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "Invalid JSON" })); }
+      return;
+    }
+
+    if (req.url?.startsWith("/api/secrets/") && req.method === "GET") {
+      if (!isInitialized()) { res.writeHead(500, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "Not initialized" })); return; }
+      const name = decodeURIComponent(req.url.slice("/api/secrets/".length));
+      const backend = getBackend();
+      const value = backend.resolve(name);
+      if (value === null) { res.writeHead(404, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "Not found" })); return; }
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ name, value }));
+      return;
+    }
+
+    if (req.url?.startsWith("/api/secrets/") && req.method === "DELETE") {
+      if (!isInitialized()) { res.writeHead(500, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "Not initialized" })); return; }
+      const name = decodeURIComponent(req.url.slice("/api/secrets/".length));
+      deleteSecret(name);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ deleted: name }));
+      return;
+    }
+
+    if (req.url === "/api/audit" && req.method === "GET") {
+      if (!isInitialized()) { res.writeHead(500, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "Not initialized" })); return; }
+      const url = new URL(req.url, `http://localhost:${port}`);
+      const limit = parseInt(url.searchParams.get("limit") || "50", 10);
+      const entries = getAuditLog(limit);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ entries }));
       return;
     }
 
