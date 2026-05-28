@@ -1,6 +1,6 @@
 {
   "name": "keyblind",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Blind AI to your keys — encrypted secrets vault with MCP for AI agents",
   "mcpName": "io.github.aarifmms/keyblind",
   "type": "module",
