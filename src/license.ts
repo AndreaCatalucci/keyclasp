@@ -4,7 +4,7 @@ import path from "node:path";
 import os from "node:os";
 
 // Ed25519 public key (baked into binary — the private key never ships)
-const PUBLIC_KEY_BASE64 = process.env.KEYBLIND_PUBLIC_KEY || "";
+const PUBLIC_KEY_BASE64 = process.env.KEYBLIND_PUBLIC_KEY || "MCowBQYDK2VwAyEAaxu7ncsxw3rW0Sycd9iIVu4prMKbsjN9hZghJYI2LoY=";
 
 function getPublicKey(): crypto.KeyObject {
   if (!PUBLIC_KEY_BASE64) {

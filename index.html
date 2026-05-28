@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Keyblind — Blind AI to Your API Keys</title>
+<meta name="description" content="Encrypted secrets vault with MCP for AI agents. Secrets resolved at runtime, never leaked to LLM conversations.">
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    background: #0d1117; color: #c9d1d9; line-height: 1.6;
+  }
+  .container { max-width: 960px; margin: 0 auto; padding: 0 24px; }
+
+  /* Hero */
+  .hero { text-align: center; padding: 100px 0 60px; }
+  .hero h1 { font-size: 48px; color: #f0f6fc; margin-bottom: 16px; letter-spacing: -0.5px; }
+  .hero h1 span { color: #58a6ff; }
+  .hero p { font-size: 20px; color: #8b949e; max-width: 640px; margin: 0 auto 32px; }
+  .hero .install {
+    background: #161b22; border: 1px solid #30363d; border-radius: 8px;
+    padding: 16px 24px; font-size: 15px; font-family: 'Menlo', 'Monaco', monospace;
+    color: #7ee787; display: inline-block; margin-bottom: 8px;
+  }
+  .hero .note { font-size: 13px; color: #484f58; margin-bottom: 32px; }
+
+  .btn {
+    display: inline-block; padding: 12px 32px; border-radius: 8px;
+    font-size: 16px; font-weight: 600; text-decoration: none; transition: 0.2s;
+  }
+  .btn-primary { background: #238636; color: #fff; border: 1px solid #2ea043; }
+  .btn-primary:hover { background: #2ea043; }
+  .btn-outline { background: transparent; color: #58a6ff; border: 1px solid #30363d; margin-left: 12px; }
+  .btn-outline:hover { background: #161b22; }
+
+  /* Section */
+  .section { padding: 80px 0; }
+  .section h2 { font-size: 32px; color: #f0f6fc; text-align: center; margin-bottom: 16px; }
+  .section .sub { text-align: center; color: #8b949e; font-size: 18px; margin-bottom: 48px; }
+
+  /* How it works */
+  .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+  .step {
+    background: #161b22; border: 1px solid #21262d; border-radius: 12px;
+    padding: 32px 24px; text-align: center;
+  }
+  .step .num {
+    display: inline-block; width: 40px; height: 40px; line-height: 40px;
+    background: #1f6feb22; color: #58a6ff; border-radius: 50%; font-weight: 700;
+    font-size: 18px; margin-bottom: 16px;
+  }
+  .step h3 { color: #f0f6fc; font-size: 18px; margin-bottom: 8px; }
+  .step p { color: #8b949e; font-size: 14px; }
+  .step code {
+    background: #0d1117; padding: 2px 6px; border-radius: 4px;
+    font-size: 13px; color: #7ee787; border: 1px solid #21262d;
+  }
+
+  /* Pricing */
+  .pricing { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+  .card {
+    background: #161b22; border: 1px solid #21262d; border-radius: 12px;
+    padding: 32px 24px; position: relative;
+  }
+  .card.featured { border-color: #1f6feb; box-shadow: 0 0 0 1px #1f6feb; }
+  .card.featured::before {
+    content: "Popular"; position: absolute; top: -12px; left: 50%; transform: translateX(-50%);
+    background: #1f6feb; color: #fff; font-size: 12px; font-weight: 600;
+    padding: 2px 12px; border-radius: 12px;
+  }
+  .card h3 { font-size: 22px; color: #f0f6fc; margin-bottom: 8px; }
+  .card .price { font-size: 36px; font-weight: 700; color: #f0f6fc; margin-bottom: 4px; }
+  .card .period { font-size: 14px; color: #8b949e; margin-bottom: 24px; }
+  .card ul { list-style: none; margin-bottom: 24px; }
+  .card li {
+    padding: 6px 0; font-size: 14px; color: #c9d1d9;
+    border-bottom: 1px solid #21262d;
+  }
+  .card li:last-child { border-bottom: 0; }
+  .card li.yes::before { content: "✓ "; color: #3fb950; font-weight: 700; }
+  .card li.no { color: #484f58; }
+  .card li.no::before { content: "— "; color: #484f58; }
+  .card .btn { display: block; text-align: center; }
+
+  .card .coming-soon {
+    display: block; text-align: center; padding: 12px; font-size: 14px;
+    color: #8b949e; border: 1px dashed #30363d; border-radius: 8px;
+  }
+
+  /* Logos */
+  .logos { display: flex; justify-content: center; gap: 32px; flex-wrap: wrap; margin-top: 40px; }
+  .logos span { color: #484f58; font-size: 14px; }
+
+  /* Footer */
+  footer { text-align: center; padding: 40px 0; color: #484f58; font-size: 13px; border-top: 1px solid #21262d; margin-top: 40px; }
+  footer a { color: #58a6ff; text-decoration: none; }
+
+  @media (max-width: 768px) {
+    .hero h1 { font-size: 32px; }
+    .steps, .pricing { grid-template-columns: 1fr; }
+    .hero { padding: 60px 0 40px; }
+    .btn-outline { margin-left: 0; margin-top: 12px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+
+  <!-- Hero -->
+  <div class="hero">
+    <h1>Blind AI to Your <span>API Keys</span></h1>
+    <p>Encrypted secrets vault for AI agents. Secrets are resolved at runtime — they never touch the LLM conversation transcript.</p>
+    <div class="install">npm install -g keyblind</div>
+    <div class="note">Free. Open source. Zero telemetry.</div>
+    <br>
+    <a href="https://github.com/aarifmms/keyblind" class="btn btn-outline">GitHub →</a>
+  </div>
+
+  <!-- How it works -->
+  <div class="section">
+    <h2>How It Works</h2>
+    <div class="sub">Three commands. Your secrets stay secret.</div>
+    <div class="steps">
+      <div class="step">
+        <div class="num">1</div>
+        <h3>Store Your Secrets</h3>
+        <p>Encrypt API keys, tokens, and passwords into a local AES-256-GCM vault.</p>
+        <br>
+        <code>echo "sk-abc123" | keyblind set KEY</code>
+      </div>
+      <div class="step">
+        <div class="num">2</div>
+        <h3>Sandbox Your .env</h3>
+        <p>Replace real values with deterministic fakes. AI agents see only the fakes.</p>
+        <br>
+        <code>keyblind sandbox</code>
+      </div>
+      <div class="step">
+        <div class="num">3</div>
+        <h3>Run With Confidence</h3>
+        <p>Your code runs with real secrets injected as env vars. Your AI never sees them.</p>
+        <br>
+        <code>keyblind run -- npm start</code>
+      </div>
+    </div>
+    <div class="logos">
+      <span>Claude Code</span> <span>Cursor</span> <span>Copilot</span> <span>Windsurf</span> <span>Cline</span> <span>Zed</span>
+    </div>
+  </div>
+
+  <!-- Pricing -->
+  <div class="section">
+    <h2>Pricing</h2>
+    <div class="sub">Start free. Upgrade when you need more.</div>
+    <div class="pricing">
+      <!-- Free -->
+      <div class="card">
+        <h3>Free</h3>
+        <div class="price">$0</div>
+        <div class="period">forever</div>
+        <ul>
+          <li class="yes">5 secrets</li>
+          <li class="yes">Local vault (AES-256-GCM)</li>
+          <li class="yes">Sandbox / Unsandbox</li>
+          <li class="yes">MCP server</li>
+          <li class="yes">7 backends</li>
+          <li class="no">Team vaults</li>
+          <li class="no">Audit log</li>
+          <li class="no">Secret rotation</li>
+          <li class="no">CI/CD integration</li>
+        </ul>
+        <a href="https://github.com/aarifmms/keyblind" class="btn btn-outline" style="display:block;text-align:center;margin-left:0">Get Started</a>
+      </div>
+
+      <!-- Pro -->
+      <div class="card featured">
+        <h3>Pro</h3>
+        <div class="price">$79</div>
+        <div class="period">/ year</div>
+        <ul>
+          <li class="yes">Unlimited secrets</li>
+          <li class="yes">Local vault (AES-256-GCM)</li>
+          <li class="yes">Sandbox / Unsandbox</li>
+          <li class="yes">MCP server</li>
+          <li class="yes">7 backends</li>
+          <li class="yes">Team vaults</li>
+          <li class="yes">Audit log</li>
+          <li class="yes">Secret rotation</li>
+          <li class="yes">CI/CD integration</li>
+        </ul>
+        <a href="https://buy.stripe.com/dRm9AMgFGgkS0Pj4f92cg00" class="btn btn-primary" style="display:block;text-align:center;margin-left:0">Buy Pro — $79/year</a>
+      </div>
+
+      <!-- Team -->
+      <div class="card">
+        <h3>Team</h3>
+        <div class="price">$29</div>
+        <div class="period">/ user / month</div>
+        <ul>
+          <li class="yes">Everything in Pro</li>
+          <li class="yes">Centralized admin</li>
+          <li class="yes">Shared vault policies</li>
+          <li class="yes">Audit export</li>
+          <li class="yes">Priority support</li>
+        </ul>
+        <span class="coming-soon">Coming Soon</span>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<footer>
+  <div class="container">
+    <p><a href="https://github.com/aarifmms/keyblind">GitHub</a> &middot; <a href="https://www.npmjs.com/package/keyblind">npm</a> &middot; MIT Licensed &middot; Zero network &middot; Zero telemetry</p>
+  </div>
+</footer>
+
+</body>
+</html>

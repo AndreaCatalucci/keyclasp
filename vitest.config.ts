@@ -4,7 +4,7 @@ export default defineConfig({
   test: {
     env: {
       KEYBLIND_DEV: "true",
-      KEYBLIND_PUBLIC_KEY: "MCowBQYDK2VwAyEApW1Wgu2bKF4KN3pafAbYC2203SRyf9qdlITawyj9jJk=",
+      KEYBLIND_PUBLIC_KEY: "MCowBQYDK2VwAyEAaxu7ncsxw3rW0Sycd9iIVu4prMKbsjN9hZghJYI2LoY=",
     },
   },
 });
