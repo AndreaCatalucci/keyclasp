@@ -15,7 +15,7 @@ function createLocalBackend(): SecretBackend {
   return {
     name: "local",
     resolve: (name) => resolveSecret(name),
-    list: () => listSecrets().filter((n: string) => !n.startsWith("__keyblind")),
+    list: () => listSecrets().filter((n: string) => !n.startsWith("_keyblind") && !n.startsWith("_totp") && !n.startsWith("__keyblind")),
     store: (name, value) => storeSecret(name, value),
     isAvailable: () => true, // Local backend is always available (errors surfaced at operation level)
   };

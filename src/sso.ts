@@ -3,7 +3,7 @@ import http from "node:http";
 import { execSync } from "node:child_process";
 import { storeSecret, resolveSecret, deleteSecret } from "./vault.js";
 
-const SSO_PREFIX = "__keyblind_sso";
+const SSO_PREFIX = "_keyblind_sso";
 const CONFIG_KEY = `${SSO_PREFIX}:config`;
 const TOKEN_KEY = `${SSO_PREFIX}:token`;
 

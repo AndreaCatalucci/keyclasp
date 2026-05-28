@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { storeSecret, resolveSecret, deleteSecret, getKey } from "./vault.js";
 
-const DEADMAN_PREFIX = "__keyblind_deadman";
+const DEADMAN_PREFIX = "_keyblind_deadman";
 const CONFIG_KEY = `${DEADMAN_PREFIX}:config`;
 const CHECKIN_KEY = `${DEADMAN_PREFIX}:last_checkin`;
 

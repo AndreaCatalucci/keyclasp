@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { storeSecret, resolveSecret, listSecrets, deleteSecret } from "./vault.js";
 
-const TOTP_PREFIX = "__totp:";
+const TOTP_PREFIX = "_totp:";
 
 export interface TOTPConfig {
   name: string;

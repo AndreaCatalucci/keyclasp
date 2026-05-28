@@ -83,7 +83,7 @@ export function createServer(): McpServer {
         };
       }
 
-      const names = listSecrets().filter((n) => !n.startsWith("__keyblind"));
+      const names = listSecrets().filter((n) => !n.startsWith("_keyblind") && !n.startsWith("_totp") && !n.startsWith("__keyblind"));
       return {
         content: [{ type: "text", text: JSON.stringify({ secrets: names }) }],
       };

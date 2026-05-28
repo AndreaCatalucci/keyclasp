@@ -121,7 +121,24 @@ Restored 3 value(s) in .env:
 
 ---
 
-## Scene 7: MCP Server (1:40–1:55)
+## Scene 7: TOTP & Sharing (1:40–1:55)
+
+**Visual:** Terminal showing 2FA code generation and secret sharing.
+
+```
+$ keyblind totp code github
+003486  (rotates in 22s)
+
+$ keyblind share DATABASE_URL --ttl 1h --max-views 1
+Share link for "DATABASE_URL" (expires in 1h):
+https://keyblind.dev/share#v1.abc.def...
+```
+
+**Voiceover:** "Keyblind also handles 2FA codes and secure secret sharing. Generate TOTP codes for any service. Or share a secret with a teammate — encrypted in the URL fragment so it never touches a server."
+
+---
+
+## Scene 8: MCP Server (1:55–2:10)
 
 **Visual:** Show `.mcp.json` config file and editor recognizing the MCP server.
 
@@ -140,7 +157,7 @@ Restored 3 value(s) in .env:
 
 ---
 
-## Scene 8: Outro (1:55–2:00)
+## Scene 9: Outro (2:10–2:15)
 
 **Visual:** GitHub repo README, npm badge, MIT license.
 
@@ -161,7 +178,7 @@ npm install -g keyblind
 | **Editor** | Show VS Code or Cursor with `.env` open. Highlight the sandboxed values. |
 | **Screen recorder** | Use OBS (free) or Screen Studio (Mac, paid). Record at 1080p 60fps. |
 | **Audio** | Use a decent mic. Record voiceover separately, not during screencast. |
-| **Length** | Keep under 2 minutes. Cut mercilessly. Speed up non-critical sections 1.5x. |
+| **Length** | Keep under 2.5 minutes. Cut mercilessly. Speed up non-critical sections 1.5x. |
 
 ## Commands to Pre-Run Before Recording
 
@@ -183,4 +200,7 @@ keyblind init  # press enter for machine-only key
 echo "sk-proj-abc123xyz890" | keyblind set OPENAI_API_KEY
 echo "postgresql://admin:s3cret@db.example.com/prod" | keyblind set DATABASE_URL
 echo "sk_live_abc123def456" | keyblind set STRIPE_SECRET
+
+# Pre-store TOTP for demo
+keyblind totp set github "otpauth://totp/GitHub:demo-user?secret=JBSWY3DPEHPK3PXP&issuer=GitHub"
 ```
