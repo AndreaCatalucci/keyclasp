@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Shield, Check, Copy, Terminal, ExternalLink } from "lucide-react";
+import { Shield, Check, Copy, Terminal, Mail, ArrowRight } from "lucide-react";
 
 function ActivateContent() {
   const [status, setStatus] = useState<"loading" | "success" | "error">("loading");
@@ -42,9 +42,8 @@ function ActivateContent() {
   }, [sessionId]);
 
   const commands = [
-    { label: "Install Keyblind", cmd: "npm install -g keyblind" },
-    { label: "Initialize vault", cmd: "keyblind init" },
-    { label: "Start dashboard", cmd: "keyblind start" },
+    { label: "Install Keyblind CLI", cmd: "npm install -g keyblind" },
+    { label: "Initialize your vault", cmd: "keyblind init" },
   ];
 
   if (status === "loading") {
@@ -78,12 +77,25 @@ function ActivateContent() {
         <div className="w-12 h-12 bg-[#3fb950]/20 rounded-full flex items-center justify-center mx-auto mb-4">
           <Check className="w-6 h-6 text-[#3fb950]" />
         </div>
-        <h1 className="text-xl font-semibold text-[#f0f6fc] mb-1">Purchase Verified</h1>
+        <h1 className="text-xl font-semibold text-[#f0f6fc] mb-1">Purchase Complete</h1>
         <p className="text-sm text-[#8b949e]">
           {email ? `Pro license activated for ${email}` : "Pro license activated"}
         </p>
       </div>
 
+      {/* Email notice — most important */}
+      <div className="bg-[#1f6feb]/10 border border-[#1f6feb]/30 rounded-lg p-4 mb-6">
+        <div className="flex items-center gap-3 mb-2">
+          <Mail className="w-5 h-5 text-[#58a6ff]" />
+          <span className="text-sm font-medium text-[#58a6ff]">Check your email</span>
+        </div>
+        <p className="text-sm text-[#8b949e]">
+          Your license key has been sent to <strong className="text-[#f0f6fc]">{email || "your email"}</strong>.
+          Use it to activate Keyblind Pro in the CLI and sign into this dashboard.
+        </p>
+      </div>
+
+      {/* Quick start */}
       <div className="bg-[#0d1117] border border-[#21262d] rounded-lg p-4 mb-6">
         <div className="flex items-center gap-2 mb-3">
           <Terminal className="w-4 h-4 text-[#8b949e]" />
@@ -112,15 +124,18 @@ function ActivateContent() {
               </button>
             </div>
           ))}
+          <div className="text-xs text-[#8b949e] px-3 py-2 bg-[#161b22] rounded">
+            Then activate your license: <code className="text-[#f0f6fc]">keyblind activate &lt;key from email&gt;</code>
+          </div>
         </div>
       </div>
 
       <div className="flex gap-3">
         <button
-          onClick={() => router.push("/")}
-          className="flex-1 bg-[#1f6feb] text-white rounded-md py-2 text-sm font-medium hover:bg-[#1a5fd4]"
+          onClick={() => router.push("/login")}
+          className="flex items-center justify-center gap-1 flex-1 bg-[#1f6feb] text-white rounded-md py-2 text-sm font-medium hover:bg-[#1a5fd4]"
         >
-          Go to Dashboard
+          Sign In <ArrowRight className="w-3 h-3" />
         </button>
         <a
           href="https://keyblind.dev"
@@ -128,7 +143,7 @@ function ActivateContent() {
           rel="noopener"
           className="flex items-center gap-1 justify-center flex-1 border border-[#30363d] text-[#c9d1d9] rounded-md py-2 text-sm hover:bg-[#21262d]"
         >
-          Homepage <ExternalLink className="w-3 h-3" />
+          Homepage
         </a>
       </div>
     </div>
