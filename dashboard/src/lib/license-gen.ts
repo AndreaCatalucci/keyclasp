@@ -8,12 +8,23 @@ interface LicensePayload {
   id: string;
 }
 
-export function generateLicenseKey(tier: string, email: string, expDate: string): string {
+function sessionIdToHash(sessionId: string): string {
+  return crypto.createHash("sha256").update(sessionId).digest("hex").slice(0, 16);
+}
+
+export function generateLicenseKey(
+  tier: string,
+  email: string,
+  expDate: string,
+  sessionId?: string
+): string {
   const privKeyBase64 = process.env.KEYBLIND_SIGNING_KEY;
   if (!privKeyBase64) throw new Error("KEYBLIND_SIGNING_KEY not set");
 
   const today = new Date().toISOString().slice(0, 10);
-  const id = `lic_${crypto.randomBytes(8).toString("hex")}`;
+  const id = sessionId
+    ? `lic_${sessionIdToHash(sessionId)}`
+    : `lic_${crypto.randomBytes(8).toString("hex")}`;
 
   const payload: LicensePayload = {
     tier: tier as LicensePayload["tier"],

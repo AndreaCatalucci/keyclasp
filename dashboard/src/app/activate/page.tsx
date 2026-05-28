@@ -2,11 +2,12 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Shield, Check, Copy, Terminal, Mail, ArrowRight } from "lucide-react";
+import { Shield, Check, Copy, Terminal, ArrowRight } from "lucide-react";
 
 function ActivateContent() {
   const [status, setStatus] = useState<"loading" | "success" | "error">("loading");
   const [email, setEmail] = useState("");
+  const [licenseKey, setLicenseKey] = useState("");
   const [error, setError] = useState("");
   const [copied, setCopied] = useState("");
   const searchParams = useSearchParams();
@@ -29,6 +30,7 @@ function ActivateContent() {
         const data = await res.json();
         if (res.ok) {
           setEmail(data.email);
+          setLicenseKey(data.licenseKey || "");
           setStatus("success");
         } else {
           setError(data.error || "Activation failed");
@@ -43,8 +45,9 @@ function ActivateContent() {
 
   const commands = [
     { label: "Install Keyblind CLI", cmd: "npm install -g keyblind" },
+    { label: "Activate your license", cmd: licenseKey ? `keyblind activate ${licenseKey}` : "" },
     { label: "Initialize your vault", cmd: "keyblind init" },
-  ];
+  ].filter((c) => c.cmd);
 
   if (status === "loading") {
     return (
@@ -73,27 +76,45 @@ function ActivateContent() {
 
   return (
     <div className="bg-[#161b22] border border-[#21262d] rounded-lg p-8 w-full max-w-2xl">
-      <div className="text-center mb-8">
+      <div className="text-center mb-6">
         <div className="w-12 h-12 bg-[#3fb950]/20 rounded-full flex items-center justify-center mx-auto mb-4">
           <Check className="w-6 h-6 text-[#3fb950]" />
         </div>
         <h1 className="text-xl font-semibold text-[#f0f6fc] mb-1">Purchase Complete</h1>
         <p className="text-sm text-[#8b949e]">
-          {email ? `Pro license activated for ${email}` : "Pro license activated"}
+          {email ? `Pro license for ${email}` : "Pro license activated"}
         </p>
       </div>
 
-      {/* Email notice — most important */}
-      <div className="bg-[#1f6feb]/10 border border-[#1f6feb]/30 rounded-lg p-4 mb-6">
-        <div className="flex items-center gap-3 mb-2">
-          <Mail className="w-5 h-5 text-[#58a6ff]" />
-          <span className="text-sm font-medium text-[#58a6ff]">Check your email</span>
+      {/* License Key Card */}
+      {licenseKey && (
+        <div className="bg-[#0d1117] border border-[#1f6feb]/30 rounded-lg p-4 mb-6">
+          <p className="text-xs text-[#8b949e] mb-2">Your license key</p>
+          <div className="flex items-center gap-2">
+            <code className="flex-1 text-sm text-[#7ee787] font-mono break-all bg-[#161b22] rounded px-3 py-2">
+              {licenseKey}
+            </code>
+            <button
+              onClick={() => {
+                navigator.clipboard.writeText(licenseKey);
+                setCopied("key");
+                setTimeout(() => setCopied(""), 2000);
+              }}
+              className="p-2 hover:bg-[#21262d] rounded shrink-0"
+              title="Copy license key"
+            >
+              {copied === "key" ? (
+                <Check className="w-4 h-4 text-[#3fb950]" />
+              ) : (
+                <Copy className="w-4 h-4 text-[#8b949e]" />
+              )}
+            </button>
+          </div>
+          <p className="text-xs text-[#8b949e] mt-2">
+            Also sent to your email. Save this key — you&apos;ll need it to sign into the dashboard.
+          </p>
         </div>
-        <p className="text-sm text-[#8b949e]">
-          Your license key has been sent to <strong className="text-[#f0f6fc]">{email || "your email"}</strong>.
-          Use it to activate Keyblind Pro in the CLI and sign into this dashboard.
-        </p>
-      </div>
+      )}
 
       {/* Quick start */}
       <div className="bg-[#0d1117] border border-[#21262d] rounded-lg p-4 mb-6">
@@ -106,7 +127,7 @@ function ActivateContent() {
             <div key={label} className="flex items-center justify-between bg-[#161b22] rounded px-3 py-2">
               <div>
                 <p className="text-xs text-[#8b949e]">{label}</p>
-                <code className="text-sm text-[#7ee787] font-mono">{cmd}</code>
+                <code className="text-sm text-[#7ee787] font-mono break-all">{cmd}</code>
               </div>
               <button
                 onClick={() => {
@@ -114,7 +135,7 @@ function ActivateContent() {
                   setCopied(cmd);
                   setTimeout(() => setCopied(""), 2000);
                 }}
-                className="p-1.5 hover:bg-[#21262d] rounded"
+                className="p-1.5 hover:bg-[#21262d] rounded shrink-0 ml-2"
               >
                 {copied === cmd ? (
                   <Check className="w-4 h-4 text-[#3fb950]" />
@@ -124,9 +145,6 @@ function ActivateContent() {
               </button>
             </div>
           ))}
-          <div className="text-xs text-[#8b949e] px-3 py-2 bg-[#161b22] rounded">
-            Then activate your license: <code className="text-[#f0f6fc]">keyblind activate &lt;key from email&gt;</code>
-          </div>
         </div>
       </div>
 

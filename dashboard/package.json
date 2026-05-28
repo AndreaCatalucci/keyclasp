@@ -13,7 +13,9 @@
     "lucide-react": "^0.468.0",
     "next": "^15.1.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "resend": "^6.12.4",
+    "stripe": "^22.2.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
