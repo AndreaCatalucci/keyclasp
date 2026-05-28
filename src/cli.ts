@@ -716,6 +716,8 @@ async function main(): Promise<void> {
           const port = portIdx !== -1 ? parseInt(args[portIdx + 1], 10) : 3100;
           await startHttpServer(port);
         } else {
+          console.log("Keyblind MCP server started (stdio transport).");
+          console.log("For HTTP/HTTPS (browser dashboard), use: keyblind start --http");
           await startServer();
         }
         break;
