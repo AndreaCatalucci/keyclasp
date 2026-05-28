@@ -2,38 +2,6 @@ import { NextResponse } from "next/server";
 import { createSessionToken } from "@/lib/auth";
 import { generateLicenseKey } from "@/lib/license-gen";
 
-async function sendLicenseEmail(email: string, licenseKey: string, tier: string, expDate: string): Promise<void> {
-  const resendApiKey = process.env.RESEND_API_KEY;
-  if (!resendApiKey) {
-    console.log("RESEND_API_KEY not set — license key:", licenseKey);
-    return;
-  }
-
-  const tierLabel = tier === "team" ? "Team" : "Pro";
-  const activationCmd = `keyblind activate ${licenseKey}`;
-
-  const { Resend } = await import("resend");
-  const resend = new Resend(resendApiKey);
-
-  await resend.emails.send({
-    from: "Keyblind <license@keyblind.dev>",
-    to: email,
-    subject: `Your Keyblind ${tierLabel} License`,
-    html: [
-      `<h1>Keyblind ${tierLabel} — License Key</h1>`,
-      `<p>Thanks for upgrading to Keyblind ${tierLabel}!</p>`,
-      `<p><strong>Your license key:</strong></p>`,
-      `<pre style="background:#1a1b26;color:#a6e3a1;padding:16px;border-radius:8px;font-size:13px;word-break:break-all;white-space:pre-wrap">${licenseKey}</pre>`,
-      `<p><strong>Activate it:</strong></p>`,
-      `<pre style="background:#1a1b26;color:#cdd6f4;padding:16px;border-radius:8px">${activationCmd}</pre>`,
-      `<p>Your license is valid until <strong>${expDate}</strong>.</p>`,
-      `<p><a href="https://app.keyblind.dev/login">Sign into the dashboard</a> with your license key.</p>`,
-      `<hr>`,
-      `<small>Keyblind — Blind AI to Your Keys. Zero network. Zero telemetry.</small>`,
-    ].join("\n"),
-  });
-}
-
 export async function POST(req: Request) {
   try {
     const { sessionId } = await req.json();
@@ -73,10 +41,8 @@ export async function POST(req: Request) {
     // Generate license key deterministically from session ID
     const licenseKey = generateLicenseKey(tier, email, expDate, sessionId);
 
-    // Send email (non-blocking — don't fail if email delivery fails)
-    sendLicenseEmail(email, licenseKey, tier, expDate).catch((err) =>
-      console.error("Email delivery failed:", err.message)
-    );
+    // Email is sent by the Stripe webhook (checkout.session.completed)
+    // We only show the key on screen here to avoid duplicate emails
 
     // Create session
     const token = await createSessionToken({
