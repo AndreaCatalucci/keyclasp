@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1270, initial-scale=1.0">
+<title>Keyblind — AI Safety</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0d1117; display: flex; justify-content: center; align-items: center; min-height: 95vh; font-family: 'Menlo', 'Monaco', 'Courier New', monospace; }
+  .wrap { display: flex; gap: 24px; align-items: center; }
+  .terminal { background: #1a1b26; border-radius: 10px; width: 500px; box-shadow: 0 20px 60px rgba(0,0,0,0.5); border: 1px solid #313244; }
+  .titlebar { background: #11111b; border-radius: 10px 10px 0 0; padding: 10px 16px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid #313244; }
+  .dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+  .dot.r { background: #f38ba8; } .dot.y { background: #f9e2af; } .dot.g { background: #a6e3a1; }
+  .ttl { color: #6c7086; font-size: 12px; margin-left: 8px; }
+  .body { padding: 18px 20px; font-size: 13px; line-height: 1.8; color: #cdd6f4; }
+  .prompt { color: #a6e3a1; } .cmd { color: #cdd6f4; }
+  .out { color: #89b4fa; } .dim { color: #6c7086; }
+  .gr { color: #a6e3a1; } .yl { color: #f9e2af; } .rd { color: #f38ba8; }
+  .hl { color: #cba6f7; }
+  .label { color: #8b949e; font-size: 13px; text-align: center; margin-bottom: 8px; font-family: -apple-system, sans-serif; }
+  .icon { color: #f38ba8; }
+  .shield { color: #a6e3a1; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <!-- AI Agent View -->
+  <div>
+    <div class="label"><span class="icon">🤖</span> What the AI Agent sees</div>
+    <div class="terminal">
+      <div class="titlebar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="ttl">AI reads .env (sandboxed)</span></div>
+      <div class="body">
+        <div><span class="yl">OPENAI_API_KEY</span>=<span class="gr">sandbox_f4e2a9b1c3d5_OPENAI</span></div>
+        <div><span class="yl">DATABASE_URL</span>=<span class="gr">sandbox_a1b2c3d4e5f6_DATABASE</span></div>
+        <div><span class="yl">STRIPE_SECRET</span>=<span class="gr">sandbox_d4e5f6a7b8c9_STRIPE</span></div>
+        <div><span class="yl">GITHUB_TOKEN</span>=<span class="gr">sandbox_e0f1a2b3_GITHUB</span></div>
+        <div style="margin-top:12px;border-top:1px solid #313244;padding-top:12px">
+          <span class="gr">✓ AI sees only fakes</span><br>
+          <span class="gr">✓ No secrets in transcripts</span><br>
+          <span class="dim">Deterministic — same fake every time</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- Arrow -->
+  <div><span style="font-size:24px;color:#8b949e">vs</span></div>
+  <!-- Runtime View -->
+  <div>
+    <div class="label"><span class="shield">🛡️</span> What your code runs with</div>
+    <div class="terminal">
+      <div class="titlebar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="ttl">keyblind run -- ./start.sh</span></div>
+      <div class="body">
+        <div><span class="hl">$ keyblind run -- npm start</span></div>
+        <div style="margin-top:8px"><span class="dim">Injecting real secrets as env vars...</span></div>
+        <div><span class="gr">OPENAI_API_KEY</span> → injected</div>
+        <div><span class="gr">DATABASE_URL</span> → injected</div>
+        <div><span class="gr">STRIPE_SECRET</span> → injected</div>
+        <div><span class="gr">GITHUB_TOKEN</span> → injected</div>
+        <div style="margin-top:12px;border-top:1px solid #313244;padding-top:12px">
+          <span class="gr">✓ Real values in memory only</span><br>
+          <span class="gr">✓ Never written to disk</span><br>
+          <span class="dim">AES-256-GCM encrypted at rest</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

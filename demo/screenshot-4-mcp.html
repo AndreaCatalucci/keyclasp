@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1270, initial-scale=1.0">
+<title>Keyblind — MCP Everywhere</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0d1117; display: flex; justify-content: center; align-items: center; min-height: 95vh; font-family: 'Menlo', 'Monaco', 'Courier New', monospace; }
+  .wrap { display: flex; gap: 24px; align-items: flex-start; }
+  .terminal { background: #1a1b26; border-radius: 10px; width: 430px; box-shadow: 0 20px 60px rgba(0,0,0,0.5); border: 1px solid #313244; }
+  .titlebar { background: #11111b; border-radius: 10px 10px 0 0; padding: 10px 16px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid #313244; }
+  .dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+  .dot.r { background: #f38ba8; } .dot.y { background: #f9e2af; } .dot.g { background: #a6e3a1; }
+  .ttl { color: #6c7086; font-size: 12px; margin-left: 8px; }
+  .body { padding: 18px 20px; font-size: 13px; line-height: 1.8; color: #cdd6f4; }
+  .dim { color: #6c7086; } .gr { color: #a6e3a1; } .yl { color: #f9e2af; }
+  .hl { color: #cba6f7; } .out { color: #89b4fa; }
+  .label { color: #8b949e; font-size: 13px; text-align: center; margin-bottom: 8px; font-family: -apple-system, sans-serif; }
+  .editors { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+  .editor { background: #161b22; border: 1px solid #21262d; border-radius: 6px; padding: 8px 12px; text-align: center; font-size: 12px; color: #8b949e; font-family: -apple-system, sans-serif; }
+  .editor .check { color: #a6e3a1; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <!-- MCP Config -->
+  <div>
+    <div class="label">.mcp.json — One config, every editor</div>
+    <div class="terminal">
+      <div class="titlebar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="ttl">.mcp.json</span></div>
+      <div class="body">
+        <div>{</div>
+        <div>&nbsp;&nbsp;<span class="yl">"mcpServers"</span>: {</div>
+        <div>&nbsp;&nbsp;&nbsp;&nbsp;<span class="yl">"keyblind"</span>: {</div>
+        <div>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="yl">"command"</span>: <span class="gr">"npx"</span>,</div>
+        <div>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="yl">"args"</span>: [<span class="gr">"keyblind"</span>, <span class="gr">"start"</span>]</div>
+        <div>&nbsp;&nbsp;&nbsp;&nbsp;}</div>
+        <div>&nbsp;&nbsp;}</div>
+        <div>}</div>
+      </div>
+    </div>
+  </div>
+  <!-- Editors supported -->
+  <div>
+    <div class="label">Works with every MCP-compatible editor</div>
+    <div class="terminal" style="width:500px">
+      <div class="titlebar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="ttl">Supported Editors</span></div>
+      <div class="body">
+        <div class="editors">
+          <div class="editor"><span class="check">✓</span> Claude Code</div>
+          <div class="editor"><span class="check">✓</span> Cursor</div>
+          <div class="editor"><span class="check">✓</span> GitHub Copilot</div>
+          <div class="editor"><span class="check">✓</span> Windsurf</div>
+          <div class="editor"><span class="check">✓</span> Cline</div>
+          <div class="editor"><span class="check">✓</span> Zed</div>
+          <div class="editor"><span class="check">✓</span> Continue</div>
+          <div class="editor"><span class="check">✓</span> Aider</div>
+        </div>
+        <div style="margin-top:12px;border-top:1px solid #313244;padding-top:10px">
+          <span class="dim">MCP-native — no editor-specific extensions needed</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

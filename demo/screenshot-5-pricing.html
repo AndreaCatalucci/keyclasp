@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1270, initial-scale=1.0">
+<title>Keyblind — Pricing</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0d1117; display: flex; justify-content: center; align-items: center; min-height: 95vh; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; }
+  .wrap { display: flex; gap: 20px; align-items: flex-start; }
+  .card { background: #161b22; border: 1px solid #21262d; border-radius: 12px; padding: 28px 24px; width: 280px; }
+  .card.featured { border-color: #1f6feb; box-shadow: 0 0 0 1px #1f6feb; position: relative; }
+  .card.featured::before { content: "Popular"; position: absolute; top: -12px; left: 50%; transform: translateX(-50%); background: #1f6feb; color: #fff; font-size: 12px; font-weight: 600; padding: 2px 12px; border-radius: 12px; }
+  .card h3 { font-size: 20px; color: #f0f6fc; margin-bottom: 6px; }
+  .card .price { font-size: 32px; font-weight: 700; color: #f0f6fc; margin-bottom: 2px; }
+  .card .period { font-size: 13px; color: #8b949e; margin-bottom: 20px; }
+  .card ul { list-style: none; margin-bottom: 20px; }
+  .card li { padding: 5px 0; font-size: 13px; color: #c9d1d9; border-bottom: 1px solid #21262d; }
+  .card li:last-child { border-bottom: 0; }
+  .card li.yes::before { content: "✓ "; color: #3fb950; font-weight: 700; }
+  .card li.no { color: #484f58; }
+  .card li.no::before { content: "— "; color: #484f58; }
+  .btn { display: block; text-align: center; padding: 10px 24px; border-radius: 8px; font-size: 15px; font-weight: 600; text-decoration: none; }
+  .btn-primary { background: #238636; color: #fff; border: 1px solid #2ea043; }
+  .btn-outline { background: transparent; color: #58a6ff; border: 1px solid #30363d; }
+  .coming-soon { display: block; text-align: center; padding: 10px; font-size: 13px; color: #8b949e; border: 1px dashed #30363d; border-radius: 8px; }
+  .install { text-align: center; margin-top: 16px; color: #7ee787; font-size: 14px; font-family: 'Menlo', monospace; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <!-- Free -->
+  <div class="card">
+    <h3>Free</h3>
+    <div class="price">$0</div>
+    <div class="period">forever</div>
+    <ul>
+      <li class="yes">5 secrets</li>
+      <li class="yes">Local AES-256-GCM vault</li>
+      <li class="yes">Sandbox / Unsandbox</li>
+      <li class="yes">MCP server</li>
+      <li class="yes">7 backends</li>
+      <li class="no">Team vaults</li>
+      <li class="no">Audit log</li>
+      <li class="no">Secret rotation</li>
+      <li class="no">CI/CD integration</li>
+    </ul>
+    <span class="install">npm install -g keyblind</span>
+  </div>
+  <!-- Pro -->
+  <div class="card featured">
+    <h3>Pro</h3>
+    <div class="price">$79</div>
+    <div class="period">/ year</div>
+    <ul>
+      <li class="yes">Unlimited secrets</li>
+      <li class="yes">Local AES-256-GCM vault</li>
+      <li class="yes">Sandbox / Unsandbox</li>
+      <li class="yes">MCP server</li>
+      <li class="yes">7 backends</li>
+      <li class="yes">Team vaults</li>
+      <li class="yes">Audit log</li>
+      <li class="yes">Secret rotation</li>
+      <li class="yes">CI/CD integration</li>
+    </ul>
+    <a href="#" class="btn btn-primary">Buy Pro — $79/year</a>
+  </div>
+  <!-- Team -->
+  <div class="card">
+    <h3>Team</h3>
+    <div class="price">$29</div>
+    <div class="period">/ user / month</div>
+    <ul>
+      <li class="yes">Everything in Pro</li>
+      <li class="yes">Centralized admin</li>
+      <li class="yes">Shared vault policies</li>
+      <li class="yes">Audit export</li>
+      <li class="yes">Priority support</li>
+    </ul>
+    <span class="coming-soon">Coming Soon</span>
+  </div>
+</div>
+</body>
+</html>

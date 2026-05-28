@@ -6,3 +6,6 @@ export { authenticateWithBiometric, biometricAvailable, createSession, sessionAc
 export { watchEnvFile } from "./watch.js";
 export { teamInit, teamPush, teamPull, teamList, teamResolve, teamDelete } from "./team.js";
 export { activateLicense, deactivateLicense, getLicenseInfo, isActivated, isPro, isTeam, getSecretLimit, featuresEnabled, type LicenseInfo } from "./license.js";
+export { readConfig, writeConfig, mergeConfig, generateSecret, parseEnvFile, formatEnvFile, type ProjectConfig } from "./config.js";
+export { runDoctor } from "./doctor.js";
+export { generateBash, generateZsh, generateFish, detectShell, getInstallInstructions } from "./completions.js";

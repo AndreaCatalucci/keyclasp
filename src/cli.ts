@@ -8,6 +8,10 @@ import { installHook, checkAndReport, getStagedFiles, scanFiles } from "./hook.j
 import { watchEnvFile } from "./watch.js";
 import { teamInit, teamPush, teamPull, teamList, teamDelete } from "./team.js";
 import { activateLicense, deactivateLicense, getLicenseInfo, isPro, featuresEnabled } from "./license.js";
+import { readConfig, mergeConfig, generateSecret, parseEnvFile, formatEnvFile } from "./config.js";
+import { runDoctor } from "./doctor.js";
+import { generateBash, generateZsh, generateFish, detectShell, getInstallInstructions } from "./completions.js";
+import fs from "node:fs";
 import { spawn } from "node:child_process";
 import readline from "node:readline";
 import { stdin, stdout } from "node:process";
@@ -55,6 +59,16 @@ Usage:
   keyblind team push <name>     Push a local secret to the team vault
   keyblind team pull            Import all team secrets to local vault
   keyblind team list            List secrets in the team vault
+  keyblind generate <name>     Generate a strong random secret
+  keyblind generate <name> --len 64    Generate with custom length
+  keyblind generate <name> --no-symbols   Alphanumeric only
+  keyblind import [.env]        Bulk import secrets from a .env file
+  keyblind export               Export all secrets (use --json for raw JSON)
+  keyblind export --env         Export as .env format
+  keyblind config               Show project config (.keyblind)
+  keyblind config <key> <val>   Set a config option (backend, projectName, expiryDays, autoSandbox)
+  keyblind doctor               Run vault health and security check
+  keyblind completions [bash|zsh|fish]  Generate shell completion script
   keyblind help                Show this help
 
 Global flags:
@@ -709,6 +723,172 @@ async function main(): Promise<void> {
         child.on("exit", (code) => {
           process.exit(code ?? 0);
         });
+        break;
+      }
+
+      case "generate": {
+        if (!isInitialized()) {
+          console.error("Keyblind not initialized. Run: keyblind init");
+          process.exit(1);
+        }
+        const genName = args[1];
+        if (!genName) {
+          console.error("Usage: keyblind generate <name> [--len 32] [--no-symbols]");
+          process.exit(1);
+        }
+        const lenIdx = args.indexOf("--len");
+        const length = lenIdx !== -1 ? parseInt(args[lenIdx + 1], 10) || 32 : 32;
+        const noSymbols = args.includes("--no-symbols");
+        const generated = generateSecret(length, !noSymbols);
+        storeSecret(genName, generated);
+        console.log(generated);
+        break;
+      }
+
+      case "import": {
+        if (!isInitialized()) {
+          console.error("Keyblind not initialized. Run: keyblind init");
+          process.exit(1);
+        }
+        const importFile = args[1] || ".env";
+        if (!fs.existsSync(importFile)) {
+          console.error(`File not found: ${importFile}`);
+          process.exit(1);
+        }
+        const content = fs.readFileSync(importFile, "utf8");
+        const envVars = parseEnvFile(content);
+        if (Object.keys(envVars).length === 0) {
+          console.log("No KEY=value pairs found in file.");
+          process.exit(0);
+        }
+        let imported = 0;
+        for (const [key, value] of Object.entries(envVars)) {
+          try {
+            storeSecret(key, value);
+            imported++;
+          } catch (err: any) {
+            console.error(`  Skipped ${key}: ${err.message}`);
+          }
+        }
+        console.log(`Imported ${imported}/${Object.keys(envVars).length} secret(s) from ${importFile}`);
+        break;
+      }
+
+      case "export": {
+        if (!isInitialized()) {
+          console.error("Keyblind not initialized. Run: keyblind init");
+          process.exit(1);
+        }
+        const names = listSecrets();
+        if (args.includes("--env")) {
+          // Export as .env format
+          const envObj: Record<string, string> = {};
+          for (const name of names) {
+            const val = resolveSecret(name);
+            if (val !== null) envObj[name] = val;
+          }
+          process.stdout.write(formatEnvFile(envObj));
+        } else if (args.includes("--json")) {
+          // Export as raw JSON (unencrypted)
+          const jsonObj: Record<string, string> = {};
+          for (const name of names) {
+            const val = resolveSecret(name);
+            if (val !== null) jsonObj[name] = val;
+          }
+          process.stdout.write(JSON.stringify(jsonObj, null, 2) + "\n");
+        } else {
+          // Default: names only (safe)
+          console.log(JSON.stringify({ secrets: names }, null, 2));
+        }
+        break;
+      }
+
+      case "config": {
+        const configKey = args[1];
+        const configVal = args[2] || (configKey && !args[2] ? args.slice(1).join(" ") : undefined);
+
+        if (!configKey) {
+          // Show current config
+          const cfg = readConfig();
+          if (cfg) {
+            console.log("Project config (.keyblind):");
+            const validKeys: (keyof typeof cfg)[] = ["projectName", "backend", "expiryDays", "autoSandbox", "watchPath"];
+            for (const key of validKeys) {
+              if (cfg[key] !== undefined) {
+                console.log(`  ${key}: ${cfg[key]}`);
+              }
+            }
+          } else {
+            console.log("No project config found. Create one with:");
+            console.log("  keyblind config backend local");
+            console.log("  keyblind config expiryDays 90");
+          }
+          break;
+        }
+
+        if (!configVal) {
+          // Show single value
+          const cfg = readConfig();
+          if (cfg && (cfg as any)[configKey] !== undefined) {
+            console.log(`${(cfg as any)[configKey]}`);
+          } else {
+            process.exit(1);
+          }
+          break;
+        }
+
+        // Set value
+        const update: Record<string, any> = {};
+        if (configKey === "expiryDays" || configKey === "expiry") {
+          update.expiryDays = parseInt(configVal, 10);
+        } else if (configKey === "autoSandbox") {
+          update.autoSandbox = configVal === "true" || configVal === "1";
+        } else if (configKey === "projectName" || configKey === "backend" || configKey === "watchPath") {
+          update[configKey] = configVal;
+        } else {
+          console.error(`Unknown config key: ${configKey}`);
+          console.error("Available: backend, projectName, expiryDays, autoSandbox, watchPath");
+          process.exit(1);
+        }
+        mergeConfig(update);
+        break;
+      }
+
+      case "doctor": {
+        const checks = runDoctor();
+        let ok = 0, warn = 0, err = 0;
+        for (const c of checks) {
+          const icon = c.status === "ok" ? "✓" : c.status === "warn" ? "⚠" : "✗";
+          console.log(`  ${icon} ${c.name.padEnd(20)} ${c.detail}`);
+          if (c.status === "ok") ok++;
+          else if (c.status === "warn") warn++;
+          else err++;
+        }
+        console.log(`\n${ok} ok, ${warn} warnings, ${err} errors`);
+        break;
+      }
+
+      case "completions": {
+        const shell = args[1] || detectShell();
+        if (!shell) {
+          console.error("Could not detect shell. Specify: keyblind completions <bash|zsh|fish>");
+          process.exit(1);
+        }
+        switch (shell) {
+          case "bash":
+            console.log(generateBash());
+            break;
+          case "zsh":
+            console.log(generateZsh());
+            break;
+          case "fish":
+            console.log(generateFish());
+            break;
+          default:
+            console.error(`Unknown shell: ${shell}. Use bash, zsh, or fish.`);
+            process.exit(1);
+        }
+        console.error(`\n# ${getInstallInstructions(shell)}`);
         break;
       }
 

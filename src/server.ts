@@ -12,7 +12,7 @@ export function createServer(): McpServer {
 
   const server = new McpServer({
     name: "keyblind",
-    version: "0.1.4",
+    version: "0.3.0",
   });
 
   server.tool(
@@ -227,7 +227,7 @@ export async function startHttpServer(port: number = 3100): Promise<void> {
     // Health check
     if (req.url === "/health" || req.url === "/") {
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ status: "ok", server: "keyblind", version: "0.1.5" }));
+      res.end(JSON.stringify({ status: "ok", server: "keyblind", version: "0.3.0" }));
       return;
     }
 
