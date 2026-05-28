@@ -1,6 +1,6 @@
 {
   "name": "keyblind",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Blind AI to your keys — encrypted secrets vault with MCP for AI agents",
   "mcpName": "io.github.aarifmms/keyblind",
   "type": "module",
@@ -40,6 +40,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "acme-client": "^5.4.0",
     "better-sqlite3": "^11.0.0",
     "resend": "^6.12.4",
     "stripe": "^22.2.0",

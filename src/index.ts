@@ -11,3 +11,8 @@ export { runDoctor } from "./doctor.js";
 export { generateBash, generateZsh, generateFish, detectShell, getInstallInstructions } from "./completions.js";
 export { ensureHistoryTable, saveHistory, getSecretHistory, rollbackSecret, getExpiringSoon, createSyncBundle, applySyncBundle, migrateSecrets, type SecretVersion, type ExpiryWarning } from "./sync.js";
 export { configureAlerts, loadAlertsFromConfig, fireAlert, formatSlackPayload, formatDiscordPayload } from "./alerts.js";
+export { storeTOTP, getTOTP, listTOTP, deleteTOTP, generateTOTPCode, generateTOTP, generateHOTP, parseOTPAuthURI, timeRemaining, type TOTPConfig } from "./totp.js";
+export { createShareLink, receiveShare, parseTTL, type SharePayload } from "./share.js";
+export { setupDeadman, checkin, getDeadmanStatus, disableDeadman, checkDeadmanTrigger, encryptKeyShard, getDeadmanConfig, type DeadmanConfig, type DeadmanStatus } from "./deadman.js";
+export { provisionCert, createHttpsServer, startAutoRenewal, certExists, certExpiringSoon, type ACMEOptions, type CertPaths } from "./https.js";
+export { configureSSO, ssoLogin, ssoLogout, getSSOToken, isSSOAuthenticated, getSSOConfig, type SSOConfig, type SSOToken, type IDTokenClaims } from "./sso.js";

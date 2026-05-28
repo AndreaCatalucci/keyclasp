@@ -6,3 +6,4 @@ dist
 .mcp.json
 .vercel
 .env*.local
+.next

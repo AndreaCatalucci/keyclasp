@@ -13,8 +13,12 @@ import { runDoctor } from "./doctor.js";
 import { generateBash, generateZsh, generateFish, detectShell, getInstallInstructions } from "./completions.js";
 import { saveHistory, getSecretHistory, rollbackSecret, ensureHistoryTable, getExpiringSoon, createSyncBundle, applySyncBundle, migrateSecrets } from "./sync.js";
 import { configureAlerts, loadAlertsFromConfig, fireAlert } from "./alerts.js";
+import { storeTOTP, getTOTP, listTOTP, deleteTOTP, generateTOTPCode, parseOTPAuthURI } from "./totp.js";
+import { createShareLink, receiveShare } from "./share.js";
+import { setupDeadman, checkin, getDeadmanStatus, disableDeadman, checkDeadmanTrigger } from "./deadman.js";
+import { configureSSO, ssoLogin, ssoLogout, getSSOToken } from "./sso.js";
 import fs from "node:fs";
-import { spawn } from "node:child_process";
+import { spawn, execSync } from "node:child_process";
 import readline from "node:readline";
 import { stdin, stdout } from "node:process";
 
@@ -78,6 +82,23 @@ Usage:
   keyblind sync import <file> Apply a sync bundle from another machine
   keyblind migrate <from> <to> Migrate secrets between backends
   keyblind alerts <url>      Configure Slack/Discord webhook alerts
+  keyblind totp set <name>   Store a TOTP 2FA config (from otpauth:// URI)
+  keyblind totp code <name>  Generate current TOTP code with countdown
+  keyblind totp list          List all TOTP configurations
+  keyblind totp delete <name> Delete a TOTP config
+  keyblind share <name>       Create encrypted expiring share link
+  keyblind share <name> --ttl 7d --max-views 3   Custom TTL and view limit
+  keyblind receive <url>      Receive and store a shared secret
+  keyblind deadman setup      Configure dead man's switch vault release
+  keyblind deadman checkin    Reset the dead man's switch timer
+  keyblind deadman status     Show dead man's switch status
+  keyblind deadman disable    Disable dead man's switch
+  keyblind sso configure      Set up SSO/OIDC for team vault access
+  keyblind sso login          Authenticate via browser SSO flow
+  keyblind sso logout         Clear SSO session
+  keyblind sso status         Show SSO authentication status
+  keyblind start --http --https --domain example.com   HTTPS with Let's Encrypt
+  keyblind start --http --https --domain example.com --staging   Test with staging
   keyblind help                Show this help
 
 Global flags:
@@ -660,6 +681,12 @@ async function main(): Promise<void> {
         }
         const biometric = args.includes("--biometric");
         const httpMode = args.includes("--http");
+        const httpsMode = args.includes("--https");
+        const domainIdx = args.indexOf("--domain");
+        const domain = domainIdx !== -1 ? args[domainIdx + 1] : undefined;
+        const emailIdx = args.indexOf("--email");
+        const email = emailIdx !== -1 ? args[emailIdx + 1] : undefined;
+        const staging = args.includes("--staging");
         if (biometric) {
           requirePro();
           if (!biometricAvailable()) {
@@ -674,7 +701,17 @@ async function main(): Promise<void> {
           console.log("Biometric gate enabled — session expires in 15 minutes.");
         }
         getKey();
-        if (httpMode) {
+        if (httpsMode) {
+          requirePro();
+          if (!domain) {
+            console.error("HTTPS mode requires --domain <your-domain.com>");
+            console.error("Example: keyblind start --http --https --domain keyblind.example.com --email admin@example.com");
+            process.exit(1);
+          }
+          const portIdx = args.indexOf("--port");
+          const port = portIdx !== -1 ? parseInt(args[portIdx + 1], 10) : 443;
+          await startHttpServer(port, { domain, email, staging, port });
+        } else if (httpMode) {
           const portIdx = args.indexOf("--port");
           const port = portIdx !== -1 ? parseInt(args[portIdx + 1], 10) : 3100;
           await startHttpServer(port);
@@ -1057,6 +1094,317 @@ async function main(): Promise<void> {
         loadAlertsFromConfig();
         console.log(`Alert webhook configured: ${alertUrl}`);
         console.log(`Events: ${events.join(", ")}`);
+        break;
+      }
+
+      case "totp": {
+        requirePro();
+        if (!isInitialized()) {
+          console.error("Keyblind not initialized. Run: keyblind init");
+          process.exit(1);
+        }
+        const totpSub = args[1];
+        if (!totpSub) {
+          console.error("Usage: keyblind totp <set|code|list|delete|qr>");
+          process.exit(1);
+        }
+
+        switch (totpSub) {
+          case "set": {
+            const totpName = args[2];
+            if (!totpName) {
+              console.error("Usage: keyblind totp set <name> [otpauth-uri]");
+              process.exit(1);
+            }
+            let uri = args[3];
+            if (!uri) {
+              if (!stdin.isTTY) {
+                const chunks: Buffer[] = [];
+                for await (const chunk of stdin) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+                uri = Buffer.concat(chunks).toString().trim();
+              }
+              if (!uri) {
+                uri = await readPassphrase("Paste otpauth:// URI: ");
+              }
+            }
+            if (!uri) {
+              console.error("No URI provided.");
+              process.exit(1);
+            }
+            try {
+              storeTOTP(totpName, uri);
+              const config = parseOTPAuthURI(uri);
+              console.log(`Stored TOTP "${totpName}" — ${config.issuer || ""} ${config.account || ""}`.trim());
+            } catch (err: any) {
+              console.error(`Invalid OTP URI: ${err.message}`);
+              process.exit(1);
+            }
+            break;
+          }
+          case "code": {
+            const codeName = args[2];
+            if (!codeName) {
+              console.error("Usage: keyblind totp code <name>");
+              process.exit(1);
+            }
+            const result = generateTOTPCode(codeName);
+            if (!result) {
+              console.error(`TOTP "${codeName}" not found.`);
+              process.exit(1);
+            }
+            console.log(`${result.code}  (rotates in ${result.remaining}s)`);
+            break;
+          }
+          case "list": {
+            const names = listTOTP();
+            if (names.length === 0) {
+              console.log("(no TOTP configurations)");
+            } else {
+              for (const n of names) {
+                const cfg = getTOTP(n);
+                console.log(`  ${n}  ${cfg ? `${cfg.issuer || ""} ${cfg.account || ""}` : ""}`.trim());
+              }
+            }
+            break;
+          }
+          case "delete": {
+            const delName = args[2];
+            if (!delName) {
+              console.error("Usage: keyblind totp delete <name>");
+              process.exit(1);
+            }
+            const deleted = deleteTOTP(delName);
+            console.log(deleted ? `Deleted TOTP "${delName}"` : `TOTP "${delName}" not found.`);
+            break;
+          }
+          case "qr": {
+            const qrName = args[2];
+            if (!qrName) {
+              console.error("Usage: keyblind totp qr <name>");
+              process.exit(1);
+            }
+            const cfg = getTOTP(qrName);
+            if (!cfg) {
+              console.error(`TOTP "${qrName}" not found.`);
+              process.exit(1);
+            }
+            console.log(cfg.uri);
+            console.log("Scan this URI with your authenticator app, or use: keyblind totp code " + qrName);
+            break;
+          }
+          default:
+            console.error("Usage: keyblind totp <set|code|list|delete|qr>");
+            process.exit(1);
+        }
+        break;
+      }
+
+      case "share": {
+        requirePro();
+        if (!isInitialized()) {
+          console.error("Keyblind not initialized. Run: keyblind init");
+          process.exit(1);
+        }
+        const shareName = args[1];
+        if (!shareName) {
+          console.error("Usage: keyblind share <name> [--ttl 24h] [--max-views 1]");
+          process.exit(1);
+        }
+        const ttlIdx = args.indexOf("--ttl");
+        const ttl = ttlIdx !== -1 ? args[ttlIdx + 1] : "24h";
+        const viewsIdx = args.indexOf("--max-views");
+        const maxViews = viewsIdx !== -1 ? parseInt(args[viewsIdx + 1], 10) : 1;
+        try {
+          const { url } = createShareLink(shareName, { ttl, maxViews });
+          console.log(`Share link for "${shareName}" (expires in ${ttl}, ${maxViews} view(s)):`);
+          console.log(url);
+          console.log("\nThe secret is encrypted into the URL fragment — never sent to any server.");
+          console.log("Share this link. Recipient runs: keyblind receive <url>");
+        } catch (err: any) {
+          console.error(`Share failed: ${err.message}`);
+          process.exit(1);
+        }
+        break;
+      }
+
+      case "receive": {
+        requirePro();
+        if (!isInitialized()) {
+          console.error("Keyblind not initialized. Run: keyblind init");
+          process.exit(1);
+        }
+        let fragment = args[1];
+        if (!fragment) {
+          fragment = await readPassphrase("Paste share URL or fragment: ");
+        }
+        if (!fragment) {
+          console.error("No share URL/fragment provided.");
+          process.exit(1);
+        }
+        const targetName = args[2];
+        try {
+          const result = receiveShare(fragment, targetName);
+          console.log(`Received "${result.name}" — stored in vault.`);
+        } catch (err: any) {
+          console.error(`Receive failed: ${err.message}`);
+          process.exit(1);
+        }
+        break;
+      }
+
+      case "deadman": {
+        requirePro();
+        if (!isInitialized()) {
+          console.error("Keyblind not initialized. Run: keyblind init");
+          process.exit(1);
+        }
+        const dmSub = args[1];
+        if (!dmSub) {
+          console.error("Usage: keyblind deadman <setup|checkin|status|disable>");
+          process.exit(1);
+        }
+
+        switch (dmSub) {
+          case "setup": {
+            const daysIdx = args.indexOf("--days");
+            const days = daysIdx !== -1 ? parseInt(args[daysIdx + 1], 10) : 30;
+            const contactIdx = args.indexOf("--contact");
+            const contactEmail = contactIdx !== -1 ? args[contactIdx + 1] : null;
+            const keyIdx = args.indexOf("--key");
+            const publicKeyPath = keyIdx !== -1 ? args[keyIdx + 1] : undefined;
+            const msgIdx = args.indexOf("--message");
+            const message = msgIdx !== -1 ? args[msgIdx + 1] : undefined;
+
+            if (!contactEmail) {
+              console.error("Usage: keyblind deadman setup --days 30 --contact email@example.com [--key public.pem] [--message \"...\"]");
+              process.exit(1);
+            }
+
+            let publicKey: string | undefined;
+            if (publicKeyPath) {
+              try {
+                publicKey = fs.readFileSync(publicKeyPath, "utf8");
+              } catch {
+                console.error(`Could not read public key: ${publicKeyPath}`);
+                process.exit(1);
+              }
+            }
+
+            setupDeadman({ days, contactEmail, contactPublicKey: publicKey, message });
+            console.log(`Dead man's switch configured: ${days} days, contact ${contactEmail}`);
+            if (!publicKey) console.log("Warning: No public key provided. Key shard will not be encrypted for delivery.");
+            break;
+          }
+
+          case "checkin": {
+            checkin();
+            const status = getDeadmanStatus();
+            console.log(`Check-in recorded. ${status.daysRemaining} days remaining.`);
+            break;
+          }
+
+          case "status": {
+            const status = getDeadmanStatus();
+            if (!status.enabled) {
+              console.log("Dead man's switch is not configured.");
+              console.log("Set up with: keyblind deadman setup --days 30 --contact email@example.com");
+              return;
+            }
+            console.log("Dead Man's Switch Status");
+            console.log("───────────────────────");
+            console.log(`  Enabled:         ${status.enabled ? "Yes" : "No"}`);
+            console.log(`  Threshold:       ${status.daysConfigured} days`);
+            console.log(`  Last check-in:   ${status.lastCheckin || "Never"}`);
+            console.log(`  Days remaining:  ${status.daysRemaining}`);
+            console.log(`  Contact:         ${status.contactEmail}`);
+            console.log(`  Triggered:       ${status.triggered ? "YES" : "No"}`);
+            break;
+          }
+
+          case "disable": {
+            disableDeadman();
+            console.log("Dead man's switch disabled.");
+            break;
+          }
+
+          default:
+            console.error("Usage: keyblind deadman <setup|checkin|status|disable>");
+            process.exit(1);
+        }
+        break;
+      }
+
+      case "sso": {
+        requirePro();
+        if (!isInitialized()) {
+          console.error("Keyblind not initialized. Run: keyblind init");
+          process.exit(1);
+        }
+        const ssoSub = args[1];
+        if (!ssoSub) {
+          console.error("Usage: keyblind sso <configure|login|logout|status>");
+          process.exit(1);
+        }
+
+        switch (ssoSub) {
+          case "configure": {
+            const provider = args[2];
+            const clientIdx = args.indexOf("--client-id");
+            const clientId = clientIdx !== -1 ? args[clientIdx + 1] : null;
+            const domainIdx = args.indexOf("--domain");
+            const domain = domainIdx !== -1 ? args[domainIdx + 1] : undefined;
+
+            if (!provider || !clientId) {
+              console.error("Usage: keyblind sso configure <google|okta|azure> --client-id <id> [--domain <domain>]");
+              process.exit(1);
+            }
+
+            try {
+              await configureSSO({ provider, clientId, domain });
+              console.log(`SSO configured for ${provider}. Run 'keyblind sso login' to authenticate.`);
+            } catch (err: any) {
+              console.error(`SSO configure failed: ${err.message}`);
+              process.exit(1);
+            }
+            break;
+          }
+
+          case "login": {
+            try {
+              console.log("Opening browser for SSO login...");
+              console.log("Complete authentication in your browser, then return here.");
+              const token = await ssoLogin();
+              console.log(`Authenticated as ${token.claims.email}`);
+              if (token.claims.hd) console.log(`Domain: ${token.claims.hd}`);
+              console.log(`Token expires: ${new Date(token.expiresAt * 1000).toLocaleString()}`);
+            } catch (err: any) {
+              console.error(`SSO login failed: ${err.message}`);
+              process.exit(1);
+            }
+            break;
+          }
+
+          case "logout": {
+            ssoLogout();
+            console.log("SSO session cleared.");
+            break;
+          }
+
+          case "status": {
+            const token = getSSOToken();
+            if (token && token.expiresAt * 1000 > Date.now()) {
+              console.log(`Authenticated: ${token.claims.email}`);
+              console.log(`Expires: ${new Date(token.expiresAt * 1000).toLocaleString()}`);
+            } else {
+              console.log("Not authenticated. Run: keyblind sso login");
+            }
+            break;
+          }
+
+          default:
+            console.error("Usage: keyblind sso <configure|login|logout|status>");
+            process.exit(1);
+        }
         break;
       }
 
