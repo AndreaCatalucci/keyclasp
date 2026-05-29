@@ -1,6 +1,15 @@
 import { execSync } from "node:child_process";
 import { resolveSecret, listSecrets, storeSecret } from "./vault.js";
 
+function hasCommand(cmd: string): boolean {
+  try {
+    execSync(`${cmd} --version`, { stdio: "ignore", timeout: 3000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export interface SecretBackend {
   name: string;
   resolve(name: string): string | null;
@@ -54,14 +63,7 @@ function create1PasswordBackend(): SecretBackend {
         stdio: "ignore",
       });
     },
-    isAvailable: () => {
-      try {
-        execSync("op --version", { stdio: "ignore" });
-        return true;
-      } catch {
-        return false;
-      }
-    },
+    isAvailable: () => hasCommand("op"),
   };
 }
 
@@ -96,14 +98,7 @@ function createBitwardenBackend(): SecretBackend {
     store: () => {
       throw new Error("Bitwarden backend does not support storing via Keyblind. Use 'bw create' directly.");
     },
-    isAvailable: () => {
-      try {
-        execSync("bw --version", { stdio: "ignore" });
-        return true;
-      } catch {
-        return false;
-      }
-    },
+    isAvailable: () => hasCommand("bw"),
   };
 }
 
@@ -153,14 +148,7 @@ function createAwsBackend(): SecretBackend {
         stdio: "ignore",
       });
     },
-    isAvailable: () => {
-      try {
-        execSync("aws --version", { stdio: "ignore" });
-        return true;
-      } catch {
-        return false;
-      }
-    },
+    isAvailable: () => hasCommand("aws"),
   };
 }
 
@@ -196,14 +184,7 @@ function createGcpBackend(): SecretBackend {
         stdio: "ignore",
       });
     },
-    isAvailable: () => {
-      try {
-        execSync("gcloud --version", { stdio: "ignore" });
-        return true;
-      } catch {
-        return false;
-      }
-    },
+    isAvailable: () => hasCommand("gcloud"),
   };
 }
 
@@ -249,14 +230,7 @@ function createAzureBackend(): SecretBackend {
         stdio: "ignore",
       });
     },
-    isAvailable: () => {
-      try {
-        execSync("az --version", { stdio: "ignore" });
-        return true;
-      } catch {
-        return false;
-      }
-    },
+    isAvailable: () => hasCommand("az"),
   };
 }
 
