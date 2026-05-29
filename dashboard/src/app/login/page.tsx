@@ -83,8 +83,10 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-[#0d1117] p-4">
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
-          <Shield className="w-10 h-10 text-[#58a6ff] mx-auto mb-3" />
-          <h1 className="text-xl font-semibold text-[#f0f6fc]">Keyblind</h1>
+          <a href="https://keyblind.dev" className="inline-block">
+            <Shield className="w-10 h-10 text-[#58a6ff] mx-auto mb-3" />
+            <h1 className="text-xl font-semibold text-[#f0f6fc]">Keyblind</h1>
+          </a>
           <p className="text-sm text-[#8b949e] mt-1">Sign in with your license key</p>
         </div>
 
