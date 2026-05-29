@@ -1,11 +1,12 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import crypto from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
 // We need to intercept the vault path before vault.ts loads its module-level state.
 // The vault uses ~/.keyblind/ — we redirect to a temp dir for testing.
-const tmpDir = path.join(fs.mkdtempSync(path.join(process.env.TMPDIR || "/tmp", "keyblind-test-")));
+const tmpDir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "keyblind-test-")));
 const vaultDir = path.join(tmpDir, ".keyblind");
 
 // Intercept os.homedir so vault.ts creates files in our temp directory

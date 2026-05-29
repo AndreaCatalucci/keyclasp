@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll, vi, beforeEach } from "vitest";
 import crypto from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
 // Redirect vault to temp dir
-const tmpDir = path.join(fs.mkdtempSync(path.join(process.env.TMPDIR || "/tmp", "keyblind-test-")));
+const tmpDir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "keyblind-test-")));
 vi.mock("node:os", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:os")>();
   return { ...actual, homedir: () => tmpDir };
