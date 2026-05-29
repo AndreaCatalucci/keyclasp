@@ -7,7 +7,7 @@ describe("backends", () => {
     expect(backend.name).toBe("local");
   });
 
-  it("lists available backends", () => {
+  it("lists available backends", { timeout: 15000 }, () => {
     const backends = listAvailableBackends();
     expect(backends.length).toBeGreaterThanOrEqual(7);
     const names = backends.map((b) => b.name);

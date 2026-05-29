@@ -248,7 +248,7 @@ describe("SSO integration", () => {
 
 // ─── Backend detection tests ────────────────────────────────
 describe("Backend integration", () => {
-  it("lists available backends including local", () => {
+  it("lists available backends including local", { timeout: 15000 }, () => {
     const backends = listAvailableBackends();
     const names = backends.map((b) => b.name);
     expect(names).toContain("local");

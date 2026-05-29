@@ -3,7 +3,7 @@ import { resolveSecret, listSecrets, storeSecret } from "./vault.js";
 
 function hasCommand(cmd: string): boolean {
   try {
-    execSync(`${cmd} --version`, { stdio: "ignore", timeout: 3000 });
+    execSync(`command -v ${cmd}`, { stdio: "ignore", timeout: 2000 });
     return true;
   } catch {
     return false;
