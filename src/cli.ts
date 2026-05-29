@@ -385,10 +385,13 @@ async function main(): Promise<void> {
 
       case "dashboard-login": {
         const port = parseInt(args[1] || "3100", 10);
+        console.error("Generating sign-in link...");
         const { url } = await generatePairingToken(port);
-        console.log("\nOpen this URL in your browser to sign in to the dashboard:\n");
-        console.log(`  ${url}\n`);
-        console.log("This link expires in 5 minutes.");
+        const openCmd = process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
+        execSync(`${openCmd} "${url}"`);
+        console.log("Browser opened. Sign in to continue.");
+        console.log("If the browser doesn't open, visit:");
+        console.log(`  ${url}`);
         break;
       }
 
