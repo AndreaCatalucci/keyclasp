@@ -47,6 +47,8 @@ function ActivateContent() {
     { label: "Install Keyblind CLI", cmd: "npm install -g keyblind" },
     { label: "Activate your license", cmd: licenseKey ? `keyblind activate ${licenseKey}` : "" },
     { label: "Initialize your vault", cmd: "keyblind init" },
+    { label: "Start the server", cmd: "keyblind start --http" },
+    { label: "Sign into dashboard", cmd: "keyblind dashboard-login" },
   ].filter((c) => c.cmd);
 
   if (status === "loading") {
