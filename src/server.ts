@@ -3,7 +3,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
 import http from "node:http";
-import { storeSecret, listSecrets, deleteSecret, isInitialized, getAuditLog, setClientInfo } from "./vault.js";
+import { storeSecret, listSecrets, deleteSecret, resolveSecret, isInitialized, getAuditLog, setClientInfo } from "./vault.js";
 import { getBackend } from "./backends.js";
 import { sandboxEnvFile, unsandboxEnvFile } from "./sandbox.js";
 import { generateTOTPCode, storeTOTP, listTOTP, deleteTOTP, parseOTPAuthURI, getTOTP, type TOTPConfig } from "./totp.js";
@@ -14,6 +14,7 @@ import { getLicenseInfo } from "./license.js";
 import { getSSOToken, isSSOAuthenticated } from "./sso.js";
 import { createHttpsServer, certExists, certExpiringSoon, provisionCert, startAutoRenewal, type ACMEOptions } from "./https.js";
 import { generateSecret } from "./config.js";
+import { teamInit, teamPush, teamPull, teamList, teamResolve, teamDelete } from "./team.js";
 
 function readBody(req: http.IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -344,6 +345,116 @@ export function createServer(): McpServer {
     },
   );
 
+  // Team vault tools
+  server.tool(
+    "team_init",
+    "Create a new shared team vault (encrypted SQLite). Requires a passphrase.",
+    {
+      passphrase: z.string().describe("Passphrase to encrypt the team vault"),
+      path: z.string().optional().describe("Optional path for the team vault file"),
+    },
+    async ({ passphrase, path }) => {
+      try {
+        const vaultPath = teamInit(passphrase, path);
+        return { content: [{ type: "text", text: JSON.stringify({ success: true, path: vaultPath }) }] };
+      } catch (err: any) {
+        return { content: [{ type: "text", text: JSON.stringify({ error: err.message }) }], isError: true };
+      }
+    },
+  );
+
+  server.tool(
+    "team_push",
+    "Push a local secret to the shared team vault.",
+    {
+      name: z.string().describe("Name of the secret to push"),
+      passphrase: z.string().describe("Team vault passphrase"),
+      value: z.string().optional().describe("Optional: value to push (if omitted, resolves from local vault)"),
+    },
+    async ({ name, passphrase, value }) => {
+      try {
+        const resolved = resolveSecret(name);
+        if (!resolved && !value) {
+          return { content: [{ type: "text", text: JSON.stringify({ error: `Secret "${name}" not found in local vault. Provide a value.` }) }], isError: true };
+        }
+        const secretValue = value || resolved!;
+        teamPush(name, secretValue, passphrase);
+        return { content: [{ type: "text", text: JSON.stringify({ success: true, name }) }] };
+      } catch (err: any) {
+        return { content: [{ type: "text", text: JSON.stringify({ error: err.message }) }], isError: true };
+      }
+    },
+  );
+
+  server.tool(
+    "team_pull",
+    "Import all secrets from the team vault into your local vault.",
+    {
+      passphrase: z.string().describe("Team vault passphrase"),
+    },
+    async ({ passphrase }) => {
+      try {
+        const names = teamPull(passphrase);
+        return { content: [{ type: "text", text: JSON.stringify({ success: true, imported: names.length, names }) }] };
+      } catch (err: any) {
+        return { content: [{ type: "text", text: JSON.stringify({ error: err.message }) }], isError: true };
+      }
+    },
+  );
+
+  server.tool(
+    "team_list",
+    "List all secret names in the team vault.",
+    {
+      passphrase: z.string().describe("Team vault passphrase"),
+    },
+    async ({ passphrase }) => {
+      try {
+        const names = teamList(passphrase);
+        return { content: [{ type: "text", text: JSON.stringify({ names }) }] };
+      } catch (err: any) {
+        return { content: [{ type: "text", text: JSON.stringify({ error: err.message }) }], isError: true };
+      }
+    },
+  );
+
+  server.tool(
+    "team_resolve",
+    "Resolve (decrypt) a single secret from the team vault.",
+    {
+      name: z.string().describe("Name of the secret to resolve"),
+      passphrase: z.string().describe("Team vault passphrase"),
+    },
+    async ({ name, passphrase }) => {
+      try {
+        const value = teamResolve(name, passphrase);
+        if (value === null) {
+          return { content: [{ type: "text", text: JSON.stringify({ error: `Secret "${name}" not found in team vault` }) }], isError: true };
+        }
+        return { content: [{ type: "text", text: JSON.stringify({ name, value }) }] };
+      } catch (err: any) {
+        return { content: [{ type: "text", text: JSON.stringify({ error: err.message }) }], isError: true };
+      }
+    },
+  );
+
+  server.tool(
+    "team_delete",
+    "Delete a secret from the team vault.",
+    {
+      name: z.string().describe("Name of the secret to delete"),
+      passphrase: z.string().describe("Team vault passphrase"),
+    },
+    async ({ name, passphrase }) => {
+      try {
+        const deleted = teamDelete(name, passphrase);
+        return { content: [{ type: "text", text: JSON.stringify({ success: deleted, name }) }] };
+      } catch (err: any) {
+        return { content: [{ type: "text", text: JSON.stringify({ error: err.message }) }], isError: true };
+      }
+    },
+  );
+
   // SSO tools
   server.tool(
     "sso_status",
@@ -534,6 +645,71 @@ export async function startHttpServer(port: number = 3100, httpsConfig?: ACMEOpt
       const status = getDeadmanStatus();
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ checkedIn: true, ...status }));
+      return;
+    }
+
+    // ── Team REST API ──
+    if (req.url === "/api/team/init" && req.method === "POST") {
+      const body = await readBody(req);
+      try {
+        const { passphrase, path } = JSON.parse(body);
+        if (!passphrase) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "passphrase required" })); return; }
+        const vaultPath = teamInit(passphrase, path);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: true, path: vaultPath }));
+      } catch (err: any) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: err.message })); }
+      return;
+    }
+
+    if (req.url === "/api/team/list" && req.method === "POST") {
+      const body = await readBody(req);
+      try {
+        const { passphrase } = JSON.parse(body);
+        if (!passphrase) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "passphrase required" })); return; }
+        const names = teamList(passphrase);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ names }));
+      } catch (err: any) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: err.message })); }
+      return;
+    }
+
+    if (req.url === "/api/team/push" && req.method === "POST") {
+      const body = await readBody(req);
+      try {
+        const { name, value, passphrase } = JSON.parse(body);
+        if (!name || !passphrase) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "name and passphrase required" })); return; }
+        const resolved = resolveSecret(name);
+        if (!resolved && !value) { res.writeHead(404, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: `Secret "${name}" not found in local vault` })); return; }
+        const secretValue = value || resolved!;
+        teamPush(name, secretValue, passphrase);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: true, name }));
+      } catch (err: any) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: err.message })); }
+      return;
+    }
+
+    if (req.url === "/api/team/pull" && req.method === "POST") {
+      const body = await readBody(req);
+      try {
+        const { passphrase } = JSON.parse(body);
+        if (!passphrase) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "passphrase required" })); return; }
+        const names = teamPull(passphrase);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: true, imported: names.length, names }));
+      } catch (err: any) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: err.message })); }
+      return;
+    }
+
+    if (req.url?.startsWith("/api/team/") && req.method === "DELETE") {
+      const body = await readBody(req);
+      try {
+        const name = decodeURIComponent(req.url.slice("/api/team/".length));
+        const { passphrase } = JSON.parse(body);
+        if (!passphrase) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "passphrase required" })); return; }
+        const deleted = teamDelete(name, passphrase);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: deleted, name }));
+      } catch (err: any) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: err.message })); }
       return;
     }
 

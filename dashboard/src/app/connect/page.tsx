@@ -9,6 +9,8 @@ function ConnectForm() {
   const router = useRouter();
   const [status, setStatus] = useState<"connecting" | "success" | "error">("connecting");
   const [errorMsg, setErrorMsg] = useState("");
+  const [retries, setRetries] = useState(0);
+  const maxRetries = 3;
 
   useEffect(() => {
     const token = searchParams.get("token");
@@ -19,6 +21,8 @@ function ConnectForm() {
       setErrorMsg("No pairing token found in URL");
       return;
     }
+
+    let cancelled = false;
 
     async function verify() {
       try {
@@ -43,18 +47,38 @@ function ConnectForm() {
 
         if (!loginRes.ok) throw new Error("Session creation failed");
 
-        setStatus("success");
-        setTimeout(() => {
-          window.location.href = "/";
-        }, 1000);
+        if (!cancelled) {
+          setStatus("success");
+          setTimeout(() => {
+            window.location.href = "/";
+          }, 1000);
+        }
       } catch (err: any) {
+        if (cancelled) return;
+        const msg = err.message || "Failed to connect. Is Keyblind running?";
         setStatus("error");
-        setErrorMsg(err.message || "Failed to connect. Is Keyblind running?");
+        setErrorMsg(msg);
+
+        // Auto-retry on network errors (server not running)
+        if (retries < maxRetries && (msg.includes("Failed to fetch") || msg.includes("NetworkError"))) {
+          const delay = Math.pow(2, retries) * 1000;
+          setTimeout(() => {
+            setStatus("connecting");
+            setRetries((r) => r + 1);
+          }, delay);
+        }
       }
     }
 
     verify();
-  }, [searchParams, router]);
+    return () => { cancelled = true; };
+  }, [searchParams, router, retries]);
+
+  function handleRetry() {
+    setStatus("connecting");
+    setErrorMsg("");
+    setRetries((r) => r + 1);
+  }
 
   return (
     <>
@@ -62,7 +86,9 @@ function ConnectForm() {
         <>
           <Loader2 className="w-8 h-8 text-[#58a6ff] mx-auto mb-4 animate-spin" />
           <h1 className="text-lg font-semibold text-[#f0f6fc]">Connecting to Keyblind...</h1>
-          <p className="text-sm text-[#8b949e] mt-2">Verifying your local vault</p>
+          <p className="text-sm text-[#8b949e] mt-2">
+            {retries > 0 ? `Retrying (attempt ${retries}/${maxRetries})...` : "Verifying your local vault"}
+          </p>
         </>
       )}
 
@@ -82,12 +108,20 @@ function ConnectForm() {
           <p className="text-xs text-[#484f58] mt-4">
             Make sure Keyblind is running: <code className="text-[#7ee787]">keyblind start --http</code>
           </p>
-          <button
-            onClick={() => router.push("/login")}
-            className="mt-4 text-sm text-[#58a6ff] hover:text-[#79b8ff]"
-          >
-            Try license key instead
-          </button>
+          <div className="flex gap-2 justify-center mt-4">
+            <button
+              onClick={handleRetry}
+              className="text-sm bg-[#1f6feb] text-white rounded-md px-4 py-1.5 hover:bg-[#1a5fd4]"
+            >
+              Retry
+            </button>
+            <button
+              onClick={() => router.push("/login")}
+              className="text-sm text-[#58a6ff] hover:text-[#79b8ff]"
+            >
+              Try license key instead
+            </button>
+          </div>
         </>
       )}
     </>

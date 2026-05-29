@@ -57,6 +57,16 @@
     font-size: 13px; color: #7ee787; border: 1px solid #21262d;
   }
 
+  /* Features grid */
+  .features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .feat {
+    background: #161b22; border: 1px solid #21262d; border-radius: 10px;
+    padding: 20px; text-align: center;
+  }
+  .feat .icon { font-size: 24px; margin-bottom: 8px; }
+  .feat h4 { color: #f0f6fc; font-size: 14px; margin-bottom: 4px; }
+  .feat p { color: #8b949e; font-size: 12px; }
+
   /* Pricing */
   .pricing { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
   .card {
@@ -88,17 +98,34 @@
     color: #8b949e; border: 1px dashed #30363d; border-radius: 8px;
   }
 
+  /* Comparison table */
+  .compare { width: 100%; border-collapse: collapse; }
+  .compare th {
+    text-align: left; padding: 12px 16px; font-size: 14px; color: #f0f6fc;
+    background: #161b22; border-bottom: 1px solid #21262d;
+  }
+  .compare td {
+    padding: 10px 16px; font-size: 14px; border-bottom: 1px solid #21262d;
+  }
+  .compare tr:hover td { background: #161b22; }
+  .compare .win { color: #3fb950; font-weight: 600; }
+  .compare .lose { color: #f85149; }
+
   /* Logos */
   .logos { display: flex; justify-content: center; gap: 32px; flex-wrap: wrap; margin-top: 30px; }
   .logos span { color: #484f58; font-size: 14px; }
 
+  /* Testimonials */
+  .testimonials { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px; max-width: 960px; margin: 0 auto; }
+
   /* Footer */
   footer { text-align: center; padding: 40px 0; color: #484f58; font-size: 13px; border-top: 1px solid #21262d; margin-top: 40px; }
   footer a { color: #58a6ff; text-decoration: none; }
+  footer .links { display: flex; justify-content: center; gap: 24px; flex-wrap: wrap; margin-bottom: 16px; }
 
   @media (max-width: 768px) {
     .hero h1 { font-size: 32px; }
-    .steps, .pricing { grid-template-columns: 1fr; }
+    .steps, .pricing, .features { grid-template-columns: 1fr; }
     .hero { padding: 60px 0 40px; }
     .btn-outline { margin-left: 0; margin-top: 12px; }
   }
@@ -112,7 +139,9 @@
   <nav style="display:flex;justify-content:space-between;align-items:center;padding:16px 0;border-bottom:1px solid #21262d;">
     <a href="/" style="display:flex;align-items:center;gap:8px;text-decoration:none;color:#58a6ff;font-weight:600;font-size:16px;">Keyblind</a>
     <div style="display:flex;gap:16px;align-items:center;">
-      <a href="https://app.keyblind.dev/login" style="color:#8b949e;text-decoration:none;font-size:14px;">Sign In</a>
+      <a href="#docs" style="color:#8b949e;text-decoration:none;font-size:14px;">Docs</a>
+      <a href="#pricing" style="color:#8b949e;text-decoration:none;font-size:14px;">Pricing</a>
+      <a href="https://app.keyblind.dev/login" style="color:#58a6ff;text-decoration:none;font-size:14px;font-weight:500;">Sign In</a>
     </div>
   </nav>
 
@@ -158,8 +187,61 @@
     </div>
   </div>
 
-  <!-- Pricing -->
+  <!-- More than secrets -->
   <div class="section">
+    <h2>More Than a Vault</h2>
+    <div class="sub">16 MCP tools. One CLI. No network calls.</div>
+    <div class="features">
+      <div class="feat">
+        <div class="icon">&#128274;</div>
+        <h4>AES-256-GCM Vault</h4>
+        <p>Encrypted SQLite. Machine-identity-bound key. Zero network.</p>
+      </div>
+      <div class="feat">
+        <div class="icon">&#128273;</div>
+        <h4>7 Backends</h4>
+        <p>Local, 1Password, Bitwarden, env vars, AWS, GCP, Azure.</p>
+      </div>
+      <div class="feat">
+        <div class="icon">&#128230;</div>
+        <h4>Sandbox</h4>
+        <p>Deterministic HMAC-SHA256 fakes. Clean git diffs. Safe for AI review.</p>
+      </div>
+      <div class="feat">
+        <div class="icon">&#9200;</div>
+        <h4>TOTP / HOTP</h4>
+        <p>Built-in 2FA code generation. No phone needed. Zero deps.</p>
+      </div>
+      <div class="feat">
+        <div class="icon">&#128279;</div>
+        <h4>Secret Sharing</h4>
+        <p>AES-256-GCM encrypted URL fragments. Time-limited. View-limited.</p>
+      </div>
+      <div class="feat">
+        <div class="icon">&#9760;</div>
+        <h4>Dead Man's Switch</h4>
+        <p>Auto-release vault to contacts if you don't check in.</p>
+      </div>
+      <div class="feat">
+        <div class="icon">&#128101;</div>
+        <h4>Team Vaults</h4>
+        <p>Git-safe shared vault. Passphrase-protected. PBKDF2 key derivation.</p>
+      </div>
+      <div class="feat">
+        <div class="icon">&#128273;</div>
+        <h4>SSO / OIDC</h4>
+        <p>Team vault access via Google, Okta, or any OIDC provider.</p>
+      </div>
+      <div class="feat">
+        <div class="icon">&#128231;</div>
+        <h4>Alerts</h4>
+        <p>Slack and Discord webhooks for secret expiry and vault events.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Pricing -->
+  <div class="section" id="pricing">
     <h2>Pricing</h2>
     <div class="sub">Start free. Upgrade when you need more.</div>
     <div class="pricing">
@@ -172,8 +254,9 @@
           <li class="yes">5 secrets</li>
           <li class="yes">Local vault (AES-256-GCM)</li>
           <li class="yes">Sandbox / Unsandbox</li>
-          <li class="yes">MCP server</li>
+          <li class="yes">MCP server (16 tools)</li>
           <li class="yes">7 backends</li>
+          <li class="yes">TOTP / Sharing / Dead Man</li>
           <li class="no">Team vaults</li>
           <li class="no">Audit log</li>
           <li class="no">Secret rotation</li>
@@ -191,8 +274,9 @@
           <li class="yes">Unlimited secrets</li>
           <li class="yes">Local vault (AES-256-GCM)</li>
           <li class="yes">Sandbox / Unsandbox</li>
-          <li class="yes">MCP server</li>
+          <li class="yes">MCP server (16 tools)</li>
           <li class="yes">7 backends</li>
+          <li class="yes">TOTP / Sharing / Dead Man</li>
           <li class="yes">Team vaults</li>
           <li class="yes">Audit log</li>
           <li class="yes">Secret rotation</li>
@@ -211,6 +295,7 @@
           <li class="yes">Everything in Pro</li>
           <li class="yes">Centralized admin</li>
           <li class="yes">Shared vault policies</li>
+          <li class="yes">SSO / OIDC</li>
           <li class="yes">Audit export</li>
           <li class="yes">Priority support</li>
         </ul>
@@ -219,23 +304,143 @@
     </div>
   </div>
 
+  <!-- Comparison -->
+  <div class="section">
+    <h2>Keyblind vs Cloak</h2>
+    <div class="sub">Why Keyblind is the right choice for AI-era secret management.</div>
+    <div style="overflow-x:auto;">
+      <table class="compare">
+        <thead>
+          <tr>
+            <th>Feature</th>
+            <th>Keyblind</th>
+            <th>Cloak</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Protocol</td>
+            <td class="win">MCP (every AI tool)</td>
+            <td class="lose">VS Code / Cursor only</td>
+          </tr>
+          <tr>
+            <td>Editors supported</td>
+            <td class="win">6 (Claude Code, Cursor, Copilot, Windsurf, Cline, Zed)</td>
+            <td class="lose">2 (VS Code, Cursor)</td>
+          </tr>
+          <tr>
+            <td>Encryption</td>
+            <td class="win">AES-256-GCM + machine-identity-bound key</td>
+            <td class="lose">AES-256-GCM</td>
+          </tr>
+          <tr>
+            <td>Backends</td>
+            <td class="win">7 (local, 1Password, Bitwarden, AWS, GCP, Azure, env)</td>
+            <td class="lose">1 (local)</td>
+          </tr>
+          <tr>
+            <td>Sandbox</td>
+            <td class="win">Deterministic HMAC-SHA256 fakes</td>
+            <td class="lose">Random placeholders</td>
+          </tr>
+          <tr>
+            <td>TOTP / 2FA built-in</td>
+            <td class="win">Yes</td>
+            <td class="lose">No</td>
+          </tr>
+          <tr>
+            <td>Secret sharing</td>
+            <td class="win">Encrypted URL fragments</td>
+            <td class="lose">No</td>
+          </tr>
+          <tr>
+            <td>Dead man's switch</td>
+            <td class="win">Yes</td>
+            <td class="lose">No</td>
+          </tr>
+          <tr>
+            <td>Team vaults</td>
+            <td class="win">Git-safe, passphrase-protected</td>
+            <td class="lose">No</td>
+          </tr>
+          <tr>
+            <td>Dashboard</td>
+            <td class="win">Web dashboard (app.keyblind.dev)</td>
+            <td class="lose">No</td>
+          </tr>
+          <tr>
+            <td>Browser extension</td>
+            <td class="win">Chrome (paste interception)</td>
+            <td class="lose">No</td>
+          </tr>
+          <tr>
+            <td>License</td>
+            <td>MIT (open source)</td>
+            <td>Proprietary</td>
+          </tr>
+          <tr>
+            <td>Pricing</td>
+            <td class="win">Free tier + $79/yr Pro</td>
+            <td class="lose">$8/mo ($96/yr)</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Docs -->
+  <div class="section" id="docs">
+    <h2>Documentation</h2>
+    <div class="sub">Everything you need to get started and go deep.</div>
+    <div style="display:grid;grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap:16px;">
+      <a href="https://github.com/aarifmms/keyblind/blob/main/docs/getting-started.md" class="card" style="text-decoration:none;display:block;">
+        <h4 style="color:#58a6ff;margin-bottom:4px;">Getting Started</h4>
+        <p style="color:#8b949e;font-size:13px;">Install, init, first secret, sandbox walkthrough.</p>
+      </a>
+      <a href="https://github.com/aarifmms/keyblind/blob/main/docs/commands.md" class="card" style="text-decoration:none;display:block;">
+        <h4 style="color:#58a6ff;margin-bottom:4px;">CLI Reference</h4>
+        <p style="color:#8b949e;font-size:13px;">All 40+ commands with examples and flags.</p>
+      </a>
+      <a href="https://github.com/aarifmms/keyblind/blob/main/docs/mcp-integration.md" class="card" style="text-decoration:none;display:block;">
+        <h4 style="color:#58a6ff;margin-bottom:4px;">MCP Integration</h4>
+        <p style="color:#8b949e;font-size:13px;">16 MCP tools with parameter schemas and usage patterns.</p>
+      </a>
+      <a href="https://github.com/aarifmms/keyblind/blob/main/docs/editors.md" class="card" style="text-decoration:none;display:block;">
+        <h4 style="color:#58a6ff;margin-bottom:4px;">Editor Setup</h4>
+        <p style="color:#8b949e;font-size:13px;">Per-editor config for Claude Code, Cursor, Copilot, and more.</p>
+      </a>
+      <a href="https://github.com/aarifmms/keyblind/blob/main/docs/security.md" class="card" style="text-decoration:none;display:block;">
+        <h4 style="color:#58a6ff;margin-bottom:4px;">Security</h4>
+        <p style="color:#8b949e;font-size:13px;">Threat model, cryptographic architecture, attack surface analysis.</p>
+      </a>
+      <a href="https://github.com/aarifmms/keyblind/blob/main/docs/recipes.md" class="card" style="text-decoration:none;display:block;">
+        <h4 style="color:#58a6ff;margin-bottom:4px;">Recipes</h4>
+        <p style="color:#8b949e;font-size:13px;">CI/CD, Docker, pre-commit, sharing, TOTP, multi-machine sync.</p>
+      </a>
+      <a href="https://github.com/aarifmms/keyblind/blob/main/docs/faq.md" class="card" style="text-decoration:none;display:block;">
+        <h4 style="color:#58a6ff;margin-bottom:4px;">FAQ</h4>
+        <p style="color:#8b949e;font-size:13px;">Common questions about setup, security, licensing, and teams.</p>
+      </a>
+    </div>
+  </div>
+
 </div>
 
   <!-- Testimonials -->
   <div class="container" style="margin-top:64px">
     <h2 style="text-align:center;margin-bottom:32px">Trusted by Developers</h2>
-    <div style="display:grid;grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap:24px; max-width:960px; margin:0 auto">
+    <div class="testimonials">
       <div class="card" style="text-align:center">
-        <p style="font-size:15px;color:#c9d1d9;line-height:1.6;font-style:italic">"Finally — an MCP-native secrets manager that actually works across all my editors. The sandbox feature alone saved me from leaking keys to Claude Code twice."</p>
-        <p style="margin-top:12px;font-size:14px;color:#8b949e">— Alex R., Senior Engineer</p>
+        <p style="font-size:15px;color:#c9d1d9;line-height:1.6;font-style:italic">"Finally: an MCP-native secrets manager that actually works across all my editors. The sandbox feature alone saved me from leaking keys to Claude Code twice."</p>
+        <p style="margin-top:12px;font-size:14px;color:#8b949e">Alex R., Senior Engineer</p>
       </div>
       <div class="card" style="text-align:center">
         <p style="font-size:15px;color:#c9d1d9;line-height:1.6;font-style:italic">"We run Keyblind in CI to sandbox .env files before AI code review. Clean diffs, real secrets never exposed. It's part of our standard dev setup now."</p>
-        <p style="margin-top:12px;font-size:14px;color:#8b949e">— Jordan M., DevOps Lead</p>
+        <p style="margin-top:12px;font-size:14px;color:#8b949e">Jordan M., DevOps Lead</p>
       </div>
       <div class="card" style="text-align:center">
         <p style="font-size:15px;color:#c9d1d9;line-height:1.6;font-style:italic">"Switched from hand-managing .env files to Keyblind. The dead man's switch gives me peace of mind for our team vault access."</p>
-        <p style="margin-top:12px;font-size:14px;color:#8b949e">— Sam T., CTO at 12-person startup</p>
+        <p style="margin-top:12px;font-size:14px;color:#8b949e">Sam T., CTO at 12-person startup</p>
       </div>
     </div>
   </div>
@@ -244,7 +449,14 @@
 
 <footer>
   <div class="container">
-    <p><a href="https://github.com/aarifmms/keyblind">GitHub</a> &middot; <a href="https://www.npmjs.com/package/keyblind">npm</a> &middot; MIT Licensed &middot; Zero network &middot; Zero telemetry</p>
+    <div class="links">
+      <a href="https://github.com/aarifmms/keyblind">GitHub</a>
+      <a href="https://www.npmjs.com/package/keyblind">npm</a>
+      <a href="https://app.keyblind.dev/login">Dashboard</a>
+      <a href="https://github.com/aarifmms/keyblind/tree/main/docs">Docs</a>
+      <a href="/privacy.html">Privacy</a>
+    </div>
+    <p>MIT Licensed &middot; Zero network &middot; Zero telemetry &middot; Built for AI agents</p>
   </div>
 </footer>
 

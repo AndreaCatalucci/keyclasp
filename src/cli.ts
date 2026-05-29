@@ -58,6 +58,8 @@ Usage:
   keyblind setup-mcp           Configure MCP server for Claude Code & other editors
   keyblind dashboard-login     Generate one-time sign-in link for the web dashboard
   keyblind check-secrets       Scan staged files for secrets (used by hook)
+  keyblind scan-secrets <file...>  Scan specific files for secrets
+  keyblind backend <name>      Switch active secret backend
   keyblind audit               Show secret resolution audit log
   keyblind check --expired     List secrets past their expiry date
   keyblind rotate <name>       Update a secret (prompts for new value)
@@ -69,6 +71,7 @@ Usage:
   keyblind team push <name>     Push a local secret to the team vault
   keyblind team pull            Import all team secrets to local vault
   keyblind team list            List secrets in the team vault
+  keyblind team delete <name>    Delete a secret from the team vault
   keyblind generate <name>     Generate a strong random secret
   keyblind generate <name> --len 64    Generate with custom length
   keyblind generate <name> --no-symbols   Alphanumeric only

@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
+import { useState, useEffect } from "react";
 import { Key, Shield, Clock, Users, FileText, LogOut, Smartphone, Send, Skull } from "lucide-react";
+import { KeyblindClient } from "@/lib/keyblind-client";
 
 const navItems = [
   { href: "/", label: "Overview", icon: Shield },
@@ -18,6 +20,21 @@ const navItems = [
 export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
+  const [connected, setConnected] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    const client = new KeyblindClient();
+    let active = true;
+
+    async function check() {
+      const ok = await client.checkHealth();
+      if (active) setConnected(ok);
+    }
+
+    check();
+    const interval = setInterval(check, 15000);
+    return () => { active = false; clearInterval(interval); };
+  }, []);
 
   async function handleSignOut() {
     await fetch("/api/auth/signout", { method: "POST" });
@@ -51,7 +68,21 @@ export function Sidebar() {
           );
         })}
       </nav>
-      <div className="p-3 border-t border-[#21262d]">
+      <div className="p-3 border-t border-[#21262d] space-y-1">
+        <div className="flex items-center gap-2 px-3 py-1.5 text-xs">
+          <span
+            className={`w-2 h-2 rounded-full ${
+              connected === null
+                ? "bg-[#484f58]"
+                : connected
+                ? "bg-[#3fb950]"
+                : "bg-[#f85149]"
+            }`}
+          />
+          <span className="text-[#8b949e]">
+            {connected === null ? "Checking..." : connected ? "Connected" : "Disconnected"}
+          </span>
+        </div>
         <button
           onClick={handleSignOut}
           className="flex items-center gap-3 px-3 py-2 rounded-md text-sm text-[#8b949e] hover:text-[#c9d1d9] hover:bg-[#21262d] w-full transition-colors"

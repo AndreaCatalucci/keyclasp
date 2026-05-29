@@ -66,12 +66,20 @@ function ActivateContent() {
         <Shield className="w-8 h-8 text-[#f85149] mx-auto mb-4" />
         <h1 className="text-lg font-semibold text-[#f0f6fc] mb-2">Activation Failed</h1>
         <p className="text-sm text-[#8b949e] mb-4">{error}</p>
-        <a
-          href="https://keyblind.dev"
-          className="inline-block text-[#58a6ff] text-sm hover:underline"
-        >
-          Return to Keyblind
-        </a>
+        <div className="flex gap-3 justify-center">
+          <button
+            onClick={() => window.location.reload()}
+            className="bg-[#1f6feb] text-white rounded-md px-4 py-2 text-sm font-medium hover:bg-[#1a5fd4]"
+          >
+            Try Again
+          </button>
+          <a
+            href="https://keyblind.dev"
+            className="border border-[#30363d] text-[#c9d1d9] rounded-md px-4 py-2 text-sm hover:bg-[#21262d]"
+          >
+            Return to Keyblind
+          </a>
+        </div>
       </div>
     );
   }
