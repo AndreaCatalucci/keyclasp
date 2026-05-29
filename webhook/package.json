@@ -6,8 +6,8 @@
     "deploy": "vercel deploy --prod"
   },
   "dependencies": {
-    "resend": "^4.0.0",
-    "stripe": "^17.0.0"
+    "resend": "^4.8.0",
+    "stripe": "^17.7.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

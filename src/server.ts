@@ -6,11 +6,12 @@ import http from "node:http";
 import { storeSecret, listSecrets, deleteSecret, isInitialized, getAuditLog, setClientInfo } from "./vault.js";
 import { getBackend } from "./backends.js";
 import { sandboxEnvFile, unsandboxEnvFile } from "./sandbox.js";
-import { generateTOTPCode, storeTOTP, listTOTP, deleteTOTP, parseOTPAuthURI } from "./totp.js";
+import { generateTOTPCode, storeTOTP, listTOTP, deleteTOTP, parseOTPAuthURI, getTOTP, type TOTPConfig } from "./totp.js";
 import { createShareLink, receiveShare } from "./share.js";
 import { getDeadmanStatus, checkin } from "./deadman.js";
 import { getSSOToken, isSSOAuthenticated } from "./sso.js";
 import { createHttpsServer, certExists, certExpiringSoon, provisionCert, startAutoRenewal, type ACMEOptions } from "./https.js";
+import { generateSecret } from "./config.js";
 
 function readBody(req: http.IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -434,13 +435,118 @@ export async function startHttpServer(port: number = 3100, httpsConfig?: ACMEOpt
       return;
     }
 
-    if (req.url === "/api/audit" && req.method === "GET") {
+    if (req.url?.startsWith("/api/audit") && req.method === "GET") {
       if (!isInitialized()) { res.writeHead(500, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "Not initialized" })); return; }
       const url = new URL(req.url, `http://localhost:${port}`);
       const limit = parseInt(url.searchParams.get("limit") || "50", 10);
       const entries = getAuditLog(limit);
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ entries }));
+      return;
+    }
+
+    // ── TOTP REST API ──
+    if (req.url === "/api/totp" && req.method === "GET") {
+      if (!isInitialized()) { res.writeHead(500, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "Not initialized" })); return; }
+      const totps = listTOTP().map((name: string) => {
+        const config = getTOTP(name);
+        return config ? { name: config.name, issuer: config.issuer, account: config.account } : { name };
+      });
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ configs: totps }));
+      return;
+    }
+
+    if (req.url === "/api/totp" && req.method === "POST") {
+      if (!isInitialized()) { res.writeHead(500, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "Not initialized" })); return; }
+      const body = await readBody(req);
+      try {
+        const { name, uri } = JSON.parse(body);
+        if (!name || !uri) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "name and uri required" })); return; }
+        storeTOTP(name, uri);
+        const config = parseOTPAuthURI(uri);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ stored: name, issuer: config.issuer, account: config.account }));
+      } catch (err: any) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: err.message || "Invalid request" })); }
+      return;
+    }
+
+    if (req.url?.startsWith("/api/totp/") && req.url.endsWith("/code") && req.method === "GET") {
+      if (!isInitialized()) { res.writeHead(500, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "Not initialized" })); return; }
+      const name = decodeURIComponent(req.url.slice("/api/totp/".length, -"/code".length));
+      const result = generateTOTPCode(name);
+      if (!result) { res.writeHead(404, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "Not found" })); return; }
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ name, code: result.code, remainingSeconds: result.remaining }));
+      return;
+    }
+
+    if (req.url?.startsWith("/api/totp/") && req.method === "DELETE") {
+      if (!isInitialized()) { res.writeHead(500, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "Not initialized" })); return; }
+      const name = decodeURIComponent(req.url.slice("/api/totp/".length));
+      deleteTOTP(name);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ deleted: name }));
+      return;
+    }
+
+    // ── Share REST API ──
+    if (req.url === "/api/share" && req.method === "POST") {
+      if (!isInitialized()) { res.writeHead(500, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "Not initialized" })); return; }
+      const body = await readBody(req);
+      try {
+        const { name, ttl, maxViews } = JSON.parse(body);
+        if (!name) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "name required" })); return; }
+        const { url } = createShareLink(name, { ttl, maxViews });
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ url }));
+      } catch (err: any) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: err.message || "Invalid request" })); }
+      return;
+    }
+
+    if (req.url === "/api/share/receive" && req.method === "POST") {
+      if (!isInitialized()) { res.writeHead(500, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "Not initialized" })); return; }
+      const body = await readBody(req);
+      try {
+        const { fragment, targetName } = JSON.parse(body);
+        if (!fragment) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "fragment required" })); return; }
+        const { name } = receiveShare(fragment, targetName);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ received: name, stored: true }));
+      } catch (err: any) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: err.message || "Invalid request" })); }
+      return;
+    }
+
+    // ── Deadman REST API ──
+    if (req.url === "/api/deadman" && req.method === "GET") {
+      if (!isInitialized()) { res.writeHead(500, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "Not initialized" })); return; }
+      const status = getDeadmanStatus();
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(status));
+      return;
+    }
+
+    if (req.url === "/api/deadman/checkin" && req.method === "POST") {
+      if (!isInitialized()) { res.writeHead(500, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "Not initialized" })); return; }
+      checkin();
+      const status = getDeadmanStatus();
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ checkedIn: true, ...status }));
+      return;
+    }
+
+    // ── Misc REST API ──
+    if (req.url === "/api/generate" && req.method === "POST") {
+      if (!isInitialized()) { res.writeHead(500, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "Not initialized" })); return; }
+      const body = await readBody(req);
+      try {
+        const { name, length, noSymbols } = JSON.parse(body);
+        if (!name) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "name required" })); return; }
+        const value = generateSecret(length || 32, !noSymbols);
+        storeSecret(name, value);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ stored: name, generated: true }));
+      } catch (err: any) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: err.message || "Invalid request" })); }
       return;
     }
 

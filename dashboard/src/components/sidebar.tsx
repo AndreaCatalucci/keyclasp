@@ -2,11 +2,14 @@
 
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
-import { Key, Shield, Clock, Users, FileText, LogOut } from "lucide-react";
+import { Key, Shield, Clock, Users, FileText, LogOut, Smartphone, Send, Skull } from "lucide-react";
 
 const navItems = [
   { href: "/", label: "Overview", icon: Shield },
   { href: "/secrets", label: "Secrets", icon: Key },
+  { href: "/totp", label: "TOTP", icon: Smartphone },
+  { href: "/share", label: "Share", icon: Send },
+  { href: "/deadman", label: "Dead Man", icon: Skull },
   { href: "/audit", label: "Audit Log", icon: Clock },
   { href: "/team", label: "Team", icon: Users },
   { href: "/license", label: "License", icon: FileText },

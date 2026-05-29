@@ -1,59 +1,46 @@
 # MCP Server Configuration by Editor
 
 Keyblind uses the MCP stdio transport — it works with any editor that speaks Model Context Protocol.
-The configuration format is standardized: a JSON file with a command and args.
 
-## Universal Config (`.mcp.json`)
+## One-Command Setup (Claude Code)
 
-Most modern editors support a `.mcp.json` at your project root:
-
-```json
-{
-  "mcpServers": {
-    "keyblind": {
-      "command": "npx",
-      "args": ["keyblind", "start"]
-    }
-  }
-}
-```
-
-With biometric gate (requires Touch ID before each session):
-
-```json
-{
-  "mcpServers": {
-    "keyblind": {
-      "command": "npx",
-      "args": ["keyblind", "start", "--biometric"]
-    }
-  }
-}
-```
-
-> **Note**: If using `--biometric`, run `keyblind unlock` first to authenticate and create a session.
-
-## Editor-Specific Configurations
-
-### Claude Code
-
-**File**: `.mcp.json` (project root) or `~/.claude/settings.json`
-
-```json
-{
-  "mcpServers": {
-    "keyblind": {
-      "command": "npx",
-      "args": ["keyblind", "start"]
-    }
-  }
-}
-```
-
-Or via Claude Code CLI:
 ```bash
-claude mcp add keyblind -- npx keyblind start
+keyblind setup-mcp
 ```
+
+This auto-configures Claude Code globally (`--scope user`). Works from any directory. Restart Claude Code and you're done.
+
+Under the hood, it runs: `claude mcp add --scope user keyblind -- keyblind start`
+
+## Manual Setup for Other Editors
+
+### Claude Code (manual)
+
+```bash
+claude mcp add --scope user keyblind -- keyblind start
+```
+
+Or add to `.mcp.json` (project root):
+
+```json
+{
+  "mcpServers": {
+    "keyblind": {
+      "command": "keyblind",
+      "args": ["start"]
+    }
+  }
+}
+```
+
+With biometric gate (requires Touch ID before secrets are resolved):
+
+```bash
+keyblind unlock
+claude mcp add keyblind -- keyblind start --biometric
+```
+
+> Session expires after 15 minutes. Requires Pro or Team license.
 
 ### Cursor
 
@@ -63,8 +50,8 @@ claude mcp add keyblind -- npx keyblind start
 {
   "mcpServers": {
     "keyblind": {
-      "command": "npx",
-      "args": ["keyblind", "start"]
+      "command": "keyblind",
+      "args": ["start"]
     }
   }
 }
@@ -74,15 +61,13 @@ After creating the file, Cursor will show "New MCP server detected" — click **
 
 ### GitHub Copilot
 
-**File**: `.vscode/mcp.json` (project root) or VS Code `settings.json`
-
 **Option A — Project-level** (`.vscode/mcp.json`):
 ```json
 {
   "servers": {
     "keyblind": {
-      "command": "npx",
-      "args": ["keyblind", "start"]
+      "command": "keyblind",
+      "args": ["start"]
     }
   }
 }
@@ -93,8 +78,8 @@ After creating the file, Cursor will show "New MCP server detected" — click **
 {
   "chat.mcp.servers": {
     "keyblind": {
-      "command": "npx",
-      "args": ["keyblind", "start"]
+      "command": "keyblind",
+      "args": ["start"]
     }
   }
 }
@@ -108,8 +93,8 @@ After creating the file, Cursor will show "New MCP server detected" — click **
 {
   "mcpServers": {
     "keyblind": {
-      "command": "npx",
-      "args": ["keyblind", "start"]
+      "command": "keyblind",
+      "args": ["start"]
     }
   }
 }
@@ -123,8 +108,8 @@ After creating the file, Cursor will show "New MCP server detected" — click **
 {
   "mcpServers": {
     "keyblind": {
-      "command": "npx",
-      "args": ["keyblind", "start"]
+      "command": "keyblind",
+      "args": ["start"]
     }
   }
 }
@@ -138,8 +123,8 @@ After creating the file, Cursor will show "New MCP server detected" — click **
 {
   "mcp_servers": {
     "keyblind": {
-      "command": "npx",
-      "args": ["keyblind", "start"]
+      "command": "keyblind",
+      "args": ["start"]
     }
   }
 }
@@ -148,14 +133,14 @@ After creating the file, Cursor will show "New MCP server detected" — click **
 ## Troubleshooting
 
 **Server not appearing?**
-1. Verify Keyblind is initialized: `keyblind list`
-2. Check the config file path matches your editor
-3. Restart the editor after adding the config
-4. Look for error logs in the editor's output panel
+1. Run `keyblind setup-mcp` for automatic setup
+2. Verify Keyblind is initialized: `keyblind list`
+3. Check the config file path matches your editor
+4. Restart the editor after adding the config
 
 **"keyblind: command not found"?**
-- Use `npx keyblind` instead of `keyblind` in the command
-- Or install globally: `npm install -g keyblind`
+- Install globally: `npm install -g keyblind`
+- Verify with `which keyblind`
 
 **Biometric gate not working?**
 - macOS only — requires Touch ID hardware
@@ -166,6 +151,6 @@ After creating the file, Cursor will show "New MCP server detected" — click **
 Add `--project` to isolate secrets per project:
 ```json
 {
-  "args": ["keyblind", "start", "--project", "my-project"]
+  "args": ["start", "--project", "my-project"]
 }
 ```

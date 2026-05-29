@@ -17,6 +17,7 @@ import { storeTOTP, getTOTP, listTOTP, deleteTOTP, generateTOTPCode, parseOTPAut
 import { createShareLink, receiveShare } from "./share.js";
 import { setupDeadman, checkin, getDeadmanStatus, disableDeadman, checkDeadmanTrigger } from "./deadman.js";
 import { configureSSO, ssoLogin, ssoLogout, getSSOToken } from "./sso.js";
+import { setupAll } from "./setup-mcp.js";
 import fs from "node:fs";
 import { spawn, execSync } from "node:child_process";
 import readline from "node:readline";
@@ -53,6 +54,7 @@ Usage:
   keyblind unsandbox [.env]    Restore real env values from vault
   keyblind backends            List available secret backends
   keyblind install-hook        Install pre-commit hook to detect secrets
+  keyblind setup-mcp           Configure MCP server for Claude Code & other editors
   keyblind check-secrets       Scan staged files for secrets (used by hook)
   keyblind audit               Show secret resolution audit log
   keyblind check --expired     List secrets past their expiry date
@@ -361,6 +363,21 @@ async function main(): Promise<void> {
           console.error(err.message);
           process.exit(1);
         }
+        break;
+      }
+
+      case "setup-mcp": {
+        const results = setupAll();
+        for (const r of results) {
+          if (r.action === "configured") {
+            console.log(`${r.editor}: MCP server configured successfully.`);
+          } else if (r.action === "already_configured") {
+            console.log(`${r.editor}: Already configured.`);
+          } else {
+            console.error(`${r.editor}: Failed — ${r.error}`);
+          }
+        }
+        console.log("\nRestart Claude Code, then try: 'list my keyblind secrets'");
         break;
       }
 
@@ -716,8 +733,9 @@ async function main(): Promise<void> {
           const port = portIdx !== -1 ? parseInt(args[portIdx + 1], 10) : 3100;
           await startHttpServer(port);
         } else {
-          console.log("Keyblind MCP server started (stdio transport).");
-          console.log("For HTTP/HTTPS (browser dashboard), use: keyblind start --http");
+          // MCP stdio transport uses stdout — startup messages MUST go to stderr
+          console.error("Keyblind MCP server started (stdio transport).");
+          console.error("For HTTP/HTTPS (browser dashboard), use: keyblind start --http");
           await startServer();
         }
         break;

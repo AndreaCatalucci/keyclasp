@@ -120,8 +120,8 @@
   <div class="hero">
     <h1>Blind AI to Your <span>API Keys</span></h1>
     <p>Encrypted secrets vault for AI agents. Secrets are resolved at runtime, never leaked to LLM conversations.</p>
-    <div class="install">npm install -g keyblind</div>
-    <div class="note">Free. Open source. Zero telemetry.</div>
+    <div class="install">npm install -g keyblind && keyblind init && keyblind setup-mcp</div>
+    <div class="note">Three commands. Works from any directory. Zero telemetry.</div>
     <br>
     <a href="https://github.com/aarifmms/keyblind" class="btn btn-outline">GitHub →</a>
   </div>
@@ -136,21 +136,21 @@
         <h3>Store Your Secrets</h3>
         <p>Encrypt API keys, tokens, and passwords into a local AES-256-GCM vault.</p>
         <br>
-        <code>echo "sk-abc123" | keyblind set KEY</code>
+        <code>echo "sk-abc123" | keyblind set OPENAI_API_KEY</code>
       </div>
       <div class="step">
         <div class="num">2</div>
-        <h3>Sandbox Your .env</h3>
-        <p>Replace real values with deterministic fakes. AI agents see only the fakes.</p>
+        <h3>Connect Your AI</h3>
+        <p>One command to configure Claude Code, Cursor, Copilot, Windsurf, Cline, or Zed.</p>
         <br>
-        <code>keyblind sandbox</code>
+        <code>keyblind setup-mcp</code>
       </div>
       <div class="step">
         <div class="num">3</div>
-        <h3>Run With Confidence</h3>
-        <p>Your code runs with real secrets injected as env vars. Your AI never sees them.</p>
+        <h3>AI Resolves at Runtime</h3>
+        <p>Your AI agent resolves secrets when needed. The values never appear in chat.</p>
         <br>
-        <code>keyblind run -- npm start</code>
+        <code>keyblind sandbox && keyblind run -- npm start</code>
       </div>
     </div>
     <div class="logos">

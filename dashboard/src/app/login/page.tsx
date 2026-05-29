@@ -1,14 +1,13 @@
 "use client";
 
 import { Suspense, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { Shield, ArrowRight } from "lucide-react";
 
 function LoginForm() {
   const [licenseKey, setLicenseKey] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const router = useRouter();
   const searchParams = useSearchParams();
   const activated = searchParams.get("activated") === "1";
 
@@ -25,7 +24,7 @@ function LoginForm() {
       });
       const data = await res.json();
       if (res.ok) {
-        router.push("/");
+        window.location.href = "/";
       } else {
         setError(data.error || "Invalid license key");
       }

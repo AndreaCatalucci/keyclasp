@@ -17,7 +17,7 @@ AI agents read your `.env` files. They copy-paste secrets into conversations. Th
 ┌──────────┐     ┌────────────────┐     ┌─────────────────┐
 │ AI Agent │ ──→ │  Keyblind MCP  │ ──→ │  Encrypted      │
 │ (Claude) │     │  Server        │     │  SQLite Vault   │
-│          │ ←── │  (6 tools)     │ ←── │  (AES-256-GCM)  │
+│          │ ←── │  (16 tools)    │ ←── │  (AES-256-GCM)  │
 └──────────┘     └────────────────┘     └─────────────────┘
       ↑                                        │
       │ secret value never appears             │ secrets never
@@ -27,62 +27,62 @@ AI agents read your `.env` files. They copy-paste secrets into conversations. Th
 ## Quick Start
 
 ```bash
-# Install
+# 1. Install
 npm i -g keyblind
 
-# Initialize your vault
+# 2. Initialize your vault
 keyblind init
 
-# Store secrets
+# 3. Auto-configure MCP for Claude Code (one command)
+keyblind setup-mcp
+
+# 4. Store secrets
 echo "sk-proj-abc123" | keyblind set OPENAI_API_KEY
 keyblind set DATABASE_URL -    # prompts securely
 
-# Sandbox your .env (AI agents see fakes)
+# 5. Sandbox your .env (AI agents see fakes)
 keyblind sandbox
 
-# Resolve a secret
+# 6. Resolve a secret
 keyblind get OPENAI_API_KEY
 
-# Run commands with secrets injected as env vars
+# 7. Run commands with secrets injected as env vars
 keyblind run -- npm start
 
-# List all secrets (names only)
+# 8. List all secrets (names only, values hidden)
 keyblind list
 ```
 
+> **That's it.** After `keyblind setup-mcp`, restart Claude Code. Then just say _"list my keyblind secrets"_ or _"use my OPENAI_API_KEY"_ — the AI agent resolves secrets at runtime without ever seeing them in the transcript.
+
 ## MCP Server
 
-Keyblind is **MCP-first** — it works with every AI tool that speaks the Model Context Protocol:
+Keyblind is **MCP-first** — it works with every AI tool that speaks the Model Context Protocol (Claude Code, Cursor, Copilot, Windsurf, Cline, Zed).
 
-**Claude Code, Cursor, Copilot, Windsurf, Cline, Zed** — add a `.mcp.json` to your project root:
+### Setup (automatic)
 
-```json
-{
-  "mcpServers": {
-    "keyblind": {
-      "command": "npx",
-      "args": ["keyblind", "start"]
-    }
-  }
-}
+```bash
+keyblind setup-mcp
+```
+
+This auto-configures Claude Code to use Keyblind. Works from any directory. For other editors, see [editor-specific configs](docs/editors.md).
+
+### Setup (manual)
+
+Add a `.mcp.json` to your project root, or use `claude mcp add`:
+
+```bash
+claude mcp add --scope user keyblind -- keyblind start
 ```
 
 With biometric gate (Touch ID required before secrets are resolved):
 
-```json
-{
-  "mcpServers": {
-    "keyblind": {
-      "command": "npx",
-      "args": ["keyblind", "start", "--biometric"]
-    }
-  }
-}
+```bash
+keyblind unlock                      # Authenticate first
+claude mcp add keyblind -- keyblind start --biometric
 ```
 
-> **Note**: `--biometric` requires running `keyblind unlock` first to authenticate. Session expires after 15 minutes.
-
-[Full editor-specific configs →](docs/editors.md)
+> Session expires after 15 minutes. Requires Pro or Team license.
 
 ### MCP Tools
 
@@ -91,9 +91,48 @@ With biometric gate (Touch ID required before secrets are resolved):
 | `resolve_secret` | Resolve a secret at runtime (value hidden from transcript) |
 | `store_secret` | Encrypt and store a secret |
 | `list_secrets` | List secret names (values never revealed) |
+| `delete_secret` | Delete a secret |
 | `sandbox_env` | Replace `.env` values with deterministic fakes |
 | `unsandbox_env` | Restore real `.env` values from vault |
-| `delete_secret` | Delete a secret |
+| `audit_log` | View secret resolution audit trail |
+| `totp_code` | Generate a TOTP 2FA code for a stored config |
+| `totp_store` | Store a TOTP configuration from otpauth:// URI |
+| `totp_list` | List all stored TOTP configurations |
+| `totp_delete` | Delete a TOTP configuration |
+| `create_share_link` | Create encrypted, expiring share link for a secret |
+| `receive_share` | Receive and decrypt a shared secret |
+| `deadman_status` | Check dead man's switch status |
+| `deadman_checkin` | Reset dead man's switch timer |
+| `sso_status` | Check SSO/OIDC authentication status |
+
+## Web Dashboard
+
+Manage your secrets from a browser at **[app.keyblind.dev](https://app.keyblind.dev)**. Start the HTTP server:
+
+```bash
+keyblind start --http
+```
+
+Then sign in with your license key at [app.keyblind.dev/login](https://app.keyblind.dev/login). Features:
+
+- View, add, copy, and delete secrets
+- Audit log with full access history
+- License management
+- Pro/Team tier status
+
+## Browser Extension
+
+The **Keyblind Chrome Extension** detects and blocks secrets from being pasted into AI chat interfaces (Claude.ai, ChatGPT, Copilot).
+
+[![Chrome Web Store](https://img.shields.io/badge/Chrome_Web_Store-Coming_Soon-blue)]()
+
+Features:
+- Detects 12+ API key formats (OpenAI, GitHub, Stripe, AWS, etc.)
+- Intercepts paste events on AI chat sites
+- Warning banner when secrets are detected
+- Popup with vault connection status
+
+Located in `browser-extension/`. Load as unpacked extension from `chrome://extensions`.
 
 ## Pricing
 
@@ -104,23 +143,25 @@ With biometric gate (Touch ID required before secrets are resolved):
 | **Local vault** | ✓ | ✓ | ✓ |
 | **Sandbox / Unsandbox** | ✓ | ✓ | ✓ |
 | **MCP server** | ✓ | ✓ | ✓ |
+| **Dashboard** | ✓ | ✓ | ✓ |
+| **Browser extension** | ✓ | ✓ | ✓ |
 | **7 backends** | ✓ | ✓ | ✓ |
 | **Team vaults** | — | ✓ | ✓ |
 | **Audit log** | — | ✓ | ✓ |
-| **Secret rotation** | — | ✓ | ✓ |
-| **CI/CD integration** | — | ✓ | ✓ |
+| **Secret sharing** | — | ✓ | ✓ |
+| **Dead man's switch** | — | ✓ | ✓ |
+| **TOTP 2FA** | — | ✓ | ✓ |
 | **Biometric gate** | — | ✓ | ✓ |
-| **Cloud backends** | — | ✓ | ✓ |
+| **SSO/OIDC** | — | — | ✓ |
+| **CI/CD integration** | — | ✓ | ✓ |
 
 ```bash
-# Activate a Pro or Team license
+# Buy a license at keyblind.dev, then activate:
 keyblind activate <your-license-key>
 
-# Check your current status
+# Check your status
 keyblind status
 ```
-
-> **Coming soon:** Purchase licenses at [keyblind.dev](https://keyblind.dev). For early access, open a GitHub issue or contact the maintainer.
 
 ## Backends
 
@@ -147,9 +188,15 @@ keyblind backend bitwarden                 # Switch to Bitwarden
 | | Keyblind | Cloak |
 |------|----------|-------|
 | **Protocol** | MCP (all editors) | VS Code extension only |
+| **Editors** | Claude Code, Cursor, Copilot, Windsurf, Cline, Zed | VS Code, Cursor |
 | **Storage** | AES-256-GCM SQLite | AES-256-GCM file |
-| **Backends** | Local, 1Password, Bitwarden, Env | Local only |
+| **Backends** | Local, 1Password, Bitwarden, Env, AWS, GCP, Azure | Local only |
 | **Sandbox** | Deterministic HMAC fakes | AES-256-GCM encrypted |
+| **Web dashboard** | ✓ (app.keyblind.dev) | — |
+| **Browser extension** | ✓ (Chrome) | — |
+| **TOTP 2FA** | ✓ | — |
+| **Secret sharing** | ✓ (encrypted URL fragment) | — |
+| **Dead man's switch** | ✓ | — |
 | **Touch ID** | ✓ (macOS biometric gate) | ✓ |
 | **CI/CD** | `keyblind run` for env injection | — |
 | **Network** | Zero (fully local) | Zero |
@@ -174,10 +221,13 @@ keyblind set <name> -         Store a secret (prompts securely)
 keyblind get <name>           Resolve and print a secret
 keyblind list                 List all stored secrets
 keyblind delete <name>        Delete a secret
+keyblind setup-mcp            Auto-configure MCP for Claude Code
 keyblind sandbox [.env]       Replace .env with deterministic fakes
 keyblind unsandbox [.env]     Restore real .env values
 keyblind run <command...>     Run command with secrets as env vars
-keyblind start                Start MCP server (for AI agents)
+keyblind start                Start MCP server (stdio — for AI agents)
+keyblind start --http         Start MCP HTTP server (for dashboard)
+keyblind start --biometric    Start MCP server with biometric requirement
 keyblind backends             List available backends
 keyblind backend <name>       Switch backend
 keyblind activate <key>       Activate a Pro/Team license
@@ -190,6 +240,25 @@ keyblind team init [path]     Create a shared team vault
 keyblind team push <name>     Push a secret to team vault
 keyblind team pull            Pull secrets from team vault
 keyblind team list            List secrets in team vault
+keyblind totp set <name>      Store TOTP 2FA config
+keyblind totp code <name>     Generate current TOTP code
+keyblind totp list            List all TOTP configs
+keyblind totp delete <name>   Delete a TOTP config
+keyblind share <name>         Create encrypted share link
+keyblind receive <url>        Receive a shared secret
+keyblind deadman setup        Configure dead man's switch
+keyblind deadman checkin      Reset dead man's switch timer
+keyblind deadman status       Show dead man's switch status
+keyblind deadman disable      Disable dead man's switch
+keyblind sso configure        Set up SSO/OIDC for team access
+keyblind sso login            Authenticate via browser SSO
+keyblind sso logout           Clear SSO session
+keyblind sso status           Show SSO auth status
+keyblind doctor               Run vault health check
+keyblind generate <name>      Generate a strong random secret
+keyblind import [.env]        Bulk import from .env file
+keyblind export               Export all secrets
+keyblind completions [shell]  Generate shell completion script
 ```
 
 ## Development

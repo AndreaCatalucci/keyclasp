@@ -3,14 +3,7 @@
 ## Installation
 
 ```bash
-# npm (recommended)
 npm install -g keyblind
-
-# Homebrew (macOS)
-brew install keyblind
-
-# Quick run (no install)
-npx keyblind init
 ```
 
 ## Initialize Your Vault
@@ -21,45 +14,48 @@ keyblind init
 
 You'll be prompted to create a passphrase. This passphrase encrypts your vault. **Do not lose it** — there is no recovery mechanism.
 
-## Store Your First Secret
+## Connect to Claude Code
 
 ```bash
-keyblind set OPENAI_API_KEY
-# Paste your key and press Ctrl+D
+keyblind setup-mcp
 ```
 
-Or pipe it in:
+This auto-configures Keyblind as an MCP server. Then restart Claude Code and you can say _"list my keyblind secrets"_ or _"use my OPENAI_API_KEY"_.
+
+For other editors (Cursor, Copilot, Windsurf, etc.), see [Editors Guide](editors.md).
+
+## Store Your First Secret
 
 ```bash
 echo "sk-abc123..." | keyblind set OPENAI_API_KEY
 ```
 
-## Use with Claude Code
+Or type it securely:
 
-Add to your `.mcp.json`:
-
-```json
-{
-  "mcpServers": {
-    "keyblind": {
-      "command": "npx",
-      "args": ["-y", "keyblind", "start"]
-    }
-  }
-}
+```bash
+keyblind set OPENAI_API_KEY -
+# Paste your key and press Ctrl+D
 ```
 
-Then in Claude Code, ask for the secret:
+## Use in Claude Code
+
+After `keyblind setup-mcp` and restart, just ask naturally:
 
 ```
-> Read my OPENAI_API_KEY from keyblind
+> list my keyblind secrets
+> resolve my OPENAI_API_KEY
+> store a secret called DATABASE_URL
 ```
 
-Keyblind resolves it at runtime — the plaintext never appears in the conversation transcript.
+Keyblind resolves secrets at runtime — the plaintext never appears in the conversation transcript. You'll see "Called keyblind (ctrl+o to expand)" instead of the actual value.
 
-## Use with Cursor / Windsurf / Cline / Zed
+## Web Dashboard
 
-Same MCP configuration. See [MCP Integration](./mcp-integration.md) for editor-specific setup.
+```bash
+keyblind start --http
+```
+
+Then sign in at [app.keyblind.dev](https://app.keyblind.dev) with your license key.
 
 ## Sandbox Your .env
 
@@ -72,3 +68,10 @@ keyblind unsandbox
 ```
 
 The fakes are HMAC-SHA256 derived — same input always produces same output, so git diffs stay clean.
+
+## Next Steps
+
+- [Full Command Reference](commands.md)
+- [MCP Tools Reference](mcp-integration.md)
+- [Security Model](security.md)
+- [FAQ](faq.md)

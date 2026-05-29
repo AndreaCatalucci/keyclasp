@@ -4,7 +4,8 @@ import { verifyLicenseKey } from "@/lib/license";
 
 export async function POST(req: Request) {
   try {
-    const { licenseKey } = await req.json();
+    const { licenseKey: raw } = await req.json();
+    const licenseKey = raw?.trim();
 
     if (!licenseKey || typeof licenseKey !== "string") {
       return NextResponse.json({ error: "License key is required" }, { status: 401 });

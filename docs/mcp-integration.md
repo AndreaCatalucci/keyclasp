@@ -4,14 +4,19 @@ Keyblind works with every MCP-compatible AI tool.
 
 ## Claude Code
 
-Add to `~/.claude/.mcp.json` or project `.mcp.json`:
+**One-command setup:**
+```bash
+keyblind setup-mcp
+```
+
+Or manually via `~/.claude/.mcp.json` or project `.mcp.json`:
 
 ```json
 {
   "mcpServers": {
     "keyblind": {
-      "command": "npx",
-      "args": ["-y", "keyblind", "start"]
+      "command": "keyblind",
+      "args": ["start"]
     }
   }
 }
@@ -25,8 +30,8 @@ Add to Cursor's MCP config (`~/.cursor/mcp.json`):
 {
   "mcpServers": {
     "keyblind": {
-      "command": "npx",
-      "args": ["-y", "keyblind", "start"]
+      "command": "keyblind",
+      "args": ["start"]
     }
   }
 }
@@ -40,8 +45,8 @@ Add to `~/.codeium/windsurf/mcp_config.json`:
 {
   "mcpServers": {
     "keyblind": {
-      "command": "npx",
-      "args": ["-y", "keyblind", "start"]
+      "command": "keyblind",
+      "args": ["start"]
     }
   }
 }
@@ -55,8 +60,8 @@ In Cline settings → MCP Servers, add:
 {
   "mcpServers": {
     "keyblind": {
-      "command": "npx",
-      "args": ["-y", "keyblind", "start"]
+      "command": "keyblind",
+      "args": ["start"]
     }
   }
 }
@@ -76,8 +81,8 @@ Configure in VS Code settings:
 {
   "github.copilot.mcp": {
     "keyblind": {
-      "command": "npx",
-      "args": ["-y", "keyblind", "start"]
+      "command": "keyblind",
+      "args": ["start"]
     }
   }
 }
@@ -91,8 +96,8 @@ Add to `~/.config/zed/mcp.json`:
 {
   "mcpServers": {
     "keyblind": {
-      "command": "npx",
-      "args": ["-y", "keyblind", "start"]
+      "command": "keyblind",
+      "args": ["start"]
     }
   }
 }

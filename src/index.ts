@@ -16,3 +16,4 @@ export { createShareLink, receiveShare, parseTTL, type SharePayload } from "./sh
 export { setupDeadman, checkin, getDeadmanStatus, disableDeadman, checkDeadmanTrigger, encryptKeyShard, getDeadmanConfig, type DeadmanConfig, type DeadmanStatus } from "./deadman.js";
 export { provisionCert, createHttpsServer, startAutoRenewal, certExists, certExpiringSoon, type ACMEOptions, type CertPaths } from "./https.js";
 export { configureSSO, ssoLogin, ssoLogout, getSSOToken, isSSOAuthenticated, getSSOConfig, type SSOConfig, type SSOToken, type IDTokenClaims } from "./sso.js";
+export { setupAll, type SetupResult } from "./setup-mcp.js";
