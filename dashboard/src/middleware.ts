@@ -6,7 +6,7 @@ const SECRET = new TextEncoder().encode(
   process.env.JWT_SECRET || "keyblind-dashboard-dev-secret-change-in-production"
 );
 
-const PUBLIC_PATHS = ["/login", "/activate"];
+const PUBLIC_PATHS = ["/login", "/activate", "/connect"];
 
 export async function middleware(req: NextRequest) {
   const token = req.cookies.get("keyblind_token")?.value;

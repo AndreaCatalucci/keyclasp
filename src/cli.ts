@@ -18,6 +18,7 @@ import { createShareLink, receiveShare } from "./share.js";
 import { setupDeadman, checkin, getDeadmanStatus, disableDeadman, checkDeadmanTrigger } from "./deadman.js";
 import { configureSSO, ssoLogin, ssoLogout, getSSOToken } from "./sso.js";
 import { setupAll } from "./setup-mcp.js";
+import { generatePairingToken } from "./pairing.js";
 import fs from "node:fs";
 import { spawn, execSync } from "node:child_process";
 import readline from "node:readline";
@@ -55,6 +56,7 @@ Usage:
   keyblind backends            List available secret backends
   keyblind install-hook        Install pre-commit hook to detect secrets
   keyblind setup-mcp           Configure MCP server for Claude Code & other editors
+  keyblind dashboard-login     Generate one-time sign-in link for the web dashboard
   keyblind check-secrets       Scan staged files for secrets (used by hook)
   keyblind audit               Show secret resolution audit log
   keyblind check --expired     List secrets past their expiry date
@@ -378,6 +380,15 @@ async function main(): Promise<void> {
           }
         }
         console.log("\nRestart Claude Code, then try: 'list my keyblind secrets'");
+        break;
+      }
+
+      case "dashboard-login": {
+        const port = parseInt(args[1] || "3100", 10);
+        const { url } = await generatePairingToken(port);
+        console.log("\nOpen this URL in your browser to sign in to the dashboard:\n");
+        console.log(`  ${url}\n`);
+        console.log("This link expires in 5 minutes.");
         break;
       }
 
