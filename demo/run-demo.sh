@@ -186,13 +186,46 @@ echo ""
 sleep 1.5
 
 # ─────────────────────────────────────────────────────
-# SCENE 7: MCP Server Config (1:40)
+# SCENE 7: TOTP & Sharing (1:40)
 # ─────────────────────────────────────────────────────
 clear_section
-echo "${RED}${BOLD}Scene 7: MCP Server — Works Everywhere${NC}"
+echo "${RED}${BOLD}Scene 7: TOTP Codes & Secret Sharing${NC}"
 echo ""
 
-echo "${CYAN}# .mcp.json in your project root:${NC}"
+echo "${CYAN}# Built-in 2FA code generation (zero deps):${NC}"
+prompt; echo "keyblind totp code github"
+sleep 0.5
+echo "  003486  (rotates in 22s)"
+echo ""
+
+echo "${CYAN}# Encrypted secret sharing (AES-256-GCM URL fragment):${NC}"
+prompt; echo "keyblind share DATABASE_URL --ttl 1h --max-views 1"
+sleep 0.5
+echo '  Share link (expires in 1h, 1 view remaining):'
+echo '  https://app.keyblind.dev/share#v1.abc.def...'
+echo ""
+
+echo "${CYAN}# Dead man's switch for team vaults:${NC}"
+prompt; echo "keyblind deadman status"
+sleep 0.3
+echo "  Status: active | Check-in: 3 days ago | Deadline: 4 days"
+
+sleep 2
+
+# ─────────────────────────────────────────────────────
+# SCENE 8: Dashboard & MCP Config (2:05)
+# ─────────────────────────────────────────────────────
+clear_section
+echo "${RED}${BOLD}Scene 8: Web Dashboard & MCP Everywhere${NC}"
+echo ""
+
+echo "${CYAN}# Sign into the web dashboard without copy-paste:${NC}"
+prompt; echo "keyblind dashboard-login"
+sleep 0.5
+echo "  Browser opened. Sign in to continue."
+echo ""
+
+echo "${CYAN}# MCP config — works with every AI editor:${NC}"
 cat << 'JSONEOF'
 {
   "mcpServers": {
@@ -204,18 +237,21 @@ cat << 'JSONEOF'
 }
 JSONEOF
 echo ""
-echo "${GREEN}Claude Code · Cursor · Copilot · Windsurf · Cline · Zed${NC}"
+echo "${GREEN}  Claude Code · Cursor · Copilot · Windsurf · Cline · Zed${NC}"
 echo ""
 
 sleep 2
 
 # ─────────────────────────────────────────────────────
-# SCENE 8: Outro (1:55)
+# SCENE 9: Outro (2:20)
 # ─────────────────────────────────────────────────────
 clear_section
-echo "${RED}${BOLD}Keyblind — Blind AI to Your Keys${NC}"
+echo "${RED}${BOLD}Keyblind v0.5.1 — Blind AI to Your Keys${NC}"
+echo ""
+echo "  16 MCP tools · 7 backends · 40+ CLI commands"
 echo ""
 echo "  npm install -g keyblind"
+echo "  app.keyblind.dev"
 echo "  github.com/aarifmms/keyblind"
 echo ""
 echo "  ${GREEN}MIT Licensed  ·  Zero Network  ·  Zero Telemetry${NC}"
