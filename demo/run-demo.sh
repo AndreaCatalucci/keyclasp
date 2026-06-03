@@ -246,7 +246,7 @@ sleep 2
 # SCENE 9: Outro (2:20)
 # ─────────────────────────────────────────────────────
 clear_section
-echo "${RED}${BOLD}Keyblind v0.5.1 — Blind AI to Your Keys${NC}"
+echo "${RED}${BOLD}Keyblind v0.6.0 — Blind AI to Your Keys${NC}"
 echo ""
 echo "  16 MCP tools · 7 backends · 40+ CLI commands"
 echo ""

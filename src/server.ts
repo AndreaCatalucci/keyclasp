@@ -30,7 +30,7 @@ export function createServer(): McpServer {
 
   const server = new McpServer({
     name: "keyblind",
-    version: "0.5.1",
+    version: "0.6.0",
   });
 
   server.tool(
