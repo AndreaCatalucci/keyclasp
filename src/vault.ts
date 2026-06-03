@@ -138,6 +138,7 @@ export function getDb(): Database.Database {
 
   const dbPath = getVaultPath();
   _db = new Database(dbPath);
+  _db.pragma("busy_timeout = 5000");
   _db.pragma("journal_mode = WAL");
   _db.pragma("foreign_keys = ON");
   _db.exec(`
