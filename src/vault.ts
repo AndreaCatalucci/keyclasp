@@ -139,7 +139,13 @@ export function getDb(): Database.Database {
   const dbPath = getVaultPath();
   _db = new Database(dbPath);
   _db.pragma("busy_timeout = 5000");
-  _db.pragma("journal_mode = WAL");
+  try {
+    _db.pragma("journal_mode = WAL");
+  } catch {
+    // journal_mode change can fail with SQLITE_BUSY on Windows CI
+    // when the DB file is newly created. This is non-fatal — the
+    // vault is fully functional with the default journal mode.
+  }
   _db.pragma("foreign_keys = ON");
   _db.exec(`
     CREATE TABLE IF NOT EXISTS secrets (
