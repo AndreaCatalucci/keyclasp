@@ -791,8 +791,10 @@ async function main(): Promise<void> {
 
         const env = { ...process.env };
         for (const name of listSecrets()) {
+          // Skip secrets with null bytes in name or value (corrupted/invalid)
+          if (name.includes("\0")) continue;
           const value = resolveSecret(name);
-          if (value !== null) {
+          if (value !== null && !value.includes("\0")) {
             env[name] = value;
           }
         }
