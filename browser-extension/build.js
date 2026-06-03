@@ -1,5 +1,11 @@
 import esbuild from "esbuild";
-import { readFileSync } from "fs";
+import { readFileSync, copyFileSync, mkdirSync } from "fs";
+import { dirname } from "path";
+import { fileURLToPath } from "url";
+
+// Always resolve paths relative to this script's directory
+const root = dirname(fileURLToPath(import.meta.url));
+process.chdir(root);
 
 const watch = process.argv.includes("--watch");
 
@@ -27,7 +33,6 @@ if (watch) {
 } else {
   await esbuild.build(opts);
   // Copy manifest and HTML to dist
-  const { copyFileSync, mkdirSync } = await import("fs");
   mkdirSync("dist/popup", { recursive: true });
   copyFileSync("manifest.json", "dist/manifest.json");
   copyFileSync("src/popup/popup.html", "dist/popup/popup.html");

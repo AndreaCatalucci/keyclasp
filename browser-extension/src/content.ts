@@ -1,4 +1,4 @@
-import { matchSecrets, AI_CHAT_DOMAINS } from "./patterns.js";
+import { matchSecrets, AI_CHAT_DOMAINS, SECRET_PATTERNS } from "./patterns.js";
 import type { DetectedSecret, ExtensionState } from "./types.js";
 
 let state: ExtensionState = {
@@ -121,16 +121,13 @@ function interceptPasteEvent(e: ClipboardEvent): void {
   const secrets = matchSecrets(text);
   if (secrets.length === 0) return;
 
-  // Replace detected values with placeholders
+  // Replace detected values with placeholders using the already-imported SECRET_PATTERNS
   let sanitized = text;
-  for (const pattern of matchSecrets(text)) {
-    // Use the original regex to find and replace
-    for (const sp of SECRET_PATTERNS_ARRAY) {
-      sp.regex.lastIndex = 0;
-      sanitized = sanitized.replace(sp.regex, (match) => {
-        return `KEYBLIND_${sp.name.toUpperCase().replace(/\s+/g, "_")}_${match.slice(0, 4)}...${match.slice(-4)}`;
-      });
-    }
+  for (const pattern of SECRET_PATTERNS) {
+    sanitized = sanitized.replaceAll(pattern.regex, (match) => {
+      const label = pattern.name.toUpperCase().replace(/\s+/g, "_");
+      return `[KEYBLIND_${label}_${match.slice(0, 4)}...${match.slice(-4)}]`;
+    });
   }
 
   e.preventDefault();
@@ -140,19 +137,8 @@ function interceptPasteEvent(e: ClipboardEvent): void {
     document.execCommand("insertText", false, sanitized);
   }
 
-  // Show toast notification
   showToast(`${secrets.length} secret(s) intercepted and sanitized`);
 }
-
-// For re-importing patterns in the paste handler
-const SECRET_PATTERNS_ARRAY = (() => {
-  const patterns: { name: string; regex: RegExp; severity: string }[] = [];
-  // Re-import to get fresh regex instances
-  import("./patterns.js").then((mod) => {
-    patterns.push(...mod.SECRET_PATTERNS);
-  });
-  return patterns;
-})();
 
 function showToast(message: string): void {
   const toast = document.createElement("div");

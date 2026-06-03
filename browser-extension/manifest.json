@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Keyblind — Blind AI to Your Keys",
   "version": "0.1.0",
-  "description": "Detect and protect API keys on web pages. Intercepts paste events on AI chat sites to prevent secret leaks.",
+  "description": "Scans web pages for exposed API keys and secrets. Sanitizes secrets when pasting into chat sites.",
   "permissions": ["storage", "clipboardRead", "scripting", "activeTab"],
   "host_permissions": [
     "https://github.com/*",
