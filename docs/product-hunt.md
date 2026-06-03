@@ -1,6 +1,6 @@
-# Product Hunt Launch — Keyblind
+# Product Hunt Launch — Keyblind v0.6.0
 
-**Scheduled for:** Tuesday or Thursday, 12:01 AM PT (PH launches start at midnight)
+**Scheduled for:** Tuesday, June 9, 2026 — 12:01 AM PT
 
 ---
 
@@ -16,156 +16,97 @@
 ## Description (260 chars max)
 
 ```
-AI coding tools read your .env file — and secrets leak into transcripts.
-Keyblind encrypts API keys into a local AES-256-GCM vault and replaces
-them with deterministic fakes. Secrets resolve at runtime. Your AI
-never sees them. MCP-native, works everywhere.
+MCP-native secrets vault. Encrypt API keys, sandbox .env files with
+deterministic fakes, resolve at runtime. AI agents never see real values.
+16 MCP tools, 7 backends, 40+ CLI commands. Works with Claude Code,
+Cursor, Copilot, Windsurf, Cline, Zed. MIT. Zero telemetry.
 ```
 
 ## Thumbnail
 
-- 635×635px PNG
-- Dark background (#0d1117)
-- Keyblind logo or eye/slash icon
-- Text: "Blind AI to Your Keys"
+- 635x635px PNG (already generated at `demo/thumbnail.png`)
+- Dark background (#0d1117), Keyblind logo, text: "Blind AI to Your Keys"
 
 ---
 
-## Gallery Images (1270×760px — 5 images)
+## Gallery Images (1270x760px — 5 images)
 
-### Image 1: The Problem — Terminal showing real .env
-```
-$ cat .env
-OPENAI_API_KEY=sk-proj-abc123xyz890
-DATABASE_URL=postgresql://admin:s3cret@db.example.com/prod
-STRIPE_SECRET=sk_live_abc123def456
-```
-Caption: "Your .env file. AI agents read it. Secrets leak into transcripts."
+### Image 1: The Problem
+Terminal showing `cat .env` with real API keys exposed.
+Caption: "AI agents read your .env. Secrets leak into transcripts. 100K+ already found indexed."
 
-### Image 2: Sandbox — Terminal showing sandboxed .env
-```
-$ keyblind sandbox
-Sandboxed 3 value(s) in .env
+### Image 2: Sandboxed
+Terminal showing `keyblind sandbox` output with deterministic fakes.
+Caption: "After sandboxing: deterministic HMAC-SHA256 fakes. Clean git diffs. Same fake every time."
 
-$ cat .env
-OPENAI_API_KEY=sandbox_a3f2e1b4c5d6_OPENAI_API_KEY
-DATABASE_URL=sandbox_b7c8d9e0f1a2_DATABASE_URL
-STRIPE_SECRET=sandbox_c3d4e5f6a7b8_STRIPE_SECRET
-```
-Caption: "After sandboxing — deterministic fakes, clean git diffs"
+### Image 3: Feature Grid
+Show the full feature set: vault, sandbox, TOTP, sharing, dead man's switch, team vaults, dashboard.
+Caption: "16 MCP tools, 7 backends (local, 1Password, Bitwarden, AWS, GCP, Azure, env), 40+ CLI commands."
 
-### Image 3: AI Safety — Split screen showing AI sees fakes
-Caption: "AI agent sees fakes. Your code runs with real secrets."
+### Image 4: Keyblind vs Cloak
+Comparison table from landing page.
+Caption: "Why Keyblind: MCP-native (not editor-specific), 16 tools vs 3, 7 backends vs 1, deterministic sandbox."
 
-### Image 4: MCP Config — Show .mcp.json
-```json
-{
-  "mcpServers": {
-    "keyblind": {
-      "command": "npx",
-      "args": ["keyblind", "start"]
-    }
-  }
-}
-```
-Caption: "Works with every MCP-compatible editor. One config file."
-
-### Image 5: Pricing Tiers
-Caption: "Free: 5 secrets. Pro: $79/year, unlimited, team vaults, audit log, CI/CD."
+### Image 5: Web Dashboard
+Screenshot of app.keyblind.dev showing sidebar, secrets list, and health indicator.
+Caption: "Web dashboard at app.keyblind.dev. CLI pairing login. Manage secrets, TOTP, sharing, team vaults."
 
 ---
 
-## First Comment (posted immediately after launch)
+## First Comment (post immediately after launch)
 
 ```
-Hey Product Hunt! I built Keyblind after getting paranoid about AI coding
-tools reading my .env files.
+Hey Product Hunt! I built Keyblind because AI coding tools reading .env
+files terrifies me.
 
-The problem: Every AI editor (Claude Code, Cursor, Copilot) reads your
-project files. When they read .env, your API keys end up in conversation
-transcripts. Researchers found 100,000+ exposed secrets in LLM logs last
-year. That's terrifying.
+100,000+ LLM conversations with exposed secrets were found indexed by
+search engines. Every AI editor reads your project files — including .env.
 
-Keyblind is my answer:
+Keyblind encrypts your secrets (AES-256-GCM, machine-identity-bound key),
+replaces .env values with deterministic fakes, and resolves real secrets
+at runtime. The AI never sees them.
 
-1. Store secrets encrypted — AES-256-GCM, key bound to your machine
-2. Sandbox your .env — deterministic fakes replace real values
-3. Run with confidence — `keyblind run -- npm start` injects real secrets
+What's shipped in v0.6.0 (just published today):
 
-The fakes are deterministic (HMAC-SHA256) so your git diffs stay clean.
-Same fake every time for the same key.
+- 16 MCP tools — secrets, sandbox, TOTP, secret sharing, dead man's
+  switch, team vaults, SSO, audit log, HTTPS, alerts
+- 7 backends — local, 1Password, Bitwarden, env, AWS, GCP, Azure
+- 40+ CLI commands
+- Web dashboard (app.keyblind.dev) with CLI pairing login
+- Chrome extension (paste interception on AI chat sites)
+- Browser auto-open on `keyblind dashboard-login`
+- Terraform provider (skeleton, Go)
 
-Tech stack: TypeScript, SQLite (better-sqlite3), Node.js crypto. MCP
-protocol over stdio. Zero network, zero telemetry, zero accounts. MIT.
+Key differentiator from Cloak (launched last week): Keyblind is MCP-
+native — works with every AI editor, not just VS Code. 7 backends vs 1.
+Deterministic sandbox vs random placeholders.
 
-It works with Claude Code, Cursor, Copilot, Windsurf, Cline, Zed —
-any editor that speaks MCP. That's the key differentiator from
-editor-specific alternatives.
+Pricing:
+- Free: 5 secrets, all 7 backends, all 16 MCP tools
+- Pro ($79/year): Unlimited secrets, team vaults, audit log, CI/CD,
+  secret rotation, biometric gate, cloud backends
+- PH2025 code = 50% off Pro first year
 
-Pricing: Free tier (5 secrets, all backends). Pro ($79/year — unlimited
-secrets, team vaults, audit log, secret rotation, CI/CD integration,
-biometric gate).
+Stack: TypeScript, SQLite (better-sqlite3), Node.js crypto. Zero network,
+zero telemetry, zero accounts. MIT licensed.
 
-I launched 2 days ago and already have production users. Would love
-feedback from the PH community — especially on what Pro features you'd
-prioritize and whether you'd trust an MCP server with your secrets.
+Just dogfooded Keyblind to publish itself to npm — stored the publish token
+in the vault, ran `keyblind run -- npm publish`. It works.
 
 Ask me anything!
 ```
 
 ---
 
-## Social Shares
-
-### Twitter/X
-
-```
-I built Keyblind — an MCP server that encrypts your API keys and blinds
-AI agents to them.
-
-AI editors read your .env. Secrets leak into transcripts. Keyblind replaces
-real values with deterministic fakes. Your code runs with real secrets.
-Your AI never sees them.
-
-Open source. MIT. Zero telemetry.
-
-keyblind.dev
-```
-
-### LinkedIn
-
-```
-I launched Keyblind on Product Hunt today.
-
-AI coding tools read your .env file. When they do, API keys, tokens,
-and passwords end up in conversation transcripts — sometimes indexed
-by search engines permanently.
-
-Keyblind encrypts your secrets into an AES-256-GCM vault and replaces them
-with deterministic fakes. Your code runs with real secrets. Your AI
-never sees the real values.
-
-3 commands:
-• keyblind set KEY → encrypt a secret
-• keyblind sandbox → replace .env with fakes
-• keyblind run -- npm start → run with real secrets injected
-
-Open source, MIT licensed, zero network, zero telemetry.
-
-Check it out: keyblind.dev
-```
-
----
-
 ## Launch Checklist
 
-- [ ] Create Product Hunt account / claim maker profile
-- [ ] Upload thumbnail (635×635px, dark theme)
-- [ ] Create 5 gallery screenshots (use `demo/screenshot.html` as template)
-- [ ] Fill in tagline, description, topics
-- [ ] Schedule for Tuesday 12:01 AM PT (or Thursday)
-- [ ] Prepare first comment (copy from above)
-- [ ] Line up early upvotes (friends, colleagues, Twitter followers)
-- [ ] Post on Twitter/LinkedIn when live
-- [ ] Respond to every comment within the first 4 hours
-- [ ] Add "Product Hunt" badge to landing page after launch
+- [ ] Create Product Hunt account or claim maker profile at producthunt.com
+- [ ] Upload thumbnail (`demo/thumbnail.png`)
+- [ ] Create 5 gallery screenshots (use `demo/screenshot-*.html` or terminal screenshots)
+- [ ] Fill in tagline, description, topics, URL
+- [ ] Schedule for Tuesday June 9, 12:01 AM PT
+- [ ] Copy first comment (ready above)
+- [ ] Post first comment immediately after launch goes live
+- [ ] Share on Twitter/X and LinkedIn
+- [ ] Respond to every PH comment within first 4 hours (critical for ranking)
+- [ ] Add "Featured on Product Hunt" badge to landing page after launch
