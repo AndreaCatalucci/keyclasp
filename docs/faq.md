@@ -47,10 +47,6 @@ keyblind config backend local  # Back to local vault
 
 Run `keyblind backends` to see which backends are available.
 
-## Is there a browser extension?
-
-Yes. The Keyblind browser extension detects API keys in your clipboard and warns before pasting into AI chat sites (Claude.ai, ChatGPT, GitHub Copilot web). Available in the Chrome Web Store.
-
 ## Can I use Keyblind with non-MCP tools?
 
 Yes. `keyblind get OPENAI_API_KEY` works as a standard CLI. You can use it in shell scripts, Makefiles, or anywhere you'd normally use environment variables.

@@ -68,7 +68,6 @@ What's shipped in v0.6.0 (just published today):
 - MCP tools for secrets, sandboxing, TOTP, secret sharing, audit log, and alerts
 - Local-first backends — local, 1Password, Bitwarden, env, AWS, GCP, Azure
 - CLI workflows for vault setup, sandboxing, and runtime injection
-- Chrome extension (paste interception on AI chat sites)
 
 Key differentiator from Cloak (launched last week): Keyblind is MCP-
 native — works with every AI editor, not just VS Code. 7 backends vs 1.

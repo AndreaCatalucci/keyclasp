@@ -35,7 +35,6 @@ src/
 ├── watch.ts        → Watch .env and auto-sandbox
 └── alerts.ts       → Slack/Discord webhook alerts
 
-browser-extension/  → Chrome extension (MV3, paste interception)
 docs/solutions/     # documented solutions (bugs, best practices, workflow patterns), organized by category with YAML frontmatter (module, tags, problem_type)
 ```
 

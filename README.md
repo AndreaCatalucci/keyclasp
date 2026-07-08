@@ -101,20 +101,6 @@ claude mcp add keyblind -- keyblind start --biometric
 | `create_share_link` | Create encrypted, expiring share link for a secret |
 | `receive_share` | Receive and decrypt a shared secret |
 
-## Browser Extension
-
-The **Keyblind Chrome Extension** detects and blocks secrets from being pasted into AI chat interfaces (Claude.ai, ChatGPT, Copilot).
-
-[![Chrome Web Store](https://img.shields.io/badge/Chrome_Web_Store-Coming_Soon-blue)]()
-
-Features:
-- Detects 12+ API key formats (OpenAI, GitHub, Stripe, AWS, etc.)
-- Intercepts paste events on AI chat sites
-- Warning banner when secrets are detected
-- Popup with vault connection status
-
-Located in `browser-extension/`. Load as unpacked extension from `chrome://extensions`.
-
 ## Backends
 
 Keyblind supports multiple secret backends:
