@@ -1,9 +1,9 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { storeSecret, listSecrets, deleteSecret, resolveSecret, isInitialized, getAuditLog, setClientInfo, checkExpired, setExpiry, getExpiry, getProjectName } from "./vault.js";
+import { storeSecret, listSecrets, deleteSecret, resolveSecret, isInitialized, getAuditLog, setClientInfo, checkExpired, setExpiry, getExpiry, getProjectName, countSecretsByPrefix } from "./vault.js";
 import { getBackend, setBackend, listAvailableBackends } from "./backends.js";
-import { sandboxEnvFile, unsandboxEnvFile, getEnvBackups } from "./sandbox.js";
+import { sandboxEnvFile, unsandboxEnvFile } from "./sandbox.js";
 import { generateTOTPCode, storeTOTP, listTOTP, deleteTOTP, parseOTPAuthURI } from "./totp.js";
 import { createShareLink, receiveShare } from "./share.js";
 import { readConfig, mergeConfig, generateSecret } from "./config.js";
@@ -362,7 +362,7 @@ export function createServer(): McpServer {
             project: getProjectName(),
             backend: backend.name,
             secretCount: initialized ? visibleSecretNames().length : 0,
-            sandboxBackupCount: initialized ? getEnvBackups().size : 0,
+            sandboxBackupCount: initialized ? countSecretsByPrefix("__keyblind_sandbox_backup__") : 0,
             warnings,
             secretValueHandling: "resolve_secret returns plaintext in MCP response content by explicit contract",
           }),

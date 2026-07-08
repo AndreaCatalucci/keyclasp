@@ -220,6 +220,12 @@ export function listSecrets(): string[] {
   return rows.map((r) => r.name).filter((name) => !REMOVED_INTERNAL_SECRET_NAMES.has(name));
 }
 
+export function countSecretsByPrefix(prefix: string): number {
+  const db = getDb();
+  const row = db.prepare("SELECT COUNT(*) as count FROM secrets WHERE substr(name, 1, ?) = ?").get(prefix.length, prefix) as { count: number };
+  return row.count;
+}
+
 export function deleteSecret(name: string): boolean {
   const db = getDb();
   auditLog(name, "delete");

@@ -29,6 +29,7 @@ import {
   deleteSecret,
   isInitialized,
   closeDb,
+  countSecretsByPrefix,
 } from "../src/vault.js";
 
 beforeAll(() => {
@@ -137,6 +138,12 @@ describe("vault CRUD", () => {
       expect(names).not.toContain(name);
       expect(resolveSecret(name)).toBeNull();
     }
+  });
+
+  it("counts internal records by prefix without exposing them in list output", () => {
+    storeSecret("__keyblind_sandbox_backup__COUNTED", "backup-value");
+    expect(countSecretsByPrefix("__keyblind_sandbox_backup__")).toBeGreaterThanOrEqual(1);
+    expect(listSecrets()).not.toContain("__keyblind_sandbox_backup__COUNTED");
   });
 
   it("updates an existing secret", () => {
