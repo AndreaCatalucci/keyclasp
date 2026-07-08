@@ -56,19 +56,6 @@ keyblind totp set github "otpauth://totp/GitHub:user?secret=ABCDEFGH&issuer=GitH
 keyblind totp code github
 ```
 
-## Dead Man's Switch for Team Vaults
-
-```bash
-# Primary admin sets up the switch
-keyblind deadman setup --days 30 --contact secondary@company.com
-
-# Daily check-in (automate via cron)
-0 9 * * * keyblind deadman checkin
-
-# Secondary admin monitors
-keyblind deadman status
-```
-
 ## Multi-Machine Sync
 
 ```bash

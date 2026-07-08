@@ -120,6 +120,18 @@ Add to `~/.config/zed/mcp.json`:
 | `totp_delete` | Delete TOTP config | `name: string` |
 | `create_share_link` | Create share link | `name: string, ttl?: string, max_views?: number` |
 | `receive_share` | Receive shared secret | `fragment: string, target_name?: string` |
-| `deadman_status` | Check dead man's switch | none |
-| `deadman_checkin` | Check in to dead man's switch | none |
-| `sso_status` | Check SSO auth status | none |
+| `vault_status` | Safe vault status | none |
+| `config_status` | Safe project config summary | none |
+| `backend_status` | Backend availability summary | none |
+| `capabilities` | Tool safety metadata | none |
+| `recent_activity` | Redacted audit summary | `limit?: number` |
+| `generate_secret` | Generate and store a secret | `name: string, length?: number, symbols?: boolean` |
+| `rotate_secret` | Rotate a secret | `name: string, value?: string, length?: number, symbols?: boolean, expiresAt?: string` |
+| `secret_history` | List history metadata | `name: string, limit?: number` |
+| `rollback_secret` | Restore from history | `name: string, version?: number` |
+| `check_expired` | List expired secret names | none |
+| `expiring_soon` | List expiring secret metadata | `days?: number` |
+| `set_config` | Set safe project config | `key: string, value: string|number|boolean` |
+| `set_backend` | Switch active backend | `name: string` |
+
+`resolve_secret` explicitly returns plaintext in MCP response content so the caller can use the value at runtime. Clients and agents must not paste that value into prompts, logs, or chat transcripts. Status, capability, activity, history, expiry, and list tools return metadata only.

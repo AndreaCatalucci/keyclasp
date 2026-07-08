@@ -1,27 +1,56 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
-import http from "node:http";
-import { storeSecret, listSecrets, deleteSecret, resolveSecret, isInitialized, getAuditLog, setClientInfo } from "./vault.js";
-import { getBackend } from "./backends.js";
+import { storeSecret, listSecrets, deleteSecret, isInitialized, getAuditLog, setClientInfo, checkExpired, setExpiry, getExpiry, getProjectName, countSecretsByPrefix } from "./vault.js";
+import { getBackend, setBackend, listAvailableBackends } from "./backends.js";
 import { sandboxEnvFile, unsandboxEnvFile } from "./sandbox.js";
-import { generateTOTPCode, storeTOTP, listTOTP, deleteTOTP, parseOTPAuthURI, getTOTP, type TOTPConfig } from "./totp.js";
+import { generateTOTPCode, storeTOTP, listTOTP, deleteTOTP, parseOTPAuthURI } from "./totp.js";
 import { createShareLink, receiveShare } from "./share.js";
-import { getDeadmanStatus, checkin } from "./deadman.js";
-import { verifyPairingToken } from "./pairing.js";
-import { getSSOToken, isSSOAuthenticated } from "./sso.js";
-import { createHttpsServer, certExists, certExpiringSoon, provisionCert, startAutoRenewal, type ACMEOptions } from "./https.js";
-import { generateSecret } from "./config.js";
-import { teamInit, teamPush, teamPull, teamList, teamResolve, teamDelete } from "./team.js";
+import { readConfig, mergeConfig, generateSecret } from "./config.js";
+import { saveHistory, getSecretHistory, rollbackSecret, getExpiringSoon } from "./sync.js";
 
-function readBody(req: http.IncomingMessage): Promise<string> {
-  return new Promise((resolve, reject) => {
-    let body = "";
-    req.on("data", (chunk: Buffer) => { body += chunk.toString(); });
-    req.on("end", () => resolve(body));
-    req.on("error", reject);
-  });
+const CAPABILITIES = [
+  { name: "resolve_secret", category: "secret", safety: "read-secret", destructive: false, idempotent: true, returnsPlaintext: true },
+  { name: "store_secret", category: "secret", safety: "write", destructive: false, idempotent: false, secretSensitiveInputs: ["value"] },
+  { name: "list_secrets", category: "secret", safety: "read-metadata", destructive: false, idempotent: true },
+  { name: "delete_secret", category: "secret", safety: "destructive", destructive: true, idempotent: true },
+  { name: "sandbox_env", category: "env", safety: "state-changing", destructive: false, idempotent: false },
+  { name: "unsandbox_env", category: "env", safety: "state-changing", destructive: false, idempotent: false },
+  { name: "audit_log", category: "audit", safety: "read-metadata", destructive: false, idempotent: true },
+  { name: "totp_code", category: "totp", safety: "read-secret-derived", destructive: false, idempotent: false },
+  { name: "totp_store", category: "totp", safety: "write", destructive: false, idempotent: false, secretSensitiveInputs: ["uri"] },
+  { name: "totp_list", category: "totp", safety: "read-metadata", destructive: false, idempotent: true },
+  { name: "totp_delete", category: "totp", safety: "destructive", destructive: true, idempotent: true },
+  { name: "create_share_link", category: "share", safety: "read-secret-derived", destructive: false, idempotent: false },
+  { name: "receive_share", category: "share", safety: "write", destructive: false, idempotent: false, secretSensitiveInputs: ["fragment"] },
+  { name: "vault_status", category: "context", safety: "read-metadata", destructive: false, idempotent: true },
+  { name: "config_status", category: "context", safety: "read-metadata", destructive: false, idempotent: true },
+  { name: "backend_status", category: "context", safety: "read-metadata", destructive: false, idempotent: true },
+  { name: "capabilities", category: "context", safety: "read-metadata", destructive: false, idempotent: true },
+  { name: "recent_activity", category: "context", safety: "read-metadata", destructive: false, idempotent: true },
+  { name: "generate_secret", category: "secret", safety: "write", destructive: false, idempotent: false },
+  { name: "rotate_secret", category: "secret", safety: "write", destructive: false, idempotent: false, secretSensitiveInputs: ["value"] },
+  { name: "secret_history", category: "lifecycle", safety: "read-metadata", destructive: false, idempotent: true },
+  { name: "rollback_secret", category: "lifecycle", safety: "state-changing", destructive: false, idempotent: false },
+  { name: "check_expired", category: "lifecycle", safety: "read-metadata", destructive: false, idempotent: true },
+  { name: "expiring_soon", category: "lifecycle", safety: "read-metadata", destructive: false, idempotent: true },
+  { name: "set_config", category: "config", safety: "state-changing", destructive: false, idempotent: true },
+  { name: "set_backend", category: "config", safety: "state-changing", destructive: false, idempotent: true },
+];
+
+function visibleSecretNames(): string[] {
+  return listSecrets().filter((n) => !n.startsWith("_keyblind") && !n.startsWith("_totp") && !n.startsWith("__keyblind"));
+}
+
+function safeRecentActivity(limit: number): { total: number; byAction: Record<string, number>; recent: { action: string; timestamp: string }[] } {
+  const entries = getAuditLog(limit);
+  const byAction: Record<string, number> = {};
+  for (const entry of entries) byAction[entry.action] = (byAction[entry.action] ?? 0) + 1;
+  return {
+    total: entries.length,
+    byAction,
+    recent: entries.slice(0, Math.min(limit, 10)).map((entry) => ({ action: entry.action, timestamp: entry.timestamp })),
+  };
 }
 
 export function createServer(): McpServer {
@@ -34,7 +63,7 @@ export function createServer(): McpServer {
 
   server.tool(
     "resolve_secret",
-    "Resolve a secret by name using the configured backend (local vault, 1Password, Bitwarden, or env vars). Returns the decrypted value at runtime. The secret value is never visible in the LLM conversation transcript — it is resolved just-in-time for the current operation.",
+    "Read-secret/idempotent. Resolve a secret by name using the configured backend. Contract: this tool returns the plaintext secret value in MCP response content so the caller can use it at runtime; clients must avoid pasting that value into prompts, logs, or chat transcripts.",
     {
       name: z.string().describe("The name of the secret to resolve (e.g., OPENAI_API_KEY, DATABASE_URL)"),
     },
@@ -64,7 +93,7 @@ export function createServer(): McpServer {
 
   server.tool(
     "store_secret",
-    "Store a secret in the encrypted vault. The value is encrypted with AES-256-GCM before storage. The secret value is never visible in the LLM conversation transcript after this call.",
+    "Write/non-idempotent. Store a secret in the encrypted vault. Secret-sensitive input: value. The value is encrypted with AES-256-GCM before storage.",
     {
       name: z.string().describe("A unique name for the secret (e.g., OPENAI_API_KEY, DATABASE_URL)"),
       value: z.string().describe("The secret value to encrypt and store"),
@@ -86,7 +115,7 @@ export function createServer(): McpServer {
 
   server.tool(
     "list_secrets",
-    "List all stored secret names (names only — values are never revealed in this listing).",
+    "Read-metadata/idempotent. List all stored secret names. Values are never returned.",
     {},
     async () => {
       if (!isInitialized()) {
@@ -95,7 +124,7 @@ export function createServer(): McpServer {
         };
       }
 
-      const names = listSecrets().filter((n) => !n.startsWith("_keyblind") && !n.startsWith("_totp") && !n.startsWith("__keyblind"));
+      const names = visibleSecretNames();
       return {
         content: [{ type: "text", text: JSON.stringify({ secrets: names }) }],
       };
@@ -104,7 +133,7 @@ export function createServer(): McpServer {
 
   server.tool(
     "sandbox_env",
-    "Replace real values in your .env file with deterministic fake values. Real values are encrypted and backed up to the vault. AI agents reading .env files will only see fakes. Use unsandbox_env to restore real values.",
+    "State-changing/non-idempotent. Replace real values in your .env file with deterministic fake values. Real values are encrypted and backed up to the vault. Use unsandbox_env to restore real values.",
     {
       filePath: z.string().optional().describe("Path to the .env file. Defaults to .env in current directory."),
     },
@@ -138,7 +167,7 @@ export function createServer(): McpServer {
 
   server.tool(
     "unsandbox_env",
-    "Restore real .env values from the vault. Reverses the sandbox operation.",
+    "State-changing/non-idempotent. Restore real .env values from the vault. Reverses the sandbox operation.",
     {
       filePath: z.string().optional().describe("Path to the .env file. Defaults to .env in current directory."),
     },
@@ -172,7 +201,7 @@ export function createServer(): McpServer {
 
   server.tool(
     "delete_secret",
-    "Delete a secret from the vault.",
+    "Destructive/idempotent. Delete a secret from the vault.",
     {
       name: z.string().describe("The name of the secret to delete"),
     },
@@ -193,7 +222,7 @@ export function createServer(): McpServer {
 
   server.tool(
     "audit_log",
-    "View the audit log of secret resolutions, stores, and deletes. Shows who accessed which secret and when.",
+    "Read-metadata/idempotent. View the audit log of secret resolutions, stores, and deletes. This legacy audit tool includes secret names; use recent_activity for a redacted summary.",
     {
       limit: z.number().optional().describe("Maximum number of entries to return (default: 50)"),
     },
@@ -316,155 +345,194 @@ export function createServer(): McpServer {
     },
   );
 
-  // Dead man's switch tools
   server.tool(
-    "deadman_status",
-    "Check dead man's switch status — days until vault access is released to designated contacts.",
+    "vault_status",
+    "Read-metadata/idempotent. Return safe vault state: initialization, project, backend, visible secret count, sandbox backup count, warnings, and plaintext response contract.",
     {},
     async () => {
-      if (!isInitialized()) {
-        return { content: [{ type: "text", text: JSON.stringify({ error: "Vault not initialized" }) }], isError: true };
-      }
-      const status = getDeadmanStatus();
-      return { content: [{ type: "text", text: JSON.stringify(status) }] };
+      const initialized = isInitialized();
+      const warnings: string[] = [];
+      if (!initialized) warnings.push("Vault not initialized. Run: keyblind init");
+      const backend = getBackend();
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            initialized,
+            project: getProjectName(),
+            backend: backend.name,
+            secretCount: initialized ? visibleSecretNames().length : 0,
+            sandboxBackupCount: initialized ? countSecretsByPrefix("__keyblind_sandbox_backup__") : 0,
+            warnings,
+            secretValueHandling: "resolve_secret returns plaintext in MCP response content by explicit contract",
+          }),
+        }],
+      };
     },
   );
 
   server.tool(
-    "deadman_checkin",
-    "Check in to reset the dead man's switch timer.",
+    "config_status",
+    "Read-metadata/idempotent. Return safe project config values without secret values.",
     {},
     async () => {
-      if (!isInitialized()) {
-        return { content: [{ type: "text", text: JSON.stringify({ error: "Vault not initialized" }) }], isError: true };
-      }
-      checkin();
-      const status = getDeadmanStatus();
-      return { content: [{ type: "text", text: JSON.stringify({ checkedIn: true, daysRemaining: status.daysRemaining }) }] };
-    },
-  );
-
-  // Team vault tools
-  server.tool(
-    "team_init",
-    "Create a new shared team vault (encrypted SQLite). Requires a passphrase.",
-    {
-      passphrase: z.string().describe("Passphrase to encrypt the team vault"),
-      path: z.string().optional().describe("Optional path for the team vault file"),
-    },
-    async ({ passphrase, path }) => {
-      try {
-        const vaultPath = teamInit(passphrase, path);
-        return { content: [{ type: "text", text: JSON.stringify({ success: true, path: vaultPath }) }] };
-      } catch (err: any) {
-        return { content: [{ type: "text", text: JSON.stringify({ error: err.message }) }], isError: true };
-      }
+      const config = readConfig();
+      return { content: [{ type: "text", text: JSON.stringify({ configured: config !== null, config: config ?? {} }) }] };
     },
   );
 
   server.tool(
-    "team_push",
-    "Push a local secret to the shared team vault.",
-    {
-      name: z.string().describe("Name of the secret to push"),
-      passphrase: z.string().describe("Team vault passphrase"),
-      value: z.string().optional().describe("Optional: value to push (if omitted, resolves from local vault)"),
-    },
-    async ({ name, passphrase, value }) => {
-      try {
-        const resolved = resolveSecret(name);
-        if (!resolved && !value) {
-          return { content: [{ type: "text", text: JSON.stringify({ error: `Secret "${name}" not found in local vault. Provide a value.` }) }], isError: true };
-        }
-        const secretValue = value || resolved!;
-        teamPush(name, secretValue, passphrase);
-        return { content: [{ type: "text", text: JSON.stringify({ success: true, name }) }] };
-      } catch (err: any) {
-        return { content: [{ type: "text", text: JSON.stringify({ error: err.message }) }], isError: true };
-      }
-    },
-  );
-
-  server.tool(
-    "team_pull",
-    "Import all secrets from the team vault into your local vault.",
-    {
-      passphrase: z.string().describe("Team vault passphrase"),
-    },
-    async ({ passphrase }) => {
-      try {
-        const names = teamPull(passphrase);
-        return { content: [{ type: "text", text: JSON.stringify({ success: true, imported: names.length, names }) }] };
-      } catch (err: any) {
-        return { content: [{ type: "text", text: JSON.stringify({ error: err.message }) }], isError: true };
-      }
-    },
-  );
-
-  server.tool(
-    "team_list",
-    "List all secret names in the team vault.",
-    {
-      passphrase: z.string().describe("Team vault passphrase"),
-    },
-    async ({ passphrase }) => {
-      try {
-        const names = teamList(passphrase);
-        return { content: [{ type: "text", text: JSON.stringify({ names }) }] };
-      } catch (err: any) {
-        return { content: [{ type: "text", text: JSON.stringify({ error: err.message }) }], isError: true };
-      }
-    },
-  );
-
-  server.tool(
-    "team_resolve",
-    "Resolve (decrypt) a single secret from the team vault.",
-    {
-      name: z.string().describe("Name of the secret to resolve"),
-      passphrase: z.string().describe("Team vault passphrase"),
-    },
-    async ({ name, passphrase }) => {
-      try {
-        const value = teamResolve(name, passphrase);
-        if (value === null) {
-          return { content: [{ type: "text", text: JSON.stringify({ error: `Secret "${name}" not found in team vault` }) }], isError: true };
-        }
-        return { content: [{ type: "text", text: JSON.stringify({ name, value }) }] };
-      } catch (err: any) {
-        return { content: [{ type: "text", text: JSON.stringify({ error: err.message }) }], isError: true };
-      }
-    },
-  );
-
-  server.tool(
-    "team_delete",
-    "Delete a secret from the team vault.",
-    {
-      name: z.string().describe("Name of the secret to delete"),
-      passphrase: z.string().describe("Team vault passphrase"),
-    },
-    async ({ name, passphrase }) => {
-      try {
-        const deleted = teamDelete(name, passphrase);
-        return { content: [{ type: "text", text: JSON.stringify({ success: deleted, name }) }] };
-      } catch (err: any) {
-        return { content: [{ type: "text", text: JSON.stringify({ error: err.message }) }], isError: true };
-      }
-    },
-  );
-
-  // SSO tools
-  server.tool(
-    "sso_status",
-    "Check SSO/OIDC authentication status for team vault access.",
+    "backend_status",
+    "Read-metadata/idempotent. Return current backend and available optional backend adapters.",
     {},
     async () => {
-      const token = getSSOToken();
-      if (token && token.expiresAt * 1000 > Date.now()) {
-        return { content: [{ type: "text", text: JSON.stringify({ authenticated: true, email: token.claims.email, expiresAt: token.expiresAt }) }] };
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            current: getBackend().name,
+            available: listAvailableBackends(),
+            defaultBackend: "local",
+            note: "External backends are optional adapters and may require local CLIs or cloud credentials.",
+          }),
+        }],
+      };
+    },
+  );
+
+  server.tool(
+    "capabilities",
+    "Read-metadata/idempotent. Return retained MCP tools grouped with safety semantics.",
+    {},
+    async () => ({ content: [{ type: "text", text: JSON.stringify({ tools: CAPABILITIES }) }] }),
+  );
+
+  server.tool(
+    "recent_activity",
+    "Read-metadata/idempotent. Return a redacted audit summary without secret names or client info.",
+    { limit: z.number().optional().describe("Maximum audit rows to summarize (default: 50)") },
+    async ({ limit }) => {
+      if (!isInitialized()) return { content: [{ type: "text", text: JSON.stringify({ total: 0, byAction: {}, recent: [] }) }] };
+      return { content: [{ type: "text", text: JSON.stringify(safeRecentActivity(limit ?? 50)) }] };
+    },
+  );
+
+  server.tool(
+    "generate_secret",
+    "Write/non-idempotent. Generate a strong random secret and store it in the configured backend. Returns metadata only, never the generated value.",
+    {
+      name: z.string().describe("Name to store the generated secret under"),
+      length: z.number().optional().describe("Generated secret length (default: 32)"),
+      symbols: z.boolean().optional().describe("Include symbols (default: true)"),
+    },
+    async ({ name, length, symbols }) => {
+      if (!isInitialized()) return { content: [{ type: "text", text: JSON.stringify({ error: "Vault not initialized" }) }], isError: true };
+      const value = generateSecret(length ?? 32, symbols ?? true);
+      getBackend().store(name, value);
+      return { content: [{ type: "text", text: JSON.stringify({ stored: name, generated: true, length: value.length }) }] };
+    },
+  );
+
+  server.tool(
+    "rotate_secret",
+    "Write/non-idempotent. Replace an existing secret value and save previous value to encrypted history. Secret-sensitive input: value.",
+    {
+      name: z.string().describe("Name of the secret to rotate"),
+      value: z.string().optional().describe("New secret value. If omitted, a generated value is stored."),
+      length: z.number().optional().describe("Generated value length when value is omitted (default: 32)"),
+      symbols: z.boolean().optional().describe("Include symbols when generating (default: true)"),
+      expiresAt: z.string().optional().describe("Optional ISO expiry timestamp"),
+    },
+    async ({ name, value, length, symbols, expiresAt }) => {
+      if (!isInitialized()) return { content: [{ type: "text", text: JSON.stringify({ error: "Vault not initialized" }) }], isError: true };
+      const backend = getBackend();
+      const existing = backend.resolve(name);
+      if (existing === null) return { content: [{ type: "text", text: JSON.stringify({ error: `Secret "${name}" not found` }) }], isError: true };
+      const nextValue = value ?? generateSecret(length ?? 32, symbols ?? true);
+      try {
+        backend.store(name, nextValue);
+      } catch (err: any) {
+        return { content: [{ type: "text", text: JSON.stringify({ error: err.message }) }], isError: true };
       }
-      return { content: [{ type: "text", text: JSON.stringify({ authenticated: false }) }] };
+      saveHistory(name, existing);
+      if (expiresAt) setExpiry(name, expiresAt);
+      return { content: [{ type: "text", text: JSON.stringify({ rotated: name, backend: backend.name, generated: value === undefined, expiresAt: getExpiry(name) }) }] };
+    },
+  );
+
+  server.tool(
+    "secret_history",
+    "Read-metadata/idempotent. List encrypted history versions for a secret without returning historical values.",
+    {
+      name: z.string().describe("Secret name"),
+      limit: z.number().optional().describe("Maximum versions to return (default: 10)"),
+    },
+    async ({ name, limit }) => {
+      if (!isInitialized()) return { content: [{ type: "text", text: JSON.stringify({ error: "Vault not initialized" }) }], isError: true };
+      const history = getSecretHistory(name, limit ?? 10).map(({ version, createdAt }) => ({ version, createdAt }));
+      return { content: [{ type: "text", text: JSON.stringify({ name, history }) }] };
+    },
+  );
+
+  server.tool(
+    "rollback_secret",
+    "State-changing/non-idempotent. Restore a secret from encrypted history. Returns metadata only.",
+    {
+      name: z.string().describe("Secret name"),
+      version: z.number().optional().describe("Specific version to restore; latest history entry if omitted"),
+    },
+    async ({ name, version }) => {
+      if (!isInitialized()) return { content: [{ type: "text", text: JSON.stringify({ error: "Vault not initialized" }) }], isError: true };
+      const rolledBack = rollbackSecret(name, version);
+      return { content: [{ type: "text", text: JSON.stringify({ name, rolledBack, version: version ?? "latest" }) }] };
+    },
+  );
+
+  server.tool(
+    "check_expired",
+    "Read-metadata/idempotent. List names of secrets past their expiry date. Values are never returned.",
+    {},
+    async () => {
+      if (!isInitialized()) return { content: [{ type: "text", text: JSON.stringify({ expired: [] }) }] };
+      return { content: [{ type: "text", text: JSON.stringify({ expired: checkExpired() }) }] };
+    },
+  );
+
+  server.tool(
+    "expiring_soon",
+    "Read-metadata/idempotent. List names and expiry metadata for secrets expiring within a threshold. Values are never returned.",
+    { days: z.number().optional().describe("Threshold in days (default: 30)") },
+    async ({ days }) => {
+      if (!isInitialized()) return { content: [{ type: "text", text: JSON.stringify({ expiring: [] }) }] };
+      return { content: [{ type: "text", text: JSON.stringify({ expiring: getExpiringSoon(days ?? 30) }) }] };
+    },
+  );
+
+  server.tool(
+    "set_config",
+    "State-changing/idempotent. Set safe project config keys: backend, projectName, expiryDays, autoSandbox, watchPath.",
+    {
+      key: z.enum(["backend", "projectName", "expiryDays", "autoSandbox", "watchPath"]),
+      value: z.union([z.string(), z.number(), z.boolean()]).describe("Config value"),
+    },
+    async ({ key, value }) => {
+      const config = mergeConfig({ [key]: value });
+      return { content: [{ type: "text", text: JSON.stringify({ updated: key, config }) }] };
+    },
+  );
+
+  server.tool(
+    "set_backend",
+    "State-changing/idempotent. Switch the active backend for this process and persist it in project config.",
+    { name: z.string().describe("Backend name") },
+    async ({ name }) => {
+      try {
+        const backend = setBackend(name);
+        mergeConfig({ backend: name });
+        return { content: [{ type: "text", text: JSON.stringify({ backend: backend.name }) }] };
+      } catch (err: any) {
+        return { content: [{ type: "text", text: JSON.stringify({ error: err.message }) }], isError: true };
+      }
     },
   );
 
@@ -475,313 +543,4 @@ export async function startServer(): Promise<void> {
   const server = createServer();
   const transport = new StdioServerTransport();
   await server.connect(transport);
-}
-
-export async function startHttpServer(port: number = 3100, httpsConfig?: ACMEOptions): Promise<void> {
-  const mcpServer = createServer();
-
-  // Single transport instance handles all requests with session management
-  const transport = new StreamableHTTPServerTransport({
-    sessionIdGenerator: undefined,
-  });
-  await mcpServer.connect(transport);
-
-  const appHandler = async (req: http.IncomingMessage, res: http.ServerResponse) => {
-    // CORS for browser-based clients
-    res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Mcp-Session-Id, Accept");
-
-    if (req.method === "OPTIONS") {
-      res.writeHead(204);
-      res.end();
-      return;
-    }
-
-    // Health check
-    if (req.url === "/health" || req.url === "/") {
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ status: "ok", server: "keyblind", version: "0.5.1", secretCount: isInitialized() ? listSecrets().filter((n: string) => !n.startsWith("_keyblind") && !n.startsWith("_totp")).length : 0 }));
-      return;
-    }
-
-    // ── REST API (for browser dashboard) ──
-    if (req.url === "/api/secrets" && req.method === "GET") {
-      if (!isInitialized()) { res.writeHead(500, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "Not initialized" })); return; }
-      const names = listSecrets().filter((n: string) => !n.startsWith("_keyblind") && !n.startsWith("_totp") && !n.startsWith("__keyblind"));
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ secrets: names }));
-      return;
-    }
-
-    if (req.url === "/api/secrets" && req.method === "POST") {
-      if (!isInitialized()) { res.writeHead(500, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "Not initialized" })); return; }
-      const body = await readBody(req);
-      try {
-        const { name, value } = JSON.parse(body);
-        if (!name || value === undefined) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "name and value required" })); return; }
-        storeSecret(name, value);
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ stored: name }));
-      } catch { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "Invalid JSON" })); }
-      return;
-    }
-
-    if (req.url?.startsWith("/api/secrets/") && req.method === "GET") {
-      if (!isInitialized()) { res.writeHead(500, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "Not initialized" })); return; }
-      const name = decodeURIComponent(req.url.slice("/api/secrets/".length));
-      const backend = getBackend();
-      const value = backend.resolve(name);
-      if (value === null) { res.writeHead(404, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "Not found" })); return; }
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ name, value }));
-      return;
-    }
-
-    if (req.url?.startsWith("/api/secrets/") && req.method === "DELETE") {
-      if (!isInitialized()) { res.writeHead(500, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "Not initialized" })); return; }
-      const name = decodeURIComponent(req.url.slice("/api/secrets/".length));
-      deleteSecret(name);
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ deleted: name }));
-      return;
-    }
-
-    if (req.url?.startsWith("/api/audit") && req.method === "GET") {
-      if (!isInitialized()) { res.writeHead(500, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "Not initialized" })); return; }
-      const url = new URL(req.url, `http://localhost:${port}`);
-      const limit = parseInt(url.searchParams.get("limit") || "50", 10);
-      const entries = getAuditLog(limit);
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ entries }));
-      return;
-    }
-
-    // ── TOTP REST API ──
-    if (req.url === "/api/totp" && req.method === "GET") {
-      if (!isInitialized()) { res.writeHead(500, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "Not initialized" })); return; }
-      const totps = listTOTP().map((name: string) => {
-        const config = getTOTP(name);
-        return config ? { name: config.name, issuer: config.issuer, account: config.account } : { name };
-      });
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ configs: totps }));
-      return;
-    }
-
-    if (req.url === "/api/totp" && req.method === "POST") {
-      if (!isInitialized()) { res.writeHead(500, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "Not initialized" })); return; }
-      const body = await readBody(req);
-      try {
-        const { name, uri } = JSON.parse(body);
-        if (!name || !uri) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "name and uri required" })); return; }
-        storeTOTP(name, uri);
-        const config = parseOTPAuthURI(uri);
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ stored: name, issuer: config.issuer, account: config.account }));
-      } catch (err: any) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: err.message || "Invalid request" })); }
-      return;
-    }
-
-    if (req.url?.startsWith("/api/totp/") && req.url.endsWith("/code") && req.method === "GET") {
-      if (!isInitialized()) { res.writeHead(500, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "Not initialized" })); return; }
-      const name = decodeURIComponent(req.url.slice("/api/totp/".length, -"/code".length));
-      const result = generateTOTPCode(name);
-      if (!result) { res.writeHead(404, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "Not found" })); return; }
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ name, code: result.code, remainingSeconds: result.remaining }));
-      return;
-    }
-
-    if (req.url?.startsWith("/api/totp/") && req.method === "DELETE") {
-      if (!isInitialized()) { res.writeHead(500, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "Not initialized" })); return; }
-      const name = decodeURIComponent(req.url.slice("/api/totp/".length));
-      deleteTOTP(name);
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ deleted: name }));
-      return;
-    }
-
-    // ── Share REST API ──
-    if (req.url === "/api/share" && req.method === "POST") {
-      if (!isInitialized()) { res.writeHead(500, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "Not initialized" })); return; }
-      const body = await readBody(req);
-      try {
-        const { name, ttl, maxViews } = JSON.parse(body);
-        if (!name) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "name required" })); return; }
-        const { url } = createShareLink(name, { ttl, maxViews });
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ url }));
-      } catch (err: any) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: err.message || "Invalid request" })); }
-      return;
-    }
-
-    if (req.url === "/api/share/receive" && req.method === "POST") {
-      if (!isInitialized()) { res.writeHead(500, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "Not initialized" })); return; }
-      const body = await readBody(req);
-      try {
-        const { fragment, targetName } = JSON.parse(body);
-        if (!fragment) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "fragment required" })); return; }
-        const { name } = receiveShare(fragment, targetName);
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ received: name, stored: true }));
-      } catch (err: any) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: err.message || "Invalid request" })); }
-      return;
-    }
-
-    // ── Deadman REST API ──
-    if (req.url === "/api/deadman" && req.method === "GET") {
-      if (!isInitialized()) { res.writeHead(500, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "Not initialized" })); return; }
-      const status = getDeadmanStatus();
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify(status));
-      return;
-    }
-
-    if (req.url === "/api/deadman/checkin" && req.method === "POST") {
-      if (!isInitialized()) { res.writeHead(500, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "Not initialized" })); return; }
-      checkin();
-      const status = getDeadmanStatus();
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ checkedIn: true, ...status }));
-      return;
-    }
-
-    // ── Team REST API ──
-    if (req.url === "/api/team/init" && req.method === "POST") {
-      const body = await readBody(req);
-      try {
-        const { passphrase, path } = JSON.parse(body);
-        if (!passphrase) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "passphrase required" })); return; }
-        const vaultPath = teamInit(passphrase, path);
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ success: true, path: vaultPath }));
-      } catch (err: any) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: err.message })); }
-      return;
-    }
-
-    if (req.url === "/api/team/list" && req.method === "POST") {
-      const body = await readBody(req);
-      try {
-        const { passphrase } = JSON.parse(body);
-        if (!passphrase) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "passphrase required" })); return; }
-        const names = teamList(passphrase);
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ names }));
-      } catch (err: any) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: err.message })); }
-      return;
-    }
-
-    if (req.url === "/api/team/push" && req.method === "POST") {
-      const body = await readBody(req);
-      try {
-        const { name, value, passphrase } = JSON.parse(body);
-        if (!name || !passphrase) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "name and passphrase required" })); return; }
-        const resolved = resolveSecret(name);
-        if (!resolved && !value) { res.writeHead(404, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: `Secret "${name}" not found in local vault` })); return; }
-        const secretValue = value || resolved!;
-        teamPush(name, secretValue, passphrase);
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ success: true, name }));
-      } catch (err: any) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: err.message })); }
-      return;
-    }
-
-    if (req.url === "/api/team/pull" && req.method === "POST") {
-      const body = await readBody(req);
-      try {
-        const { passphrase } = JSON.parse(body);
-        if (!passphrase) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "passphrase required" })); return; }
-        const names = teamPull(passphrase);
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ success: true, imported: names.length, names }));
-      } catch (err: any) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: err.message })); }
-      return;
-    }
-
-    if (req.url?.startsWith("/api/team/") && req.method === "DELETE") {
-      const body = await readBody(req);
-      try {
-        const name = decodeURIComponent(req.url.slice("/api/team/".length));
-        const { passphrase } = JSON.parse(body);
-        if (!passphrase) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "passphrase required" })); return; }
-        const deleted = teamDelete(name, passphrase);
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ success: deleted, name }));
-      } catch (err: any) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: err.message })); }
-      return;
-    }
-
-    // ── Misc REST API ──
-    if (req.url === "/api/generate" && req.method === "POST") {
-      if (!isInitialized()) { res.writeHead(500, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "Not initialized" })); return; }
-      const body = await readBody(req);
-      try {
-        const { name, length, noSymbols } = JSON.parse(body);
-        if (!name) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "name required" })); return; }
-        const value = generateSecret(length || 32, !noSymbols);
-        storeSecret(name, value);
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ stored: name, generated: true }));
-      } catch (err: any) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: err.message || "Invalid request" })); }
-      return;
-    }
-
-    // ── Dashboard pairing ──
-    if (req.url === "/api/auth/pair" && req.method === "POST") {
-      const body = await readBody(req);
-      try {
-        const { token } = JSON.parse(body);
-        if (!token) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "token required" })); return; }
-        const result = await verifyPairingToken(token);
-        if (!result.valid) { res.writeHead(401, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "Invalid or expired pairing token" })); return; }
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ verified: true }));
-      } catch (err: any) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: err.message || "Invalid request" })); }
-      return;
-    }
-
-    // MCP endpoint
-    if (req.url === "/mcp" || req.url?.startsWith("/mcp")) {
-      await transport.handleRequest(req, res);
-      return;
-    }
-
-    res.writeHead(404);
-    res.end("Not found");
-  };
-
-  if (httpsConfig) {
-    // HTTPS mode with Let's Encrypt
-    if (!certExists(httpsConfig.domain) || certExpiringSoon(httpsConfig.domain)) {
-      console.log(`[keyblind] Provisioning Let's Encrypt certificate for ${httpsConfig.domain}...`);
-      await provisionCert(httpsConfig);
-    }
-    startAutoRenewal(httpsConfig.domain, httpsConfig.email);
-
-    const { httpsServer, httpServer } = createHttpsServer(appHandler, httpsConfig);
-
-    return new Promise((resolve) => {
-      httpServer.listen(httpsConfig.httpPort || 80, () => {
-        console.log(`HTTP redirect listening on port ${httpsConfig.httpPort || 80}`);
-      });
-      httpsServer.listen(httpsConfig.port || 443, () => {
-        console.log(`Keyblind MCP HTTPS server listening on https://${httpsConfig.domain}:${httpsConfig.port || 443}`);
-        console.log(`  MCP endpoint: https://${httpsConfig.domain}/mcp`);
-        console.log(`  Health:       https://${httpsConfig.domain}/health`);
-        resolve();
-      });
-    });
-  }
-
-  const httpServer = http.createServer(appHandler);
-
-  return new Promise((resolve) => {
-    httpServer.listen(port, () => {
-      console.log(`Keyblind MCP HTTP server listening on http://localhost:${port}`);
-      console.log(`  MCP endpoint: http://localhost:${port}/mcp`);
-      console.log(`  Health:       http://localhost:${port}/health`);
-      resolve();
-    });
-  });
 }

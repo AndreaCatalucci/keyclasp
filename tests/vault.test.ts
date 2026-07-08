@@ -29,11 +29,16 @@ import {
   deleteSecret,
   isInitialized,
   closeDb,
+  countSecretsByPrefix,
 } from "../src/vault.js";
+import { setBackend } from "../src/backends.js";
+import { createServer } from "../src/server.js";
+import { getSecretHistory, saveHistory } from "../src/sync.js";
 
 beforeAll(() => {
   // Create temp home so vault init doesn't fail on missing directory
   fs.mkdirSync(tmpDir, { recursive: true });
+  fs.mkdirSync(vaultDir, { recursive: true });
 });
 
 afterAll(() => {
@@ -118,10 +123,64 @@ describe("vault CRUD", () => {
     expect(names).toContain("LIST_TEST_2");
   });
 
+  it("hides orphaned internal records from removed features", () => {
+    const removedRecords = [
+      "_keyblind_sso:config",
+      "_keyblind_sso:token",
+      "_keyblind_deadman:config",
+      "_keyblind_deadman:last_checkin",
+      "__keyblind_team_check",
+    ];
+
+    for (const name of removedRecords) {
+      storeSecret(name, "removed-feature-value");
+    }
+
+    const names = listSecrets();
+    for (const name of removedRecords) {
+      expect(names).not.toContain(name);
+      expect(resolveSecret(name)).toBeNull();
+    }
+  });
+
+  it("counts internal records by prefix without exposing them in list output", () => {
+    storeSecret("__keyblind_sandbox_backup__COUNTED", "backup-value");
+    expect(countSecretsByPrefix("__keyblind_sandbox_backup__")).toBeGreaterThanOrEqual(1);
+    expect(listSecrets()).not.toContain("__keyblind_sandbox_backup__COUNTED");
+  });
+
   it("updates an existing secret", () => {
     storeSecret("UPDATE_TEST", "old");
     storeSecret("UPDATE_TEST", "new");
     expect(resolveSecret("UPDATE_TEST")).toBe("new");
+  });
+
+  it("saves the caller-provided previous value to history", () => {
+    const historyName = `HISTORY_FROM_VALUE_${crypto.randomUUID()}`;
+    saveHistory(historyName, "previous-external-value");
+    const history = getSecretHistory(historyName);
+    expect(history).toHaveLength(1);
+    expect(history[0].value).toBe("previous-external-value");
+  });
+
+  it("rotates secrets through the configured backend", async () => {
+    const secretName = `KEYBLIND_ENV_ROTATE_${crypto.randomUUID()}`;
+    process.env[secretName] = "from-env-backend";
+    setBackend("env");
+    try {
+      const server = createServer() as any;
+      const result = await server._registeredTools.rotate_secret.handler({
+        name: secretName,
+        value: "new-value",
+      });
+
+      expect(result.isError).toBe(true);
+      expect(JSON.parse(result.content[0].text).error).toContain("Env backend is read-only");
+      expect(getSecretHistory(secretName)).toHaveLength(0);
+    } finally {
+      setBackend("local");
+      delete process.env[secretName];
+    }
   });
 
   it("deletes a secret", () => {

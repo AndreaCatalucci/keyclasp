@@ -54,35 +54,11 @@ keyblind receive <url-or-fragment>
 
 The secret is encrypted into the URL fragment — never sent to any server.
 
-## Dead Man's Switch
-
-```bash
-keyblind deadman setup --days 30 --contact email@example.com
-keyblind deadman checkin
-keyblind deadman status
-keyblind deadman disable
-```
-
-## SSO / OIDC
-
-```bash
-keyblind sso configure --provider google --client-id X --domain example.com
-keyblind sso login
-keyblind sso logout
-keyblind sso status
-```
-
-Supports Google, Okta, Azure AD, and generic OIDC providers.
-
 ## Server
 
 ```bash
 keyblind start                  # MCP server (stdio — for AI agents)
-keyblind start --http           # MCP HTTP server on port 3100 (for dashboard)
-keyblind start --http --port 4000
 keyblind start --biometric      # Require Touch ID before resolving secrets
-keyblind start --http --https --domain example.com --email admin@example.com
-keyblind start --http --https --domain example.com --staging  # Test Let's Encrypt
 ```
 
 ## Run with Secrets
@@ -109,23 +85,6 @@ keyblind sync import <bundle>   # Import encrypted sync bundle
 keyblind migrate --from local --to aws  # Migrate secrets between backends
 ```
 
-## Team Vaults (Pro/Team)
-
-```bash
-keyblind team init [path]       # Initialize team vault
-keyblind team push <name>       # Push to team vault
-keyblind team pull              # Pull from team vault
-keyblind team list              # List team secrets
-```
-
-## License
-
-```bash
-keyblind activate <license-key> # Activate Pro/Team license
-keyblind deactivate             # Deactivate license
-keyblind status                 # Show license + vault status
-```
-
 ## Utilities
 
 ```bash
@@ -136,7 +95,6 @@ keyblind backends               # List backends with availability
 keyblind completions [bash|zsh|fish]  # Generate shell completions
 keyblind install-hook           # Install pre-commit hook for secret detection
 keyblind watch [.env]           # Watch .env and auto-sandbox on change
-keyblind alerts <url>           # Configure Slack/Discord webhook alerts
 keyblind unlock                 # Touch ID authentication
 ```
 

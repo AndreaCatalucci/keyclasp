@@ -67,21 +67,11 @@
   .feat h4 { color: #f0f6fc; font-size: 14px; margin-bottom: 4px; }
   .feat p { color: #8b949e; font-size: 12px; }
 
-  /* Pricing */
-  .pricing { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
   .card {
     background: #161b22; border: 1px solid #21262d; border-radius: 12px;
     padding: 32px 24px; position: relative;
   }
-  .card.featured { border-color: #1f6feb; box-shadow: 0 0 0 1px #1f6feb; }
-  .card.featured::before {
-    content: "Popular"; position: absolute; top: -12px; left: 50%; transform: translateX(-50%);
-    background: #1f6feb; color: #fff; font-size: 12px; font-weight: 600;
-    padding: 2px 12px; border-radius: 12px;
-  }
   .card h3 { font-size: 22px; color: #f0f6fc; margin-bottom: 8px; }
-  .card .price { font-size: 36px; font-weight: 700; color: #f0f6fc; margin-bottom: 4px; }
-  .card .period { font-size: 14px; color: #8b949e; margin-bottom: 24px; }
   .card ul { list-style: none; margin-bottom: 24px; }
   .card li {
     padding: 6px 0; font-size: 14px; color: #c9d1d9;
@@ -92,11 +82,6 @@
   .card li.no { color: #484f58; }
   .card li.no::before { content: "- "; color: #484f58; }
   .card .btn { display: block; text-align: center; }
-
-  .card .coming-soon {
-    display: block; text-align: center; padding: 12px; font-size: 14px;
-    color: #8b949e; border: 1px dashed #30363d; border-radius: 8px;
-  }
 
   /* Comparison table */
   .compare { width: 100%; border-collapse: collapse; }
@@ -125,7 +110,7 @@
 
   @media (max-width: 768px) {
     .hero h1 { font-size: 32px; }
-    .steps, .pricing, .features { grid-template-columns: 1fr; }
+    .steps, .features { grid-template-columns: 1fr; }
     .hero { padding: 60px 0 40px; }
     .btn-outline { margin-left: 0; margin-top: 12px; }
   }
@@ -188,7 +173,7 @@
   <!-- More than secrets -->
   <div class="section">
     <h2>More Than a Vault</h2>
-    <div class="sub">16 MCP tools. One CLI. No network calls.</div>
+    <div class="sub">26 MCP tools. One CLI. Local-first by default.</div>
     <div class="features">
       <div class="feat">
         <div class="icon">&#128274;</div>
@@ -215,26 +200,6 @@
         <h4>Secret Sharing</h4>
         <p>AES-256-GCM encrypted URL fragments. Time-limited. View-limited.</p>
       </div>
-      <div class="feat">
-        <div class="icon">&#9760;</div>
-        <h4>Dead Man's Switch</h4>
-        <p>Auto-release vault to contacts if you don't check in.</p>
-      </div>
-      <div class="feat">
-        <div class="icon">&#128101;</div>
-        <h4>Team Vaults</h4>
-        <p>Git-safe shared vault. Passphrase-protected. PBKDF2 key derivation.</p>
-      </div>
-      <div class="feat">
-        <div class="icon">&#128273;</div>
-        <h4>SSO / OIDC</h4>
-        <p>Team vault access via Google, Okta, or any OIDC provider.</p>
-      </div>
-      <div class="feat">
-        <div class="icon">&#128231;</div>
-        <h4>Alerts</h4>
-        <p>Slack and Discord webhooks for secret expiry and vault events.</p>
-      </div>
     </div>
   </div>
 
@@ -250,11 +215,11 @@
       </a>
       <a href="https://github.com/AndreaCatalucci/keyblind/blob/main/docs/commands.md" class="card" style="text-decoration:none;display:block;">
         <h4 style="color:#58a6ff;margin-bottom:4px;">CLI Reference</h4>
-        <p style="color:#8b949e;font-size:13px;">All 40+ commands with examples and flags.</p>
+        <p style="color:#8b949e;font-size:13px;">Core commands with examples and flags.</p>
       </a>
       <a href="https://github.com/AndreaCatalucci/keyblind/blob/main/docs/mcp-integration.md" class="card" style="text-decoration:none;display:block;">
         <h4 style="color:#58a6ff;margin-bottom:4px;">MCP Integration</h4>
-        <p style="color:#8b949e;font-size:13px;">16 MCP tools with parameter schemas and usage patterns.</p>
+        <p style="color:#8b949e;font-size:13px;">26 MCP tools with parameter schemas and usage patterns.</p>
       </a>
       <a href="https://github.com/AndreaCatalucci/keyblind/blob/main/docs/editors.md" class="card" style="text-decoration:none;display:block;">
         <h4 style="color:#58a6ff;margin-bottom:4px;">Editor Setup</h4>
@@ -270,7 +235,7 @@
       </a>
       <a href="https://github.com/AndreaCatalucci/keyblind/blob/main/docs/faq.md" class="card" style="text-decoration:none;display:block;">
         <h4 style="color:#58a6ff;margin-bottom:4px;">FAQ</h4>
-        <p style="color:#8b949e;font-size:13px;">Common questions about setup, security, licensing, and teams.</p>
+        <p style="color:#8b949e;font-size:13px;">Common questions about setup, security, and local operation.</p>
       </a>
     </div>
   </div>
@@ -288,10 +253,6 @@
       <div class="card" style="text-align:center">
         <p style="font-size:15px;color:#c9d1d9;line-height:1.6;font-style:italic">"We run Keyblind in CI to sandbox .env files before AI code review. Clean diffs, real secrets never exposed. It's part of our standard dev setup now."</p>
         <p style="margin-top:12px;font-size:14px;color:#8b949e">Jordan M., DevOps Lead</p>
-      </div>
-      <div class="card" style="text-align:center">
-        <p style="font-size:15px;color:#c9d1d9;line-height:1.6;font-style:italic">"Switched from hand-managing .env files to Keyblind. The dead man's switch gives me peace of mind for our team vault access."</p>
-        <p style="margin-top:12px;font-size:14px;color:#8b949e">Sam T., CTO at 12-person startup</p>
       </div>
     </div>
   </div>

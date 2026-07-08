@@ -18,7 +18,7 @@
 ```
 MCP-native secrets vault. Encrypt API keys, sandbox .env files with
 deterministic fakes, resolve at runtime. AI agents never see real values.
-16 MCP tools, 7 backends, 40+ CLI commands. Works with Claude Code,
+26 MCP tools, 7 optional backends, core CLI commands. Works with Claude Code,
 Cursor, Copilot, Windsurf, Cline, Zed. MIT. Zero telemetry.
 ```
 
@@ -40,7 +40,7 @@ Terminal showing `keyblind sandbox` output with deterministic fakes.
 Caption: "After sandboxing: deterministic HMAC-SHA256 fakes. Clean git diffs. Same fake every time."
 
 ### Image 3: Feature Grid
-Show the core feature set: vault, sandbox, TOTP, sharing, team vaults, and agent-focused MCP tools.
+Show the core feature set: vault, sandbox, TOTP, sharing, and agent-focused MCP tools.
 Caption: "MCP tools, local-first backends, deterministic sandboxing, and runtime secret resolution."
 
 ### Image 4: Agent Workflow
@@ -65,16 +65,15 @@ at runtime. The AI never sees them.
 
 What's shipped in v0.6.0 (just published today):
 
-- MCP tools for secrets, sandboxing, TOTP, secret sharing, team vaults, SSO, audit log, and alerts
+- MCP tools for secrets, sandboxing, TOTP, secret sharing, context, lifecycle, and audit summaries
 - Local-first backends — local, 1Password, Bitwarden, env, AWS, GCP, Azure
 - CLI workflows for vault setup, sandboxing, and runtime injection
-- Chrome extension (paste interception on AI chat sites)
 
 Key differentiator from Cloak (launched last week): Keyblind is MCP-
 native — works with every AI editor, not just VS Code. 7 backends vs 1.
 Deterministic sandbox vs random placeholders.
 
-Availability: Free — Unlimited secrets, all 7 backends, all 16 MCP tools. No accounts, no payment required.
+Availability: Free — Unlimited secrets, optional backend adapters, all 26 MCP tools. No accounts, no payment required.
 
 Stack: TypeScript, SQLite (better-sqlite3), Node.js crypto. Zero network,
 zero telemetry, zero accounts. MIT licensed.

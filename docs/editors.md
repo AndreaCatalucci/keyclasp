@@ -40,7 +40,7 @@ keyblind unlock
 claude mcp add keyblind -- keyblind start --biometric
 ```
 
-> Session expires after 15 minutes. Requires Pro or Team license.
+> Session expires after 15 minutes. No license key is required.
 
 ### Cursor
 

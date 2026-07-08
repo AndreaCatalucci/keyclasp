@@ -2,7 +2,7 @@
 
 ## What is Keyblind?
 
-Keyblind is an encrypted secrets vault that integrates with AI coding tools via the Model Context Protocol (MCP). It stores API keys, tokens, and passwords in an AES-256-GCM encrypted SQLite database and resolves them at runtime — plaintext never appears in your LLM conversation transcript.
+Keyblind is an encrypted secrets vault that integrates with AI coding tools via the Model Context Protocol (MCP). It stores API keys, tokens, and passwords in an AES-256-GCM encrypted SQLite database and resolves them at runtime. `resolve_secret` returns plaintext to the MCP caller by explicit contract; clients must keep that value out of prompts, logs, and chat transcripts.
 
 ## How is this different from a .env file?
 
@@ -26,21 +26,17 @@ By default, in `~/.keyblind/vault.db` — an AES-256-GCM encrypted SQLite databa
 
 Your secrets are unrecoverable. The passphrase encrypts the vault key. There is no backdoor, no recovery email, no "forgot password" flow. **Write down your passphrase and store it securely.**
 
-## How does the license system work?
+## Does Keyblind require a license key?
 
-License keys are Ed25519-signed JSON payloads. The public key is baked into the binary. Validation happens entirely offline — no phone-home. See [Security Design](./security.md) for details.
+No. Keyblind is MIT licensed, local-first, and does not include activation, paid-tier gates, or phone-home license checks.
 
 ## Can I use Keyblind in CI/CD?
 
-Yes. Set `KEYBLIND_DEV=true` for unlimited secrets in CI (no license needed for public repositories). For private repos, use a Pro license via GitHub Secrets.
+Yes. Use a local vault or one of the optional backend adapters available in your CI environment. Keyblind does not require a license key for private repositories.
 
 ## What MCP tools does Keyblind expose?
 
-16 tools: `resolve_secret`, `store_secret`, `list_secrets`, `delete_secret`, `sandbox_env`, `unsandbox_env`, `audit_log`, `totp_code`, `totp_store`, `totp_list`, `totp_delete`, `create_share_link`, `receive_share`, `deadman_status`, `deadman_checkin`, `sso_status`.
-
-## Does Keyblind support team vaults?
-
-Yes. Pro tier includes team vaults with `keyblind team push/pull/list`. Team tier ($29/user/month) adds centralized admin and shared vault policies.
+26 tools covering secrets, sandboxing, TOTP, sharing, safe runtime context, backend/config status, redacted activity, generation, rotation, history, rollback, and expiry checks.
 
 ## How do I switch between backends?
 
@@ -50,10 +46,6 @@ keyblind config backend local  # Back to local vault
 ```
 
 Run `keyblind backends` to see which backends are available.
-
-## Is there a browser extension?
-
-Yes. The Keyblind browser extension detects API keys in your clipboard and warns before pasting into AI chat sites (Claude.ai, ChatGPT, GitHub Copilot web). Available in the Chrome Web Store.
 
 ## Can I use Keyblind with non-MCP tools?
 

@@ -11,6 +11,13 @@ const AUTH_TAG_LENGTH = 16;
 const KEY_LENGTH = 32;
 const PBKDF2_ITERATIONS = 600_000;
 const SALT_LENGTH = 32;
+const REMOVED_INTERNAL_SECRET_NAMES = new Set([
+  "_keyblind_sso:config",
+  "_keyblind_sso:token",
+  "_keyblind_deadman:config",
+  "_keyblind_deadman:last_checkin",
+  "__keyblind_team_check",
+]);
 
 let _projectName: string | null = null;
 
@@ -194,6 +201,8 @@ export function storeSecret(name: string, value: string): void {
 }
 
 export function resolveSecret(name: string): string | null {
+  if (REMOVED_INTERNAL_SECRET_NAMES.has(name)) return null;
+
   const db = getDb();
   const key = getKey();
   const row = db.prepare("SELECT encrypted_value, iv, auth_tag FROM secrets WHERE name = ?").get(name) as
@@ -208,7 +217,13 @@ export function resolveSecret(name: string): string | null {
 export function listSecrets(): string[] {
   const db = getDb();
   const rows = db.prepare("SELECT name FROM secrets WHERE name NOT LIKE '@_@_%' ESCAPE '@' ORDER BY name").all() as { name: string }[];
-  return rows.map((r) => r.name);
+  return rows.map((r) => r.name).filter((name) => !REMOVED_INTERNAL_SECRET_NAMES.has(name));
+}
+
+export function countSecretsByPrefix(prefix: string): number {
+  const db = getDb();
+  const row = db.prepare("SELECT COUNT(*) as count FROM secrets WHERE substr(name, 1, ?) = ?").get(prefix.length, prefix) as { count: number };
+  return row.count;
 }
 
 export function deleteSecret(name: string): boolean {
