@@ -26,14 +26,12 @@ src/
 ├── share.ts        → Encrypted secret sharing via URL fragments
 ├── setup-mcp.ts    → Auto-configure MCP for Claude Code (`keyblind setup-mcp`)
 ├── auth.ts         → Biometric authentication gate
-├── license.ts      → Ed25519 license key verification
 ├── sync.ts         → Version history, rollback, sync bundles
 ├── doctor.ts       → Vault health check
 ├── config.ts       → Project configuration (.keyblind)
 ├── completions.ts  → Shell completions (bash, zsh, fish)
 ├── hook.ts         → Pre-commit hook for secret detection
-├── watch.ts        → Watch .env and auto-sandbox
-└── alerts.ts       → Slack/Discord webhook alerts
+└── watch.ts        → Watch .env and auto-sandbox
 
 docs/solutions/     # documented solutions (bugs, best practices, workflow patterns), organized by category with YAML frontmatter (module, tags, problem_type)
 ```

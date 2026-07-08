@@ -10,7 +10,6 @@ import { readConfig, mergeConfig, generateSecret, parseEnvFile, formatEnvFile } 
 import { runDoctor } from "./doctor.js";
 import { generateBash, generateZsh, generateFish, detectShell, getInstallInstructions } from "./completions.js";
 import { saveHistory, getSecretHistory, rollbackSecret, ensureHistoryTable, getExpiringSoon, createSyncBundle, applySyncBundle, migrateSecrets } from "./sync.js";
-import { configureAlerts, loadAlertsFromConfig, fireAlert } from "./alerts.js";
 import { storeTOTP, getTOTP, listTOTP, deleteTOTP, generateTOTPCode, parseOTPAuthURI } from "./totp.js";
 import { createShareLink, receiveShare } from "./share.js";
 import { setupAll } from "./setup-mcp.js";
@@ -74,7 +73,6 @@ Usage:
   keyblind sync export       Create encrypted sync bundle
   keyblind sync import <file> Apply a sync bundle from another machine
   keyblind migrate <from> <to> Migrate secrets between backends
-  keyblind alerts <url>      Configure Slack/Discord webhook alerts
   keyblind totp set <name>   Store a TOTP 2FA config (from otpauth:// URI)
   keyblind totp code <name>  Generate current TOTP code with countdown
   keyblind totp list          List all TOTP configurations
@@ -847,41 +845,6 @@ async function main(): Promise<void> {
           console.error(`Migration failed: ${err.message}`);
           process.exit(1);
         }
-        break;
-      }
-
-      case "alerts": {
-        const alertUrl = args[1];
-        const alertEvents = args.slice(2).filter(a => !a.startsWith("--"));
-
-        if (!alertUrl) {
-          const cfg = readConfig();
-          if (cfg && (cfg as any).alertWebhooks) {
-            const hooks = (cfg as any).alertWebhooks;
-            console.log(`${hooks.length} webhook(s) configured:`);
-            for (const h of hooks) {
-              console.log(`  ${h.url} → events: ${h.events.join(", ")}`);
-            }
-          } else {
-            console.log("No alert webhooks configured.");
-            console.log("Usage: keyblind alerts <webhook-url> [resolve,store,delete,rotate,expiry]");
-            console.log("Example: keyblind alerts https://hooks.slack.com/... resolve rotate expiry");
-          }
-          break;
-        }
-
-        const events = alertEvents.length > 0
-          ? alertEvents as ("resolve" | "store" | "delete" | "rotate" | "expiry")[]
-          : ["resolve", "store", "delete", "rotate", "expiry"];
-
-        const cfg = readConfig() || {};
-        const hooks = (cfg as any).alertWebhooks || [];
-        hooks.push({ url: alertUrl, events });
-        (cfg as any).alertWebhooks = hooks;
-        mergeConfig(cfg as any);
-        loadAlertsFromConfig();
-        console.log(`Alert webhook configured: ${alertUrl}`);
-        console.log(`Events: ${events.join(", ")}`);
         break;
       }
 

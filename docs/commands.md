@@ -95,7 +95,6 @@ keyblind backends               # List backends with availability
 keyblind completions [bash|zsh|fish]  # Generate shell completions
 keyblind install-hook           # Install pre-commit hook for secret detection
 keyblind watch [.env]           # Watch .env and auto-sandbox on change
-keyblind alerts <url>           # Configure Slack/Discord webhook alerts
 keyblind unlock                 # Touch ID authentication
 ```
 

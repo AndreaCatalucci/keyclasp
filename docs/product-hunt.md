@@ -65,7 +65,7 @@ at runtime. The AI never sees them.
 
 What's shipped in v0.6.0 (just published today):
 
-- MCP tools for secrets, sandboxing, TOTP, secret sharing, audit log, and alerts
+- MCP tools for secrets, sandboxing, TOTP, secret sharing, and audit log
 - Local-first backends — local, 1Password, Bitwarden, env, AWS, GCP, Azure
 - CLI workflows for vault setup, sandboxing, and runtime injection
 

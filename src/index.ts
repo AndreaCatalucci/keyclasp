@@ -8,7 +8,6 @@ export { readConfig, writeConfig, mergeConfig, generateSecret, parseEnvFile, for
 export { runDoctor } from "./doctor.js";
 export { generateBash, generateZsh, generateFish, detectShell, getInstallInstructions } from "./completions.js";
 export { ensureHistoryTable, saveHistory, getSecretHistory, rollbackSecret, getExpiringSoon, createSyncBundle, applySyncBundle, migrateSecrets, type SecretVersion, type ExpiryWarning } from "./sync.js";
-export { configureAlerts, loadAlertsFromConfig, fireAlert, formatSlackPayload, formatDiscordPayload } from "./alerts.js";
 export { storeTOTP, getTOTP, listTOTP, deleteTOTP, generateTOTPCode, generateTOTP, generateHOTP, parseOTPAuthURI, timeRemaining, type TOTPConfig } from "./totp.js";
 export { createShareLink, receiveShare, parseTTL, type SharePayload } from "./share.js";
 export { setupAll, type SetupResult } from "./setup-mcp.js";
