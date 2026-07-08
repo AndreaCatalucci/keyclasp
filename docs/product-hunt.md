@@ -81,11 +81,7 @@ Key differentiator from Cloak (launched last week): Keyblind is MCP-
 native — works with every AI editor, not just VS Code. 7 backends vs 1.
 Deterministic sandbox vs random placeholders.
 
-Pricing:
-- Free: 5 secrets, all 7 backends, all 16 MCP tools
-- Pro ($79/year): Unlimited secrets, team vaults, audit log, CI/CD,
-  secret rotation, biometric gate, cloud backends
-- PH2025 code = 50% off Pro first year
+Availability: Free — Unlimited secrets, all 7 backends, all 16 MCP tools. No accounts, no payment required.
 
 Stack: TypeScript, SQLite (better-sqlite3), Node.js crypto. Zero network,
 zero telemetry, zero accounts. MIT licensed.

@@ -2,7 +2,9 @@
 
 > **Encrypted secrets vault with MCP for AI agents. Secrets resolved at runtime, never leaked to LLM conversations.**
 
-> **Fork** of [aarifmms/keyblind](https://github.com/aarifmms/keyblind) (MIT). Upstream remote configured.
+> **Local-only fork** of [aarifmms/keyblind](https://github.com/aarifmms/keyblind) (MIT). Upstream remote configured for tracking only.
+>
+> **NEVER create PRs against `upstream` (aarifmms/keyblind).** All PRs MUST target `origin` (AndreaCatalucci/keyblind). Use `gh pr create --repo AndreaCatalucci/keyblind --base main`.
 
 ## Tech Stack
 

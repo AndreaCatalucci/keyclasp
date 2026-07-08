@@ -5,14 +5,11 @@ const SECRET = new TextEncoder().encode(
 );
 
 export interface SessionUser {
-  email: string;
-  tier: string;
-  licenseId: string;
   expiresAt: string;
 }
 
-export async function createSessionToken(user: SessionUser): Promise<string> {
-  return new jose.SignJWT(user as unknown as jose.JWTPayload)
+export async function createSessionToken(expiresAt: string): Promise<string> {
+  return new jose.SignJWT({ expiresAt } as unknown as jose.JWTPayload)
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime("24h")

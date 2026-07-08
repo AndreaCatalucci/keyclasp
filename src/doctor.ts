@@ -1,6 +1,5 @@
 import { isInitialized, getKey, listSecrets, checkExpired, resolveSecret } from "./vault.js";
 import { getBackend, listAvailableBackends } from "./backends.js";
-import { getLicenseInfo, getSecretLimit } from "./license.js";
 import { readConfig } from "./config.js";
 import os from "node:os";
 import fs from "node:fs";
@@ -30,20 +29,10 @@ export function runDoctor(): CheckResult[] {
     checks.push({ name: "Encryption key", status: "error", detail: "Cannot read key. Vault may be corrupted. Try: keyblind init" });
   }
 
-  // 3. Secret count vs limit
+  // 3. Secret count
   if (isInitialized()) {
     const names = listSecrets();
-    const limit = getSecretLimit();
-    const pct = limit === Infinity ? 0 : Math.round((names.length / limit) * 100);
-    if (limit === Infinity) {
-      checks.push({ name: "Secret count", status: "ok", detail: `${names.length} secrets (unlimited)` });
-    } else if (names.length >= limit) {
-      checks.push({ name: "Secret count", status: "error", detail: `${names.length}/${limit} — limit reached. Upgrade to Pro for unlimited.` });
-    } else if (pct > 80) {
-      checks.push({ name: "Secret count", status: "warn", detail: `${names.length}/${limit} — ${pct}% used. Consider upgrading.` });
-    } else {
-      checks.push({ name: "Secret count", status: "ok", detail: `${names.length}/${limit}` });
-    }
+    checks.push({ name: "Secret count", status: "ok", detail: `${names.length} secrets` });
   }
 
   // 4. Expired secrets
@@ -60,26 +49,6 @@ export function runDoctor(): CheckResult[] {
     }
   }
 
-  // 5. License
-  try {
-    const info = getLicenseInfo();
-    if (info) {
-      const expDate = new Date(info.exp + "T23:59:59Z");
-      const daysLeft = Math.ceil((expDate.getTime() - Date.now()) / (24 * 60 * 60 * 1000));
-      const tierLabel = info.tier === "team" ? "Team" : info.tier === "pro" ? "Pro" : "Free";
-      if (info.tier === "free") {
-        checks.push({ name: "License", status: "ok", detail: `Free tier (${info.email})` });
-      } else if (daysLeft < 30) {
-        checks.push({ name: "License", status: "warn", detail: `${tierLabel} (${info.email}) — expires in ${daysLeft} days` });
-      } else {
-        checks.push({ name: "License", status: "ok", detail: `${tierLabel} (${info.email}) — expires ${info.exp}` });
-      }
-    } else {
-      checks.push({ name: "License", status: "ok", detail: "Free tier (not activated). 5 secret limit." });
-    }
-  } catch {
-    checks.push({ name: "License", status: "ok", detail: "Free tier" });
-  }
 
   // 6. Backend connectivity
   try {

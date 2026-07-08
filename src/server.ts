@@ -10,7 +10,6 @@ import { generateTOTPCode, storeTOTP, listTOTP, deleteTOTP, parseOTPAuthURI, get
 import { createShareLink, receiveShare } from "./share.js";
 import { getDeadmanStatus, checkin } from "./deadman.js";
 import { verifyPairingToken } from "./pairing.js";
-import { getLicenseInfo } from "./license.js";
 import { getSSOToken, isSSOAuthenticated } from "./sso.js";
 import { createHttpsServer, certExists, certExpiringSoon, provisionCert, startAutoRenewal, type ACMEOptions } from "./https.js";
 import { generateSecret } from "./config.js";
@@ -736,13 +735,8 @@ export async function startHttpServer(port: number = 3100, httpsConfig?: ACMEOpt
         if (!token) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "token required" })); return; }
         const result = await verifyPairingToken(token);
         if (!result.valid) { res.writeHead(401, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "Invalid or expired pairing token" })); return; }
-        const license = getLicenseInfo();
         res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({
-          verified: true,
-          tier: license?.tier || "free",
-          email: license?.email || "",
-        }));
+        res.end(JSON.stringify({ verified: true }));
       } catch (err: any) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: err.message || "Invalid request" })); }
       return;
     }

@@ -84,8 +84,6 @@ keyblind unlock                      # Authenticate first
 claude mcp add keyblind -- keyblind start --biometric
 ```
 
-> Session expires after 15 minutes. Requires Pro or Team license.
-
 ### MCP Tools
 
 | Tool | Description |
@@ -115,12 +113,10 @@ Manage your secrets from a browser at **[app.keyblind.dev](https://app.keyblind.
 keyblind start --http
 ```
 
-Then sign in with your license key at [app.keyblind.dev/login](https://app.keyblind.dev/login). Features:
+Then sign in via pairing flow at [app.keyblind.dev/login](https://app.keyblind.dev/login). Features:
 
 - View, add, copy, and delete secrets
 - Audit log with full access history
-- License management
-- Pro/Team tier status
 
 ## Browser Extension
 
@@ -135,35 +131,6 @@ Features:
 - Popup with vault connection status
 
 Located in `browser-extension/`. Load as unpacked extension from `chrome://extensions`.
-
-## Pricing
-
-| | Free | Pro | Team |
-|------|------|-----|------|
-| **Price** | $0 | $79/year | $29/user/month |
-| **Secrets** | 5 | Unlimited | Unlimited |
-| **Local vault** | ✓ | ✓ | ✓ |
-| **Sandbox / Unsandbox** | ✓ | ✓ | ✓ |
-| **MCP server** | ✓ | ✓ | ✓ |
-| **Dashboard** | ✓ | ✓ | ✓ |
-| **Browser extension** | ✓ | ✓ | ✓ |
-| **7 backends** | ✓ | ✓ | ✓ |
-| **Team vaults** | — | ✓ | ✓ |
-| **Audit log** | — | ✓ | ✓ |
-| **Secret sharing** | — | ✓ | ✓ |
-| **Dead man's switch** | — | ✓ | ✓ |
-| **TOTP 2FA** | — | ✓ | ✓ |
-| **Biometric gate** | — | ✓ | ✓ |
-| **SSO/OIDC** | — | — | ✓ |
-| **CI/CD integration** | — | ✓ | ✓ |
-
-```bash
-# Buy a license at keyblind.dev, then activate:
-keyblind activate <your-license-key>
-
-# Check your status
-keyblind status
-```
 
 ## Backends
 
@@ -203,8 +170,7 @@ keyblind backend bitwarden                 # Switch to Bitwarden
 | **CI/CD** | `keyblind run` for env injection | — |
 | **Network** | Zero (fully local) | Zero |
 | **License** | MIT | Proprietary |
-| **Free tier** | ✓ (5 secrets) | ✓ |
-| **Pro** | $79/year (unlimited) | — |
+| **Secrets** | Unlimited (free) | — |
 
 ## Security
 
@@ -232,9 +198,7 @@ keyblind start --http         Start MCP HTTP server (for dashboard)
 keyblind start --biometric    Start MCP server with biometric requirement
 keyblind backends             List available backends
 keyblind backend <name>       Switch backend
-keyblind activate <key>       Activate a Pro/Team license
-keyblind deactivate           Remove current license
-keyblind status               Show license and vault status
+keyblind status               Show vault status
 keyblind audit                Show secret resolution audit log
 keyblind check --expired      List secrets past expiry
 keyblind rotate <name>        Update a secret value
