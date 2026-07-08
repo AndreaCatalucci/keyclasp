@@ -24,12 +24,9 @@ src/
 ├── index.ts        → Public API exports
 ├── totp.ts         → TOTP/HOTP 2FA code generation (zero deps)
 ├── share.ts        → Encrypted secret sharing via URL fragments
-├── deadman.ts      → Dead man's switch with email notification
-├── sso.ts          → SSO/OIDC authentication for team vaults
 ├── setup-mcp.ts    → Auto-configure MCP for Claude Code (`keyblind setup-mcp`)
 ├── auth.ts         → Biometric authentication gate
 ├── license.ts      → Ed25519 license key verification
-├── team.ts         → Shared team vaults (git-safe)
 ├── sync.ts         → Version history, rollback, sync bundles
 ├── doctor.ts       → Vault health check
 ├── config.ts       → Project configuration (.keyblind)
@@ -63,7 +60,7 @@ keyblind setup-mcp    # Auto-configure Claude Code MCP
 ## Key Decisions
 
 - **MCP-first, not editor-first.** Works with every AI tool that speaks MCP (Claude Code, Cursor, Copilot, Windsurf, Cline, Zed), not just VS Code.
-- **16 MCP tools** — secrets, TOTP, sharing, dead man's switch, SSO, sandbox.
+- **13 MCP tools** — secrets, TOTP, sharing, sandbox.
 - **Local-first MCP server** — stdio transport for AI agents; no dashboard REST backend in core.
 - **Deterministic sandbox fakes** using HMAC-SHA256(project hash + key name) so git diffs stay clean.
 - **Machine-identity-bound key** — encryption key XOR-wrapped with machine fingerprint.

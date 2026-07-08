@@ -17,11 +17,6 @@ import {
   generateTOTP, generateHOTP, timeRemaining,
 } from "../src/totp.js";
 import { createShareLink, receiveShare, parseTTL } from "../src/share.js";
-import {
-  setupDeadman, checkin, getDeadmanStatus, disableDeadman,
-  checkDeadmanTrigger, getDeadmanConfig,
-} from "../src/deadman.js";
-import { configureSSO, getSSOConfig, isSSOAuthenticated } from "../src/sso.js";
 import { getAuditLog, checkExpired, setExpiry } from "../src/vault.js";
 import { setBackend, getBackend, listAvailableBackends } from "../src/backends.js";
 import { generateSecret } from "../src/config.js";
@@ -171,79 +166,6 @@ describe("Secret sharing integration", () => {
     const { fragment } = createShareLink("SHARE_TEST");
     const result = receiveShare(fragment, "JSON_SECRET");
     expect(result.value).toBe(special);
-  });
-});
-
-// ─── Dead man's switch tests ───────────────────────────────
-describe("Dead man switch integration", () => {
-  beforeEach(() => {
-    disableDeadman();
-  });
-
-  it("returns disabled status when not configured", () => {
-    const status = getDeadmanStatus();
-    expect(status.enabled).toBe(false);
-    expect(status.triggered).toBe(false);
-  });
-
-  it("setup, checkin, status lifecycle works", () => {
-    setupDeadman({ days: 90, contactEmail: "contact@example.com" });
-    const config = getDeadmanConfig();
-    expect(config).not.toBeNull();
-    expect(config!.enabled).toBe(true);
-    expect(config!.days).toBe(90);
-    expect(config!.contactEmail).toBe("contact@example.com");
-
-    checkin();
-    const status = getDeadmanStatus();
-    expect(status.enabled).toBe(true);
-    expect(status.daysConfigured).toBe(90);
-    expect(status.daysRemaining).toBe(90); // Just checked in
-    expect(status.triggered).toBe(false);
-    expect(status.lastCheckin).not.toBeNull();
-  });
-
-  it("disable deadman works", () => {
-    setupDeadman({ days: 30, contactEmail: "test@test.com" });
-    expect(getDeadmanStatus().enabled).toBe(true);
-    disableDeadman();
-    expect(getDeadmanStatus().enabled).toBe(false);
-  });
-
-  it("triggered flag is false when within window", () => {
-    setupDeadman({ days: 365, contactEmail: "long@test.com" });
-    checkin();
-    expect(checkDeadmanTrigger()).toBe(false);
-  });
-
-  it("stores and retrieves deadman config with message", () => {
-    setupDeadman({
-      days: 14,
-      contactEmail: "emergency@example.com",
-      message: "If you see this, I'm gone. Please secure the infrastructure.",
-    });
-    const config = getDeadmanConfig();
-    expect(config!.message).toContain("I'm gone");
-  });
-});
-
-// ─── SSO configuration tests ────────────────────────────────
-describe("SSO integration", () => {
-  it("is not authenticated by default", () => {
-    expect(isSSOAuthenticated()).toBe(false);
-  });
-
-  it("configures SSO for Google provider", () => {
-    configureSSO({
-      provider: "google",
-      clientId: "test-client-id.apps.googleusercontent.com",
-      domain: "example.com",
-    });
-    const config = getSSOConfig();
-    expect(config).not.toBeNull();
-    expect(config!.provider).toBe("google");
-    expect(config!.clientId).toBe("test-client-id.apps.googleusercontent.com");
-    expect(config!.domain).toBe("example.com");
   });
 });
 

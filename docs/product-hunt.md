@@ -40,7 +40,7 @@ Terminal showing `keyblind sandbox` output with deterministic fakes.
 Caption: "After sandboxing: deterministic HMAC-SHA256 fakes. Clean git diffs. Same fake every time."
 
 ### Image 3: Feature Grid
-Show the core feature set: vault, sandbox, TOTP, sharing, team vaults, and agent-focused MCP tools.
+Show the core feature set: vault, sandbox, TOTP, sharing, and agent-focused MCP tools.
 Caption: "MCP tools, local-first backends, deterministic sandboxing, and runtime secret resolution."
 
 ### Image 4: Agent Workflow
@@ -65,7 +65,7 @@ at runtime. The AI never sees them.
 
 What's shipped in v0.6.0 (just published today):
 
-- MCP tools for secrets, sandboxing, TOTP, secret sharing, team vaults, SSO, audit log, and alerts
+- MCP tools for secrets, sandboxing, TOTP, secret sharing, audit log, and alerts
 - Local-first backends — local, 1Password, Bitwarden, env, AWS, GCP, Azure
 - CLI workflows for vault setup, sandboxing, and runtime injection
 - Chrome extension (paste interception on AI chat sites)

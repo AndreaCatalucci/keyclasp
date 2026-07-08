@@ -4,7 +4,6 @@ export { sandboxEnvFile, unsandboxEnvFile, getEnvBackups } from "./sandbox.js";
 export { setBackend, getBackend, listAvailableBackends, type SecretBackend } from "./backends.js";
 export { authenticateWithBiometric, biometricAvailable, createSession, sessionActive, clearSession } from "./auth.js";
 export { watchEnvFile } from "./watch.js";
-export { teamInit, teamPush, teamPull, teamList, teamResolve, teamDelete } from "./team.js";
 export { readConfig, writeConfig, mergeConfig, generateSecret, parseEnvFile, formatEnvFile, type ProjectConfig } from "./config.js";
 export { runDoctor } from "./doctor.js";
 export { generateBash, generateZsh, generateFish, detectShell, getInstallInstructions } from "./completions.js";
@@ -12,6 +11,4 @@ export { ensureHistoryTable, saveHistory, getSecretHistory, rollbackSecret, getE
 export { configureAlerts, loadAlertsFromConfig, fireAlert, formatSlackPayload, formatDiscordPayload } from "./alerts.js";
 export { storeTOTP, getTOTP, listTOTP, deleteTOTP, generateTOTPCode, generateTOTP, generateHOTP, parseOTPAuthURI, timeRemaining, type TOTPConfig } from "./totp.js";
 export { createShareLink, receiveShare, parseTTL, type SharePayload } from "./share.js";
-export { setupDeadman, checkin, getDeadmanStatus, disableDeadman, checkDeadmanTrigger, encryptKeyShard, getDeadmanConfig, type DeadmanConfig, type DeadmanStatus } from "./deadman.js";
-export { configureSSO, ssoLogin, ssoLogout, getSSOToken, isSSOAuthenticated, getSSOConfig, type SSOConfig, type SSOToken, type IDTokenClaims } from "./sso.js";
 export { setupAll, type SetupResult } from "./setup-mcp.js";

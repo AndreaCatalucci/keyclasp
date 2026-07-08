@@ -54,26 +54,6 @@ keyblind receive <url-or-fragment>
 
 The secret is encrypted into the URL fragment — never sent to any server.
 
-## Dead Man's Switch
-
-```bash
-keyblind deadman setup --days 30 --contact email@example.com
-keyblind deadman checkin
-keyblind deadman status
-keyblind deadman disable
-```
-
-## SSO / OIDC
-
-```bash
-keyblind sso configure --provider google --client-id X --domain example.com
-keyblind sso login
-keyblind sso logout
-keyblind sso status
-```
-
-Supports Google, Okta, Azure AD, and generic OIDC providers.
-
 ## Server
 
 ```bash
@@ -103,15 +83,6 @@ keyblind expiring               # List secrets expiring within 30 days
 keyblind sync export            # Export encrypted sync bundle
 keyblind sync import <bundle>   # Import encrypted sync bundle
 keyblind migrate --from local --to aws  # Migrate secrets between backends
-```
-
-## Team Vaults
-
-```bash
-keyblind team init [path]       # Initialize team vault
-keyblind team push <name>       # Push to team vault
-keyblind team pull              # Pull from team vault
-keyblind team list              # List team secrets
 ```
 
 ## Utilities

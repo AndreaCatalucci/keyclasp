@@ -6,7 +6,6 @@ import { setBackend, getBackend, listAvailableBackends } from "./backends.js";
 import { authenticateWithBiometric, biometricAvailable, createSession, sessionActive, clearSession } from "./auth.js";
 import { installHook, checkAndReport, getStagedFiles, scanFiles } from "./hook.js";
 import { watchEnvFile } from "./watch.js";
-import { teamInit, teamPush, teamPull, teamList, teamDelete } from "./team.js";
 import { readConfig, mergeConfig, generateSecret, parseEnvFile, formatEnvFile } from "./config.js";
 import { runDoctor } from "./doctor.js";
 import { generateBash, generateZsh, generateFish, detectShell, getInstallInstructions } from "./completions.js";
@@ -14,8 +13,6 @@ import { saveHistory, getSecretHistory, rollbackSecret, ensureHistoryTable, getE
 import { configureAlerts, loadAlertsFromConfig, fireAlert } from "./alerts.js";
 import { storeTOTP, getTOTP, listTOTP, deleteTOTP, generateTOTPCode, parseOTPAuthURI } from "./totp.js";
 import { createShareLink, receiveShare } from "./share.js";
-import { setupDeadman, checkin, getDeadmanStatus, disableDeadman, checkDeadmanTrigger } from "./deadman.js";
-import { configureSSO, ssoLogin, ssoLogout, getSSOToken } from "./sso.js";
 import { setupAll } from "./setup-mcp.js";
 import fs from "node:fs";
 import { spawn } from "node:child_process";
@@ -61,11 +58,6 @@ Usage:
   keyblind rotate <name>       Update a secret (prompts for new value)
   keyblind watch [.env]        Watch .env and auto-sandbox on change
   keyblind status              Show vault status
-  keyblind team init [path]    Create a shared team vault (git-safe)
-  keyblind team push <name>     Push a local secret to the team vault
-  keyblind team pull            Import all team secrets to local vault
-  keyblind team list            List secrets in the team vault
-  keyblind team delete <name>    Delete a secret from the team vault
   keyblind generate <name>     Generate a strong random secret
   keyblind generate <name> --len 64    Generate with custom length
   keyblind generate <name> --no-symbols   Alphanumeric only
@@ -90,14 +82,6 @@ Usage:
   keyblind share <name>       Create encrypted expiring share link
   keyblind share <name> --ttl 7d --max-views 3   Custom TTL and view limit
   keyblind receive <url>      Receive and store a shared secret
-  keyblind deadman setup      Configure dead man's switch vault release
-  keyblind deadman checkin    Reset the dead man's switch timer
-  keyblind deadman status     Show dead man's switch status
-  keyblind deadman disable    Disable dead man's switch
-  keyblind sso configure      Set up SSO/OIDC for team vault access
-  keyblind sso login          Authenticate via browser SSO flow
-  keyblind sso logout         Clear SSO session
-  keyblind sso status         Show SSO authentication status
   keyblind help                Show this help
 
 Global flags:
@@ -405,141 +389,6 @@ async function main(): Promise<void> {
         }
         setBackend(backendName);
         console.log(`Switched to backend: ${backendName}`);
-        break;
-      }
-
-      case "team": {
-        if (!isInitialized()) {
-          console.error("Keyblind not initialized. Run: keyblind init");
-          process.exit(1);
-        }
-        const teamCmd = args[1];
-        if (!teamCmd) {
-          console.error("Usage: keyblind team <init|push|pull|list|delete>");
-          process.exit(1);
-        }
-
-        switch (teamCmd) {
-          case "init": {
-            const vaultPath = args[2];
-            const passphrase = await readPassphrase("Enter team passphrase: ");
-            if (!passphrase) {
-              console.error("Passphrase is required for team vault.");
-              process.exit(1);
-            }
-            const confirm = stdin.isTTY ? await promptSecret("Confirm passphrase: ") : passphrase;
-            if (passphrase !== confirm) {
-              console.error("Passphrases do not match.");
-              process.exit(1);
-            }
-            try {
-              const created = teamInit(passphrase, vaultPath);
-              console.log(`Team vault created at ${created}`);
-              console.log("This file is encrypted and safe to commit to git.");
-              console.log("Team members can join with: keyblind team pull");
-            } catch (err: any) {
-              console.error(err.message);
-              process.exit(1);
-            }
-            break;
-          }
-
-          case "push": {
-            const pushName = args[2];
-            if (!pushName) {
-              console.error("Usage: keyblind team push <name>");
-              process.exit(1);
-            }
-            const localValue = resolveSecret(pushName);
-            if (localValue === null) {
-              console.error(`Secret "${pushName}" not found in local vault.`);
-              process.exit(1);
-            }
-            const passphrase = await readPassphrase("Enter team passphrase: ");
-            if (!passphrase) {
-              console.error("Passphrase is required.");
-              process.exit(1);
-            }
-            try {
-              teamPush(pushName, localValue, passphrase);
-              console.log(`Pushed "${pushName}" to team vault.`);
-            } catch (err: any) {
-              console.error(err.message);
-              process.exit(1);
-            }
-            break;
-          }
-
-          case "pull": {
-            const passphrase = await readPassphrase("Enter team passphrase: ");
-            if (!passphrase) {
-              console.error("Passphrase is required.");
-              process.exit(1);
-            }
-            const pullFile = args[2];
-            try {
-              const imported = teamPull(passphrase, pullFile);
-              if (imported.length === 0) {
-                console.log("No secrets in team vault.");
-              } else {
-                console.log(`Imported ${imported.length} secret(s) from team vault:`);
-                for (const name of imported) {
-                  console.log(`  - ${name}`);
-                }
-              }
-            } catch (err: any) {
-              console.error(err.message);
-              process.exit(1);
-            }
-            break;
-          }
-
-          case "list": {
-            const passphrase = await readPassphrase("Enter team passphrase: ");
-            if (!passphrase) {
-              console.error("Passphrase is required.");
-              process.exit(1);
-            }
-            try {
-              const secrets = teamList(passphrase);
-              if (secrets.length === 0) {
-                console.log("(no secrets in team vault)");
-              } else {
-                secrets.forEach((n) => console.log(`  - ${n}`));
-              }
-            } catch (err: any) {
-              console.error(err.message);
-              process.exit(1);
-            }
-            break;
-          }
-
-          case "delete": {
-            const delName = args[2];
-            if (!delName) {
-              console.error("Usage: keyblind team delete <name>");
-              process.exit(1);
-            }
-            const passphrase = await readPassphrase("Enter team passphrase: ");
-            if (!passphrase) {
-              console.error("Passphrase is required.");
-              process.exit(1);
-            }
-            try {
-              const deleted = teamDelete(delName, passphrase);
-              console.log(deleted ? `Deleted "${delName}" from team vault.` : `"${delName}" not found in team vault.`);
-            } catch (err: any) {
-              console.error(err.message);
-              process.exit(1);
-            }
-            break;
-          }
-
-          default:
-            console.error(`Unknown team command: ${teamCmd}`);
-            console.error("Available: init, push, pull, list, delete");
-            process.exit(1);
-        }
         break;
       }
 
@@ -1184,160 +1033,6 @@ async function main(): Promise<void> {
         } catch (err: any) {
           console.error(`Receive failed: ${err.message}`);
           process.exit(1);
-        }
-        break;
-      }
-
-      case "deadman": {
-        if (!isInitialized()) {
-          console.error("Keyblind not initialized. Run: keyblind init");
-          process.exit(1);
-        }
-        const dmSub = args[1];
-        if (!dmSub) {
-          console.error("Usage: keyblind deadman <setup|checkin|status|disable>");
-          process.exit(1);
-        }
-
-        switch (dmSub) {
-          case "setup": {
-            const daysIdx = args.indexOf("--days");
-            const days = daysIdx !== -1 ? parseInt(args[daysIdx + 1], 10) : 30;
-            const contactIdx = args.indexOf("--contact");
-            const contactEmail = contactIdx !== -1 ? args[contactIdx + 1] : null;
-            const keyIdx = args.indexOf("--key");
-            const publicKeyPath = keyIdx !== -1 ? args[keyIdx + 1] : undefined;
-            const msgIdx = args.indexOf("--message");
-            const message = msgIdx !== -1 ? args[msgIdx + 1] : undefined;
-
-            if (!contactEmail) {
-              console.error("Usage: keyblind deadman setup --days 30 --contact email@example.com [--key public.pem] [--message \"...\"]");
-              process.exit(1);
-            }
-
-            let publicKey: string | undefined;
-            if (publicKeyPath) {
-              try {
-                publicKey = fs.readFileSync(publicKeyPath, "utf8");
-              } catch {
-                console.error(`Could not read public key: ${publicKeyPath}`);
-                process.exit(1);
-              }
-            }
-
-            setupDeadman({ days, contactEmail, contactPublicKey: publicKey, message });
-            console.log(`Dead man's switch configured: ${days} days, contact ${contactEmail}`);
-            if (!publicKey) console.log("Warning: No public key provided. Key shard will not be encrypted for delivery.");
-            break;
-          }
-
-          case "checkin": {
-            checkin();
-            const status = getDeadmanStatus();
-            console.log(`Check-in recorded. ${status.daysRemaining} days remaining.`);
-            break;
-          }
-
-          case "status": {
-            const status = getDeadmanStatus();
-            if (!status.enabled) {
-              console.log("Dead man's switch is not configured.");
-              console.log("Set up with: keyblind deadman setup --days 30 --contact email@example.com");
-              return;
-            }
-            console.log("Dead Man's Switch Status");
-            console.log("───────────────────────");
-            console.log(`  Enabled:         ${status.enabled ? "Yes" : "No"}`);
-            console.log(`  Threshold:       ${status.daysConfigured} days`);
-            console.log(`  Last check-in:   ${status.lastCheckin || "Never"}`);
-            console.log(`  Days remaining:  ${status.daysRemaining}`);
-            console.log(`  Contact:         ${status.contactEmail}`);
-            console.log(`  Triggered:       ${status.triggered ? "YES" : "No"}`);
-            break;
-          }
-
-          case "disable": {
-            disableDeadman();
-            console.log("Dead man's switch disabled.");
-            break;
-          }
-
-          default:
-            console.error("Usage: keyblind deadman <setup|checkin|status|disable>");
-            process.exit(1);
-        }
-        break;
-      }
-
-      case "sso": {
-        if (!isInitialized()) {
-          console.error("Keyblind not initialized. Run: keyblind init");
-          process.exit(1);
-        }
-        const ssoSub = args[1];
-        if (!ssoSub) {
-          console.error("Usage: keyblind sso <configure|login|logout|status>");
-          process.exit(1);
-        }
-
-        switch (ssoSub) {
-          case "configure": {
-            const provider = args[2];
-            const clientIdx = args.indexOf("--client-id");
-            const clientId = clientIdx !== -1 ? args[clientIdx + 1] : null;
-            const domainIdx = args.indexOf("--domain");
-            const domain = domainIdx !== -1 ? args[domainIdx + 1] : undefined;
-
-            if (!provider || !clientId) {
-              console.error("Usage: keyblind sso configure <google|okta|azure> --client-id <id> [--domain <domain>]");
-              process.exit(1);
-            }
-
-            try {
-              await configureSSO({ provider, clientId, domain });
-              console.log(`SSO configured for ${provider}. Run 'keyblind sso login' to authenticate.`);
-            } catch (err: any) {
-              console.error(`SSO configure failed: ${err.message}`);
-              process.exit(1);
-            }
-            break;
-          }
-
-          case "login": {
-            try {
-              console.log("Opening browser for SSO login...");
-              console.log("Complete authentication in your browser, then return here.");
-              const token = await ssoLogin();
-              console.log(`Authenticated as ${token.claims.email}`);
-              if (token.claims.hd) console.log(`Domain: ${token.claims.hd}`);
-              console.log(`Token expires: ${new Date(token.expiresAt * 1000).toLocaleString()}`);
-            } catch (err: any) {
-              console.error(`SSO login failed: ${err.message}`);
-              process.exit(1);
-            }
-            break;
-          }
-
-          case "logout": {
-            ssoLogout();
-            console.log("SSO session cleared.");
-            break;
-          }
-
-          case "status": {
-            const token = getSSOToken();
-            if (token && token.expiresAt * 1000 > Date.now()) {
-              console.log(`Authenticated: ${token.claims.email}`);
-              console.log(`Expires: ${new Date(token.expiresAt * 1000).toLocaleString()}`);
-            } else {
-              console.log("Not authenticated. Run: keyblind sso login");
-            }
-            break;
-          }
-
-          default:
-            console.error("Usage: keyblind sso <configure|login|logout|status>");
-            process.exit(1);
         }
         break;
       }

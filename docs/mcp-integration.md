@@ -120,6 +120,3 @@ Add to `~/.config/zed/mcp.json`:
 | `totp_delete` | Delete TOTP config | `name: string` |
 | `create_share_link` | Create share link | `name: string, ttl?: string, max_views?: number` |
 | `receive_share` | Receive shared secret | `fragment: string, target_name?: string` |
-| `deadman_status` | Check dead man's switch | none |
-| `deadman_checkin` | Check in to dead man's switch | none |
-| `sso_status` | Check SSO auth status | none |

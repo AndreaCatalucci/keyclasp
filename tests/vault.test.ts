@@ -34,6 +34,7 @@ import {
 beforeAll(() => {
   // Create temp home so vault init doesn't fail on missing directory
   fs.mkdirSync(tmpDir, { recursive: true });
+  fs.mkdirSync(vaultDir, { recursive: true });
 });
 
 afterAll(() => {
@@ -116,6 +117,26 @@ describe("vault CRUD", () => {
     const names = listSecrets();
     expect(names).toContain("LIST_TEST_1");
     expect(names).toContain("LIST_TEST_2");
+  });
+
+  it("hides orphaned internal records from removed features", () => {
+    const removedRecords = [
+      "_keyblind_sso:config",
+      "_keyblind_sso:token",
+      "_keyblind_deadman:config",
+      "_keyblind_deadman:last_checkin",
+      "__keyblind_team_check",
+    ];
+
+    for (const name of removedRecords) {
+      storeSecret(name, "removed-feature-value");
+    }
+
+    const names = listSecrets();
+    for (const name of removedRecords) {
+      expect(names).not.toContain(name);
+      expect(resolveSecret(name)).toBeNull();
+    }
   });
 
   it("updates an existing secret", () => {

@@ -134,12 +134,11 @@ const iv = crypto.randomBytes(12);
 
 - Secret names (for querying)
 - Internal metadata (`_keyblind_meta`, `_expiry:*`)
-- TOTP URIs and deadman configs
+- TOTP URIs
 
 ### What's Encrypted
 
 - Secret values (each with unique IV)
-- Team vault check data
 
 ## Protocol Security
 
@@ -178,6 +177,5 @@ const iv = crypto.randomBytes(12);
 | SHA256 | 256 bit | Machine fingerprint, HMAC | `crypto.createHash` |
 | HMAC-SHA256 | 256 bit | Sandbox fakes | `crypto.createHmac` |
 | HMAC-SHA1/256/512 | 160-512 bit | TOTP/HOTP codes | `crypto.createHmac` |
-| RSA-OAEP | 2048+ bit | Deadman key shard | `crypto.publicEncrypt` |
 
 All algorithms use Node.js built-in `crypto` module. No third-party crypto libraries.

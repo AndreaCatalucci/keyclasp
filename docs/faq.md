@@ -36,11 +36,7 @@ Yes. Use a local vault or one of the optional backend adapters available in your
 
 ## What MCP tools does Keyblind expose?
 
-16 tools: `resolve_secret`, `store_secret`, `list_secrets`, `delete_secret`, `sandbox_env`, `unsandbox_env`, `audit_log`, `totp_code`, `totp_store`, `totp_list`, `totp_delete`, `create_share_link`, `receive_share`, `deadman_status`, `deadman_checkin`, `sso_status`.
-
-## Does Keyblind support team vaults?
-
-The current package includes local team-vault commands, but they are not tied to a paid tier or hosted admin service.
+13 tools: `resolve_secret`, `store_secret`, `list_secrets`, `delete_secret`, `sandbox_env`, `unsandbox_env`, `audit_log`, `totp_code`, `totp_store`, `totp_list`, `totp_delete`, `create_share_link`, `receive_share`.
 
 ## How do I switch between backends?
 

@@ -100,9 +100,6 @@ claude mcp add keyblind -- keyblind start --biometric
 | `totp_delete` | Delete a TOTP configuration |
 | `create_share_link` | Create encrypted, expiring share link for a secret |
 | `receive_share` | Receive and decrypt a shared secret |
-| `deadman_status` | Check dead man's switch status |
-| `deadman_checkin` | Reset dead man's switch timer |
-| `sso_status` | Check SSO/OIDC authentication status |
 
 ## Browser Extension
 
@@ -167,24 +164,12 @@ keyblind status               Show vault status
 keyblind audit                Show secret resolution audit log
 keyblind check --expired      List secrets past expiry
 keyblind rotate <name>        Update a secret value
-keyblind team init [path]     Create a shared team vault
-keyblind team push <name>     Push a secret to team vault
-keyblind team pull            Pull secrets from team vault
-keyblind team list            List secrets in team vault
 keyblind totp set <name>      Store TOTP 2FA config
 keyblind totp code <name>     Generate current TOTP code
 keyblind totp list            List all TOTP configs
 keyblind totp delete <name>   Delete a TOTP config
 keyblind share <name>         Create encrypted share link
 keyblind receive <url>        Receive a shared secret
-keyblind deadman setup        Configure dead man's switch
-keyblind deadman checkin      Reset dead man's switch timer
-keyblind deadman status       Show dead man's switch status
-keyblind deadman disable      Disable dead man's switch
-keyblind sso configure        Set up SSO/OIDC for team access
-keyblind sso login            Authenticate via browser SSO
-keyblind sso logout           Clear SSO session
-keyblind sso status           Show SSO auth status
 keyblind doctor               Run vault health check
 keyblind generate <name>      Generate a strong random secret
 keyblind import [.env]        Bulk import from .env file
