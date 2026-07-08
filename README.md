@@ -5,7 +5,6 @@
 [![npm version](https://img.shields.io/npm/v/keyblind)](https://www.npmjs.com/package/keyblind)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-> **Fork** of [aarifmms/keyblind](https://github.com/aarifmms/keyblind) — original MIT-licensed project.
 
 ## Why
 
@@ -105,19 +104,6 @@ claude mcp add keyblind -- keyblind start --biometric
 | `deadman_checkin` | Reset dead man's switch timer |
 | `sso_status` | Check SSO/OIDC authentication status |
 
-## Web Dashboard
-
-Manage your secrets from a browser at **[app.keyblind.dev](https://app.keyblind.dev)**. Start the HTTP server:
-
-```bash
-keyblind start --http
-```
-
-Then sign in via pairing flow at [app.keyblind.dev/login](https://app.keyblind.dev/login). Features:
-
-- View, add, copy, and delete secrets
-- Audit log with full access history
-
 ## Browser Extension
 
 The **Keyblind Chrome Extension** detects and blocks secrets from being pasted into AI chat interfaces (Claude.ai, ChatGPT, Copilot).
@@ -152,26 +138,6 @@ keyblind backend bitwarden                 # Switch to Bitwarden
 | **gcp** | ✓ | ✓ | `gcloud` CLI |
 | **azure** | ✓ | ✓ | `az` CLI |
 
-## Keyblind vs Cloak
-
-| | Keyblind | Cloak |
-|------|----------|-------|
-| **Protocol** | MCP (all editors) | VS Code extension only |
-| **Editors** | Claude Code, Cursor, Copilot, Windsurf, Cline, Zed | VS Code, Cursor |
-| **Storage** | AES-256-GCM SQLite | AES-256-GCM file |
-| **Backends** | Local, 1Password, Bitwarden, Env, AWS, GCP, Azure | Local only |
-| **Sandbox** | Deterministic HMAC fakes | AES-256-GCM encrypted |
-| **Web dashboard** | ✓ (app.keyblind.dev) | — |
-| **Browser extension** | ✓ (Chrome) | — |
-| **TOTP 2FA** | ✓ | — |
-| **Secret sharing** | ✓ (encrypted URL fragment) | — |
-| **Dead man's switch** | ✓ | — |
-| **Touch ID** | ✓ (macOS biometric gate) | ✓ |
-| **CI/CD** | `keyblind run` for env injection | — |
-| **Network** | Zero (fully local) | Zero |
-| **License** | MIT | Proprietary |
-| **Secrets** | Unlimited (free) | — |
-
 ## Security
 
 - **AES-256-GCM** encryption with PBKDF2 key derivation (600K iterations)
@@ -194,7 +160,6 @@ keyblind sandbox [.env]       Replace .env with deterministic fakes
 keyblind unsandbox [.env]     Restore real .env values
 keyblind run <command...>     Run command with secrets as env vars
 keyblind start                Start MCP server (stdio — for AI agents)
-keyblind start --http         Start MCP HTTP server (for dashboard)
 keyblind start --biometric    Start MCP server with biometric requirement
 keyblind backends             List available backends
 keyblind backend <name>       Switch backend

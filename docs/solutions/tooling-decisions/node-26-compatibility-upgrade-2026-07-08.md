@@ -44,7 +44,7 @@ No prebuilt binary was downloaded — the install fell through to a from-source 
 
 1. **`npm rebuild better-sqlite3`** — re-ran the same 11.10.0 source against the same Node 26 headers and failed identically. Rebuilding does not change the addon source, and 11.10.0 ships no Node 26 prebuild, so the broken from-source path is the only one available.
 2. **`npm install better-sqlite3@11.10.0 --build-from-source`** — same V8 API removals; the C++ in 11.10.0 predates the V8 14.6 cleanup and cannot be compiled as-is.
-3. **Patching the V8 calls in-tree** — the removed APIs (`v8::Object::GetPrototype()`, `v8::Context::GetIsolate()`, `v8::PropertyCallbackInfo<T>::This()`, deprecated `v8::External::New(isolate, value)`) are pervasive across the addon's object wrappers and the correct replacements are non-trivial. Forking/maintaining a patched copy is the wrong fix when an upstream release already targets Node 26.
+3. **Patching the V8 calls in-tree** — the removed APIs (`v8::Object::GetPrototype()`, `v8::Context::GetIsolate()`, `v8::PropertyCallbackInfo<T>::This()`, deprecated `v8::External::New(isolate, value)`) are pervasive across the addon's object wrappers and the correct replacements are non-trivial. Maintaining a local patched copy is the wrong fix when a maintained release already targets Node 26.
 
 The root cause is not a build-environment issue but a **version gap**: 11.10.0 was released before Node 26's V8 API surface and has no prebuilt binary for NODE_MODULE_VERSION 147.
 
@@ -125,9 +125,5 @@ V8 14.6 (the engine in Node 26) completed the removal of long-deprecated C++ API
 
 - **Pin native addons and track their Node-version support.** `better-sqlite3` declares its supported Node versions in `engines`; before bumping Node, confirm the pinned version lists the target. `npm` will still install on a mismatch by default, so treat the `engines` list as a release gate, not an enforcement.
 - **Use the `engines` field in your own `package.json` to block installs on unsupported Node** (`"node": ">=24"`). Pair with `engine-strict=true` (`.npmrc`) if you want npm to hard-fail instead of warn.
-- **Test against Node `current` during development**, not only LTS. The CI matrix now runs `[24, 26]` so an addon that silently drops Node 26 support is caught at PR time, not in production.
+- **Test against Node `current` during development**, not only LTS. Run the matrix locally or in whichever CI system the project currently uses so an addon that silently drops Node 26 support is caught before release.
 - **Prefer prebuilds over from-source.** A native dep that compiles cleanly is a bonus; the supported path is a prebuilt binary matching your ABI. If an install ever falls through to `node-gyp`, treat it as a signal that the pin is behind the runtime.
-
-### Known non-blocking warning
-
-`@renovatebot/pep440` (a transitive dependency of the Vercel CLI) declares `"engines": { "node": "^20.9.0 || ^22.11.0 || ^24" }` and emits `EBADENGINE` on Node 26.4.0. It is a development-time tool, does not affect Keyblind's runtime or tests, and can be ignored until upstream widens the constraint.

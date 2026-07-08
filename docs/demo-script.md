@@ -165,7 +165,7 @@ https://keyblind.dev/share#v1.abc.def...
 npm install -g keyblind
 ```
 
-**Voiceover:** "Keyblind is open source, MIT licensed, zero network, zero telemetry. Install it today at github.com/aarifmms/keyblind."
+**Voiceover:** "Keyblind is open source, MIT licensed, zero network, zero telemetry. Install it today at github.com/AndreaCatalucci/keyblind."
 
 ---
 

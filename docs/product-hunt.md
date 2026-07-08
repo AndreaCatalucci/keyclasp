@@ -40,16 +40,13 @@ Terminal showing `keyblind sandbox` output with deterministic fakes.
 Caption: "After sandboxing: deterministic HMAC-SHA256 fakes. Clean git diffs. Same fake every time."
 
 ### Image 3: Feature Grid
-Show the full feature set: vault, sandbox, TOTP, sharing, dead man's switch, team vaults, dashboard.
-Caption: "16 MCP tools, 7 backends (local, 1Password, Bitwarden, AWS, GCP, Azure, env), 40+ CLI commands."
+Show the core feature set: vault, sandbox, TOTP, sharing, team vaults, and agent-focused MCP tools.
+Caption: "MCP tools, local-first backends, deterministic sandboxing, and runtime secret resolution."
 
-### Image 4: Keyblind vs Cloak
-Comparison table from landing page.
-Caption: "Why Keyblind: MCP-native (not editor-specific), 16 tools vs 3, 7 backends vs 1, deterministic sandbox."
+### Image 4: Agent Workflow
+Terminal showing `keyblind setup-mcp`, `keyblind sandbox`, and `keyblind run`.
+Caption: "Local-first secret workflows for AI-assisted development."
 
-### Image 5: Web Dashboard
-Screenshot of app.keyblind.dev showing sidebar, secrets list, and health indicator.
-Caption: "Web dashboard at app.keyblind.dev. CLI pairing login. Manage secrets, TOTP, sharing, team vaults."
 
 ---
 
@@ -68,14 +65,10 @@ at runtime. The AI never sees them.
 
 What's shipped in v0.6.0 (just published today):
 
-- 16 MCP tools — secrets, sandbox, TOTP, secret sharing, dead man's
-  switch, team vaults, SSO, audit log, HTTPS, alerts
-- 7 backends — local, 1Password, Bitwarden, env, AWS, GCP, Azure
-- 40+ CLI commands
-- Web dashboard (app.keyblind.dev) with CLI pairing login
+- MCP tools for secrets, sandboxing, TOTP, secret sharing, team vaults, SSO, audit log, and alerts
+- Local-first backends — local, 1Password, Bitwarden, env, AWS, GCP, Azure
+- CLI workflows for vault setup, sandboxing, and runtime injection
 - Chrome extension (paste interception on AI chat sites)
-- Browser auto-open on `keyblind dashboard-login`
-- Terraform provider (skeleton, Go)
 
 Key differentiator from Cloak (launched last week): Keyblind is MCP-
 native — works with every AI editor, not just VS Code. 7 backends vs 1.

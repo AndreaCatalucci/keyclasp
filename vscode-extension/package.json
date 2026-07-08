@@ -5,7 +5,7 @@
   "version": "0.1.0",
   "publisher": "keyblind",
   "icon": "icon.png",
-  "repository": "https://github.com/aarifmms/keyblind",
+  "repository": "https://github.com/AndreaCatalucci/keyblind",
   "engines": { "vscode": "^1.85.0" },
   "categories": ["Other"],
   "keywords": ["secrets", "encryption", "security", "vault", "api-key", "mcp"],

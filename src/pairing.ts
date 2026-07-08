@@ -17,7 +17,7 @@ export async function generatePairingToken(port: number = 3100): Promise<{ token
     .setExpirationTime("5m")
     .sign(secret);
 
-  const url = `https://app.keyblind.dev/connect?token=${token}&port=${port}`;
+  const url = `http://localhost:${port}/connect?token=${token}&port=${port}`;
   return { token, url };
 }
 

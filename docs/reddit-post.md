@@ -26,6 +26,6 @@ echo "sk-your-key" | keyblind set OPENAI_API_KEY
 keyblind sandbox
 ```
 
-GitHub: https://github.com/aarifmms/keyblind
+GitHub: https://github.com/AndreaCatalucci/keyblind
 
 *Disclosure: I built this. MIT-licensed open source, completely free. No cloud, no analytics, no network calls. Your secrets never leave your machine.*

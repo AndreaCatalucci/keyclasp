@@ -5,7 +5,7 @@
   "engines": {
     "node": ">=24"
   },
-  "mcpName": "io.github.aarifmms/keyblind",
+  "mcpName": "io.github.andreacatalucci/keyblind",
   "type": "module",
   "bin": {
     "keyblind": "dist/cli.js"
@@ -44,9 +44,6 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "acme-client": "^5.4.0",
     "better-sqlite3": "^12.11.1",
-    "resend": "^6.12.4",
-    "stripe": "^22.2.0",
-    "vercel": "^54.5.1",
     "zod": "^4.4.3"
   },
   "devDependencies": {

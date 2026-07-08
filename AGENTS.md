@@ -2,9 +2,7 @@
 
 > **Encrypted secrets vault with MCP for AI agents. Secrets resolved at runtime, never leaked to LLM conversations.**
 
-> **Local-only fork** of [aarifmms/keyblind](https://github.com/aarifmms/keyblind) (MIT). Upstream remote configured for tracking only.
->
-> **NEVER create PRs against `upstream` (aarifmms/keyblind).** All PRs MUST target `origin` (AndreaCatalucci/keyblind). Use `gh pr create --repo AndreaCatalucci/keyblind --base main`.
+> **Local-only project.** PRs MUST target `origin` (AndreaCatalucci/keyblind). Use `gh pr create --repo AndreaCatalucci/keyblind --base main`.
 
 ## Tech Stack
 
@@ -41,7 +39,7 @@ src/
 ├── watch.ts        → Watch .env and auto-sandbox
 └── alerts.ts       → Slack/Discord webhook alerts
 
-dashboard/          → Next.js web dashboard (app.keyblind.dev)
+dashboard/          → Next.js web dashboard prototype
 browser-extension/  → Chrome extension (MV3, paste interception)
 docs/solutions/     # documented solutions (bugs, best practices, workflow patterns), organized by category with YAML frontmatter (module, tags, problem_type)
 ```
@@ -68,20 +66,9 @@ keyblind setup-mcp    # Auto-configure Claude Code MCP
 
 - **MCP-first, not editor-first.** Works with every AI tool that speaks MCP (Claude Code, Cursor, Copilot, Windsurf, Cline, Zed), not just VS Code.
 - **16 MCP tools** — secrets, TOTP, sharing, dead man's switch, SSO, sandbox.
-- **REST API alongside MCP** — same server supports browser dashboard at `app.keyblind.dev`.
+- **Local-first MCP server** — stdio by default for AI agents; optional HTTP transport remains local unless explicitly configured.
 - **Deterministic sandbox fakes** using HMAC-SHA256(project hash + key name) so git diffs stay clean.
 - **Machine-identity-bound key** — encryption key XOR-wrapped with machine fingerprint.
 - **Zero network, zero telemetry** — fully local, no cloud, no accounts.
 - **Ed25519 license keys** — `keyblind.<base64url-payload>.<base64url-sig>` format, verified client-side.
 
-## External Services
-
-| Service | Purpose | Config |
-|---------|---------|--------|
-| **Vercel** | Dashboard hosting | `app.keyblind.dev` |
-| **Stripe** | License payments | Webhook → `api/webhooks/stripe` |
-| **Resend** | License key emails | `license@keyblind.dev` |
-
-## Direct Competitor
-
-**Cloak** (getcloak.dev, launched May 25 2026) — Rust CLI + VS Code extension. Sandboxes .env files with AES-256-GCM, Touch ID gate. No MCP support. VS Code/Cursor only.

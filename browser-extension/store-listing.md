@@ -26,9 +26,9 @@ REQUIRES:
 PRIVACY:
 - 100% local — no data ever sent to any server
 - No analytics, no telemetry, no tracking
-- Open source (MIT): https://github.com/aarifmms/keyblind
+- Open source (MIT): https://github.com/AndreaCatalucci/keyblind
 
-Keyblind is part of the Keyblind secrets management platform — the MCP-native encrypted vault for AI agents. Learn more at https://keyblind.dev
+Keyblind is part of the Keyblind secrets management platform — the MCP-native encrypted vault for AI agents.
 ```
 
 ### Category

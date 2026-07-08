@@ -21,7 +21,6 @@ It's an MCP server that encrypts your secrets and resolves them at runtime — t
 - 7 secret backends (local AES-256-GCM, 1Password, Bitwarden, AWS/GCP/Azure)
 - Zero network, zero telemetry, zero accounts
 - Biometric gate (Touch ID)
-- GitHub Actions CI integration
 - Team vaults for shared secrets
 
 Open source, MIT licensed. No cloud. No accounts. Secrets stay on your machine.
@@ -33,6 +32,6 @@ echo "sk-your-key" | keyblind set OPENAI_API_KEY
 keyblind sandbox
 ```
 
-GitHub: https://github.com/aarifmms/keyblind
+GitHub: https://github.com/AndreaCatalucci/keyblind
 
 Curious to hear from developers using AI tools — how are you currently protecting your secrets? What would you want in a tool like this?

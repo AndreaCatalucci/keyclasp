@@ -102,7 +102,7 @@ License keys are signed with Ed25519:
 
 - **Key pair**: Ed25519 (Curve25519)
 - **Public key**: Baked into `src/license.ts` at build time
-- **Private key**: Never shipped. Stored in Vercel environment (KEYBLIND_SIGNING_KEY)
+- **Private key**: Never shipped; keep outside the repository and local development environment
 - **Format**: `keyblind.<base64url(JSON payload)>.<base64url(signature)>`
 
 ```ts
@@ -170,14 +170,7 @@ const iv = crypto.randomBytes(12);
 ### MCP Transport
 
 - **Stdio transport**: Local process communication. No network exposure.
-- **HTTP transport** (`keyblind start --http`): Plain HTTP on localhost by default. No TLS for local development. Use `--https --domain example.com` for remote access with Let's Encrypt auto-provisioning.
-
-### HTTPS (Let's Encrypt)
-
-- ACME HTTP-01 challenge for domain validation
-- Auto-renewal 30 days before expiry (checked every 24h)
-- Self-signed fallback if provisioning fails
-- HTTP→HTTPS redirect on port 80
+- **HTTP transport** (`keyblind start --http`): Plain HTTP on localhost by default. Keep it loopback-only unless you deliberately configure remote access.
 
 ## Attack Surface Analysis
 
@@ -191,17 +184,16 @@ const iv = crypto.randomBytes(12);
 | Share link intercepted | **LOW-MED** | Fragment never sent to server. But link can be intercepted via browser history or phishing |
 | Replay of old share links | **LOW** | TTL + expiry enforcement |
 | Memory dump of running process | **MEDIUM** | DEK is in memory while vault is open. Mitigate with shorter session lifetimes |
-| Dependency compromise | **MEDIUM** | Only 3 runtime deps (better-sqlite3, stripe, resend) + stdlib crypto |
+| Dependency compromise | **MEDIUM** | Runtime dependencies are limited to MCP SDK, SQLite, ACME support, Zod, and stdlib crypto |
 
-## Recommendations for Production Deployments
+## Operational Recommendations
 
 1. **Use the biometric gate** (`keyblind unlock --biometric`) for session management
 2. **Set KEYBLIND_SESSION_TIMEOUT** to auto-lock after inactivity
 3. **Never commit `.keyblind/`** to version control
 4. **Use `keyblind sandbox`** for all projects that interact with AI tools
 5. **Rotate passphrases** if you suspect vault compromise
-6. **Enable HTTPS** for remote MCP access (`keyblind start --https --domain X`)
-7. **Set up dead man's switch** for team vault passphrase recovery
+6. **Keep remote access disabled** unless you have a concrete operational need and a hardened deployment boundary
 
 ## Cryptographic Inventory
 

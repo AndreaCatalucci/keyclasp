@@ -49,13 +49,6 @@ After `keyblind setup-mcp` and restart, just ask naturally:
 
 Keyblind resolves secrets at runtime — the plaintext never appears in the conversation transcript. You'll see "Called keyblind (ctrl+o to expand)" instead of the actual value.
 
-## Web Dashboard
-
-```bash
-keyblind start --http
-```
-
-Then sign in at [app.keyblind.dev](https://app.keyblind.dev) with your license key.
 
 ## Sandbox Your .env
 

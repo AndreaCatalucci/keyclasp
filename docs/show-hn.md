@@ -1,6 +1,6 @@
 **Title:** Show HN — Keyblind: An MCP Server That Blinds AI to Your API Keys
 
-**URL:** https://github.com/aarifmms/keyblind
+**URL:** https://github.com/AndreaCatalucci/keyblind
 
 ---
 

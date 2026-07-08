@@ -202,7 +202,7 @@ echo "${CYAN}# Encrypted secret sharing (AES-256-GCM URL fragment):${NC}"
 prompt; echo "keyblind share DATABASE_URL --ttl 1h --max-views 1"
 sleep 0.5
 echo '  Share link (expires in 1h, 1 view remaining):'
-echo '  https://app.keyblind.dev/share#v1.abc.def...'
+echo '  keyblind-share://v1.abc.def...'
 echo ""
 
 echo "${CYAN}# Dead man's switch for team vaults:${NC}"
@@ -213,19 +213,12 @@ echo "  Status: active | Check-in: 3 days ago | Deadline: 4 days"
 sleep 2
 
 # ─────────────────────────────────────────────────────
-# SCENE 8: Dashboard & MCP Config (2:05)
+# SCENE 8: MCP Config (2:05)
 # ─────────────────────────────────────────────────────
 clear_section
-echo "${RED}${BOLD}Scene 8: Web Dashboard & MCP Everywhere${NC}"
+echo "${RED}${BOLD}Scene 8: MCP Everywhere${NC}"
 echo ""
 
-echo "${CYAN}# Sign into the web dashboard without copy-paste:${NC}"
-prompt; echo "keyblind dashboard-login"
-sleep 0.5
-echo "  Browser opened. Sign in to continue."
-echo ""
-
-echo "${CYAN}# MCP config — works with every AI editor:${NC}"
 cat << 'JSONEOF'
 {
   "mcpServers": {
@@ -251,8 +244,7 @@ echo ""
 echo "  16 MCP tools · 7 backends · 40+ CLI commands"
 echo ""
 echo "  npm install -g keyblind"
-echo "  app.keyblind.dev"
-echo "  github.com/aarifmms/keyblind"
+echo "  github.com/AndreaCatalucci/keyblind"
 echo ""
 echo "  ${GREEN}MIT Licensed  ·  Zero Network  ·  Zero Telemetry${NC}"
 echo ""

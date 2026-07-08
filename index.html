@@ -140,7 +140,6 @@
     <a href="/" style="display:flex;align-items:center;gap:8px;text-decoration:none;color:#58a6ff;font-weight:600;font-size:16px;">Keyblind</a>
     <div style="display:flex;gap:16px;align-items:center;">
       <a href="#docs" style="color:#8b949e;text-decoration:none;font-size:14px;">Docs</a>
-      <a href="https://app.keyblind.dev/login" style="color:#58a6ff;text-decoration:none;font-size:14px;font-weight:500;">Sign In</a>
     </div>
   </nav>
 
@@ -151,7 +150,7 @@
     <div class="install">npm install -g keyblind && keyblind init && keyblind setup-mcp</div>
     <div class="note">Three commands. Works from any directory. Zero telemetry.</div>
     <br>
-    <a href="https://github.com/aarifmms/keyblind" class="btn btn-outline">GitHub →</a>
+    <a href="https://github.com/AndreaCatalucci/keyblind" class="btn btn-outline">GitHub →</a>
   </div>
 
   <!-- How it works -->
@@ -239,120 +238,37 @@
     </div>
   </div>
 
-  <!-- Comparison -->
-  <div class="section">
-    <h2>Keyblind vs Cloak</h2>
-    <div class="sub">Why Keyblind is the right choice for AI-era secret management.</div>
-    <div style="overflow-x:auto;">
-      <table class="compare">
-        <thead>
-          <tr>
-            <th>Feature</th>
-            <th>Keyblind</th>
-            <th>Cloak</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td>Protocol</td>
-            <td class="win">MCP (every AI tool)</td>
-            <td class="lose">VS Code / Cursor only</td>
-          </tr>
-          <tr>
-            <td>Editors supported</td>
-            <td class="win">6 (Claude Code, Cursor, Copilot, Windsurf, Cline, Zed)</td>
-            <td class="lose">2 (VS Code, Cursor)</td>
-          </tr>
-          <tr>
-            <td>Encryption</td>
-            <td class="win">AES-256-GCM + machine-identity-bound key</td>
-            <td class="lose">AES-256-GCM</td>
-          </tr>
-          <tr>
-            <td>Backends</td>
-            <td class="win">7 (local, 1Password, Bitwarden, AWS, GCP, Azure, env)</td>
-            <td class="lose">1 (local)</td>
-          </tr>
-          <tr>
-            <td>Sandbox</td>
-            <td class="win">Deterministic HMAC-SHA256 fakes</td>
-            <td class="lose">Random placeholders</td>
-          </tr>
-          <tr>
-            <td>TOTP / 2FA built-in</td>
-            <td class="win">Yes</td>
-            <td class="lose">No</td>
-          </tr>
-          <tr>
-            <td>Secret sharing</td>
-            <td class="win">Encrypted URL fragments</td>
-            <td class="lose">No</td>
-          </tr>
-          <tr>
-            <td>Dead man's switch</td>
-            <td class="win">Yes</td>
-            <td class="lose">No</td>
-          </tr>
-          <tr>
-            <td>Team vaults</td>
-            <td class="win">Git-safe, passphrase-protected</td>
-            <td class="lose">No</td>
-          </tr>
-          <tr>
-            <td>Dashboard</td>
-            <td class="win">Web dashboard (app.keyblind.dev)</td>
-            <td class="lose">No</td>
-          </tr>
-          <tr>
-            <td>Browser extension</td>
-            <td class="win">Chrome (paste interception)</td>
-            <td class="lose">No</td>
-          </tr>
-          <tr>
-            <td>License</td>
-            <td>MIT (open source)</td>
-            <td>Proprietary</td>
-          </tr>
-          <tr>
-            <td>Secrets</td>
-            <td class="win">Unlimited (free)</td>
-            <td class="lose">—</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
 
   <!-- Docs -->
   <div class="section" id="docs">
     <h2>Documentation</h2>
     <div class="sub">Everything you need to get started and go deep.</div>
     <div style="display:grid;grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap:16px;">
-      <a href="https://github.com/aarifmms/keyblind/blob/main/docs/getting-started.md" class="card" style="text-decoration:none;display:block;">
+      <a href="https://github.com/AndreaCatalucci/keyblind/blob/main/docs/getting-started.md" class="card" style="text-decoration:none;display:block;">
         <h4 style="color:#58a6ff;margin-bottom:4px;">Getting Started</h4>
         <p style="color:#8b949e;font-size:13px;">Install, init, first secret, sandbox walkthrough.</p>
       </a>
-      <a href="https://github.com/aarifmms/keyblind/blob/main/docs/commands.md" class="card" style="text-decoration:none;display:block;">
+      <a href="https://github.com/AndreaCatalucci/keyblind/blob/main/docs/commands.md" class="card" style="text-decoration:none;display:block;">
         <h4 style="color:#58a6ff;margin-bottom:4px;">CLI Reference</h4>
         <p style="color:#8b949e;font-size:13px;">All 40+ commands with examples and flags.</p>
       </a>
-      <a href="https://github.com/aarifmms/keyblind/blob/main/docs/mcp-integration.md" class="card" style="text-decoration:none;display:block;">
+      <a href="https://github.com/AndreaCatalucci/keyblind/blob/main/docs/mcp-integration.md" class="card" style="text-decoration:none;display:block;">
         <h4 style="color:#58a6ff;margin-bottom:4px;">MCP Integration</h4>
         <p style="color:#8b949e;font-size:13px;">16 MCP tools with parameter schemas and usage patterns.</p>
       </a>
-      <a href="https://github.com/aarifmms/keyblind/blob/main/docs/editors.md" class="card" style="text-decoration:none;display:block;">
+      <a href="https://github.com/AndreaCatalucci/keyblind/blob/main/docs/editors.md" class="card" style="text-decoration:none;display:block;">
         <h4 style="color:#58a6ff;margin-bottom:4px;">Editor Setup</h4>
         <p style="color:#8b949e;font-size:13px;">Per-editor config for Claude Code, Cursor, Copilot, and more.</p>
       </a>
-      <a href="https://github.com/aarifmms/keyblind/blob/main/docs/security.md" class="card" style="text-decoration:none;display:block;">
+      <a href="https://github.com/AndreaCatalucci/keyblind/blob/main/docs/security.md" class="card" style="text-decoration:none;display:block;">
         <h4 style="color:#58a6ff;margin-bottom:4px;">Security</h4>
         <p style="color:#8b949e;font-size:13px;">Threat model, cryptographic architecture, attack surface analysis.</p>
       </a>
-      <a href="https://github.com/aarifmms/keyblind/blob/main/docs/recipes.md" class="card" style="text-decoration:none;display:block;">
+      <a href="https://github.com/AndreaCatalucci/keyblind/blob/main/docs/recipes.md" class="card" style="text-decoration:none;display:block;">
         <h4 style="color:#58a6ff;margin-bottom:4px;">Recipes</h4>
         <p style="color:#8b949e;font-size:13px;">CI/CD, Docker, pre-commit, sharing, TOTP, multi-machine sync.</p>
       </a>
-      <a href="https://github.com/aarifmms/keyblind/blob/main/docs/faq.md" class="card" style="text-decoration:none;display:block;">
+      <a href="https://github.com/AndreaCatalucci/keyblind/blob/main/docs/faq.md" class="card" style="text-decoration:none;display:block;">
         <h4 style="color:#58a6ff;margin-bottom:4px;">FAQ</h4>
         <p style="color:#8b949e;font-size:13px;">Common questions about setup, security, licensing, and teams.</p>
       </a>
@@ -385,10 +301,9 @@
 <footer>
   <div class="container">
     <div class="links">
-      <a href="https://github.com/aarifmms/keyblind">GitHub</a>
+      <a href="https://github.com/AndreaCatalucci/keyblind">GitHub</a>
       <a href="https://www.npmjs.com/package/keyblind">npm</a>
-      <a href="https://app.keyblind.dev/login">Dashboard</a>
-      <a href="https://github.com/aarifmms/keyblind/tree/main/docs">Docs</a>
+      <a href="https://github.com/AndreaCatalucci/keyblind/tree/main/docs">Docs</a>
       <a href="/privacy.html">Privacy</a>
     </div>
     <p>MIT Licensed &middot; Zero network &middot; Zero telemetry &middot; Built for AI agents</p>

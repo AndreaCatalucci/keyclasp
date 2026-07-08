@@ -16,7 +16,7 @@ Keyblind is **MCP-native**. It integrates directly with AI agents via the Model 
 
 ## Is Keyblind open source?
 
-Yes. MIT license. The full source is at [github.com/aarifmms/keyblind](https://github.com/aarifmms/keyblind).
+Yes. MIT license. The full source is at [github.com/AndreaCatalucci/keyblind](https://github.com/AndreaCatalucci/keyblind).
 
 ## Where is my data stored?
 

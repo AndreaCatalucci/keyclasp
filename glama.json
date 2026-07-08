@@ -1,5 +1,5 @@
 {
-  "name": "aarifmms/keyblind",
+  "name": "AndreaCatalucci/keyblind",
   "description": "Encrypted secrets vault that blinds AI agents to API keys. Stores secrets in AES-256-GCM encrypted SQLite vault, resolves them at runtime via MCP — values never appear in LLM conversation transcripts.",
   "runtime": "node",
   "transport": ["stdio", "streamable-http"],

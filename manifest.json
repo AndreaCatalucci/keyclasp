@@ -5,9 +5,9 @@
   "description": "Encrypted secrets vault that prevents API keys from leaking to AI conversations. AES-256-GCM encrypted storage with MCP runtime resolution — plaintext never touches the LLM transcript.",
   "author": {
     "name": "Keyblind",
-    "url": "https://github.com/aarifmms/keyblind"
+    "url": "https://github.com/AndreaCatalucci/keyblind"
   },
-  "homepage": "https://github.com/aarifmms/keyblind",
+  "homepage": "https://github.com/AndreaCatalucci/keyblind",
   "license": "MIT",
   "server": {
     "type": "node",

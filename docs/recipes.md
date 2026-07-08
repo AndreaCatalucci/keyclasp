@@ -2,23 +2,6 @@
 
 Common patterns and workflows.
 
-## CI/CD: GitHub Actions
-
-```yaml
-- uses: keyblind-ai/ci-action@v1
-  with:
-    keyblind-license: ${{ secrets.KEYBLIND_LICENSE }}
-```
-
-Or manually:
-
-```yaml
-- name: Sandbox secrets
-  run: |
-    npm install -g keyblind
-    keyblind activate ${{ secrets.KEYBLIND_LICENSE }}
-    keyblind sandbox
-```
 
 ## Pre-commit Hook
 
@@ -28,19 +11,13 @@ keyblind install-hook
 
 This installs a git hook that blocks commits containing real API keys (detected via pattern matching).
 
-## Docker
+## Local Container Use
 
 ```dockerfile
-FROM node:22-slim
+FROM node:24-slim
 RUN npm install -g keyblind
 COPY .keyblind /root/.keyblind
 RUN keyblind sandbox
-```
-
-Or use the official image:
-
-```bash
-docker run -v ~/.keyblind:/root/.keyblind keyblind start --http
 ```
 
 ## Sharing a Secret with a Teammate

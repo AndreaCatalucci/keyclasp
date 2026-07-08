@@ -111,7 +111,6 @@ Keyblind's bet is that the future of AI-secret management is **protocol-native**
 Keyblind v0.2.0 shipped with:
 - 7 MCP tools (including audit logging)
 - 7 secret backends (local, cloud, and password managers)
-- GitHub Actions CI integration
 - Secret rotation and expiry tracking
 - Team vaults for shared secrets
 - Biometric gate (Touch ID)
@@ -131,7 +130,7 @@ Your `.env` is now safe from AI agents. Your secrets are encrypted. Your peace o
 
 ---
 
-**[Keyblind on GitHub](https://github.com/aarifmms/keyblind)** | **[npm](https://www.npmjs.com/package/keyblind)** | **[Glama](https://glama.ai/mcp/servers/aarifmms/keyblind)**
+**[Keyblind on GitHub](https://github.com/AndreaCatalucci/keyblind)** | **[npm](https://www.npmjs.com/package/keyblind)**
 
 *MIT Licensed. Built with TypeScript, SQLite, and paranoia.*
 Disclosure: It's MIT-licensed open source free to use. No accounts, no telemetry, no network calls. Your secrets stay on your machine.
