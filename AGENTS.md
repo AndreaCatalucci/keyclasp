@@ -41,6 +41,7 @@ src/
 
 dashboard/          → Next.js web dashboard (app.keyblind.dev)
 browser-extension/  → Chrome extension (MV3, paste interception)
+docs/solutions/     # documented solutions (bugs, best practices, workflow patterns), organized by category with YAML frontmatter (module, tags, problem_type)
 ```
 
 ## Commands
