@@ -9,7 +9,7 @@
 - Secrets leaking into LLM conversation transcripts
 - Unauthorized vault access from other local processes
 - Machine theft (encrypted-at-rest)
-- Tampering with license files or vault data
+- Tampering with vault data
 
 **What we don't protect against (out of scope):**
 - Kernel-level attacks (rootkits)
@@ -33,8 +33,6 @@
 │                                                       │
 │  Secrets stored as:                                   │
 │    { iv, authTag, ciphertext }                        │
-│                                                       │
-│  Ed25519 ──► License validation (offline)             │
 │                                                       │
 │  HMAC-SHA256 ──► Deterministic sandbox fakes          │
 │                                                       │
@@ -96,29 +94,7 @@ const authTag = cipher.getAuthTag();
 
 **Why no AAD**: We don't associate additional data with the ciphertext. The secret name is stored outside the encrypted blob, making it queryable. An attacker can't swap two secrets' encrypted values because the decryption would produce garbage (not a valid secret), and the auth tag check would fail if the ciphertext is modified.
 
-### 4. Ed25519 License Validation
-
-License keys are signed with Ed25519:
-
-- **Key pair**: Ed25519 (Curve25519)
-- **Public key**: Baked into `src/license.ts` at build time
-- **Private key**: Never shipped; keep outside the repository and local development environment
-- **Format**: `keyblind.<base64url(JSON payload)>.<base64url(signature)>`
-
-```ts
-const pubKey = crypto.createPublicKey({
-  key: Buffer.from(PUBLIC_KEY_BASE64, "base64"),
-  format: "der",
-  type: "spki",
-});
-const valid = crypto.verify(null, data, pubKey, signature);
-```
-
-**Why Ed25519**: Fast, compact (64-byte signatures), and no side-channel concerns. Standard for software licensing.
-
-**Revocation**: Not implemented. Compromised keys are handled by shipping a new version with an updated public key. The KEYBLIND_PUBLIC_KEY env var allows emergency key rotation without a new release.
-
-### 5. Sandbox Fakes (HMAC-SHA256)
+### 4. Sandbox Fakes (HMAC-SHA256)
 
 Deterministic fake values for `.env` sandboxing:
 
@@ -131,7 +107,7 @@ const fake = crypto.createHmac("sha256", projectHash)
 
 **Property**: Same project + same secret name = same fake value every time. Safe to commit to git. Collision resistance from SHA256.
 
-### 6. Secret Sharing (AES-256-GCM + URL Fragment)
+### 5. Secret Sharing (AES-256-GCM + URL Fragment)
 
 Share links encrypt the secret into the URL fragment:
 
@@ -180,11 +156,10 @@ const iv = crypto.randomBytes(12);
 | Malicious MCP client reads all secrets | **MEDIUM** | MCP tools only return user-facing names, not `_keyblind*` internal entries |
 | Vault.db stolen + passphrase known | **MEDIUM** | Machine-identity-bound DEK prevents decryption on different hardware |
 | Vault.db stolen, no passphrase | **LOW** | AES-256-GCM with 600K PBKDF2 iterations. Brute force infeasible |
-| License tampering | **LOW** | Ed25519 signatures verified offline. Cannot forge without private key |
 | Share link intercepted | **LOW-MED** | Fragment never sent to server. But link can be intercepted via browser history or phishing |
 | Replay of old share links | **LOW** | TTL + expiry enforcement |
 | Memory dump of running process | **MEDIUM** | DEK is in memory while vault is open. Mitigate with shorter session lifetimes |
-| Dependency compromise | **MEDIUM** | Runtime dependencies are limited to MCP SDK, SQLite, ACME support, Zod, and stdlib crypto |
+| Dependency compromise | **MEDIUM** | Runtime dependencies are limited to MCP SDK, SQLite, Zod, and stdlib crypto |
 
 ## Operational Recommendations
 
@@ -204,7 +179,6 @@ const iv = crypto.randomBytes(12);
 | SHA256 | 256 bit | Machine fingerprint, HMAC | `crypto.createHash` |
 | HMAC-SHA256 | 256 bit | Sandbox fakes | `crypto.createHmac` |
 | HMAC-SHA1/256/512 | 160-512 bit | TOTP/HOTP codes | `crypto.createHmac` |
-| Ed25519 | 256 bit | License signing | `crypto.verify` |
 | RSA-OAEP | 2048+ bit | Deadman key shard | `crypto.publicEncrypt` |
 
 All algorithms use Node.js built-in `crypto` module. No third-party crypto libraries.

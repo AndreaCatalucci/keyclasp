@@ -109,21 +109,13 @@ keyblind sync import <bundle>   # Import encrypted sync bundle
 keyblind migrate --from local --to aws  # Migrate secrets between backends
 ```
 
-## Team Vaults (Pro/Team)
+## Team Vaults
 
 ```bash
 keyblind team init [path]       # Initialize team vault
 keyblind team push <name>       # Push to team vault
 keyblind team pull              # Pull from team vault
 keyblind team list              # List team secrets
-```
-
-## License
-
-```bash
-keyblind activate <license-key> # Activate Pro/Team license
-keyblind deactivate             # Deactivate license
-keyblind status                 # Show license + vault status
 ```
 
 ## Utilities

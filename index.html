@@ -67,21 +67,11 @@
   .feat h4 { color: #f0f6fc; font-size: 14px; margin-bottom: 4px; }
   .feat p { color: #8b949e; font-size: 12px; }
 
-  /* Pricing */
-  .pricing { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
   .card {
     background: #161b22; border: 1px solid #21262d; border-radius: 12px;
     padding: 32px 24px; position: relative;
   }
-  .card.featured { border-color: #1f6feb; box-shadow: 0 0 0 1px #1f6feb; }
-  .card.featured::before {
-    content: "Popular"; position: absolute; top: -12px; left: 50%; transform: translateX(-50%);
-    background: #1f6feb; color: #fff; font-size: 12px; font-weight: 600;
-    padding: 2px 12px; border-radius: 12px;
-  }
   .card h3 { font-size: 22px; color: #f0f6fc; margin-bottom: 8px; }
-  .card .price { font-size: 36px; font-weight: 700; color: #f0f6fc; margin-bottom: 4px; }
-  .card .period { font-size: 14px; color: #8b949e; margin-bottom: 24px; }
   .card ul { list-style: none; margin-bottom: 24px; }
   .card li {
     padding: 6px 0; font-size: 14px; color: #c9d1d9;
@@ -92,11 +82,6 @@
   .card li.no { color: #484f58; }
   .card li.no::before { content: "- "; color: #484f58; }
   .card .btn { display: block; text-align: center; }
-
-  .card .coming-soon {
-    display: block; text-align: center; padding: 12px; font-size: 14px;
-    color: #8b949e; border: 1px dashed #30363d; border-radius: 8px;
-  }
 
   /* Comparison table */
   .compare { width: 100%; border-collapse: collapse; }
@@ -125,7 +110,7 @@
 
   @media (max-width: 768px) {
     .hero h1 { font-size: 32px; }
-    .steps, .pricing, .features { grid-template-columns: 1fr; }
+    .steps, .features { grid-template-columns: 1fr; }
     .hero { padding: 60px 0 40px; }
     .btn-outline { margin-left: 0; margin-top: 12px; }
   }
@@ -270,7 +255,7 @@
       </a>
       <a href="https://github.com/AndreaCatalucci/keyblind/blob/main/docs/faq.md" class="card" style="text-decoration:none;display:block;">
         <h4 style="color:#58a6ff;margin-bottom:4px;">FAQ</h4>
-        <p style="color:#8b949e;font-size:13px;">Common questions about setup, security, licensing, and teams.</p>
+        <p style="color:#8b949e;font-size:13px;">Common questions about setup, security, and local operation.</p>
       </a>
     </div>
   </div>

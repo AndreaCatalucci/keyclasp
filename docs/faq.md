@@ -26,13 +26,13 @@ By default, in `~/.keyblind/vault.db` — an AES-256-GCM encrypted SQLite databa
 
 Your secrets are unrecoverable. The passphrase encrypts the vault key. There is no backdoor, no recovery email, no "forgot password" flow. **Write down your passphrase and store it securely.**
 
-## How does the license system work?
+## Does Keyblind require a license key?
 
-License keys are Ed25519-signed JSON payloads. The public key is baked into the binary. Validation happens entirely offline — no phone-home. See [Security Design](./security.md) for details.
+No. Keyblind is MIT licensed, local-first, and does not include activation, paid-tier gates, or phone-home license checks.
 
 ## Can I use Keyblind in CI/CD?
 
-Yes. Set `KEYBLIND_DEV=true` for unlimited secrets in CI (no license needed for public repositories). For private repos, use a Pro license via GitHub Secrets.
+Yes. Use a local vault or one of the optional backend adapters available in your CI environment. Keyblind does not require a license key for private repositories.
 
 ## What MCP tools does Keyblind expose?
 
@@ -40,7 +40,7 @@ Yes. Set `KEYBLIND_DEV=true` for unlimited secrets in CI (no license needed for 
 
 ## Does Keyblind support team vaults?
 
-Yes. Pro tier includes team vaults with `keyblind team push/pull/list`. Team tier ($29/user/month) adds centralized admin and shared vault policies.
+The current package includes local team-vault commands, but they are not tied to a paid tier or hosted admin service.
 
 ## How do I switch between backends?
 
