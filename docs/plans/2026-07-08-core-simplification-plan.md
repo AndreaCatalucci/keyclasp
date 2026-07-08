@@ -1,22 +1,23 @@
 ---
-title: Agent-Native Core Simplification Plan
+title: Core Simplification Plan
 type: refactor
 status: active
 date: 2026-07-08
 origin: docs/brainstorms/2026-07-08-agent-native-core-simplification-requirements.md
+deepened: 2026-07-09
 ---
 
-# Agent-Native Core Simplification Plan
+# Core Simplification Plan
 
 ## Summary
 
-Simplify Keyblind by finishing commercial residue cleanup, then cutting or isolating non-core web/enterprise/product surfaces before adding agent-native context and parity improvements. The plan deliberately sequences deletion before new MCP capabilities so the team does not harden interfaces for features that should leave the core package.
+Simplify Keyblind by finishing commercial residue cleanup, then cutting or isolating non-core web/enterprise/product surfaces before adding MCP context and parity improvements. The plan deliberately sequences deletion before new MCP capabilities so the team does not harden interfaces for features that should leave the core package.
 
 ---
 
 ## Problem Frame
 
-The runtime licensing cut improved the vault kernel, but the current package still looks like a suite: MCP server, REST dashboard backend, HTTPS/pairing, SSO/team/deadman, extension/provider scaffolding, and stale paid-feature docs. That breadth keeps agent-native scores misleading: missing CRUD/parity is partly a real agent gap and partly a signal that too many modules are pretending to be core.
+The runtime licensing cut improved the vault kernel, but the current package still looks like a suite: MCP server, REST dashboard backend, HTTPS/pairing, SSO/team/deadman, extension/provider scaffolding, and stale paid-feature docs. That breadth inflates the surface area: missing CRUD/parity is partly a real agent gap and partly a signal that too many modules are pretending to be core.
 
 ---
 
@@ -40,6 +41,19 @@ The runtime licensing cut improved the vault kernel, but the current package sti
 **Origin acceptance examples:** AE1 covers R3/R5/R12, AE2 covers R6/R7/R8, AE3 covers R10, AE4 covers R11
 
 **Surviving core boundary:** vault kernel, MCP stdio server, sandbox/unsandbox, local config, doctor/setup-mcp diagnostics, hook/watch only where it directly enforces safe `.env` workflows, and a minimal CLI adapter. External backends, TOTP, share, sync/history/expiry, and alerts are pending U5 classification; they are not automatically core.
+
+### A/F/AE Trace Matrix
+
+| Origin ID | Maps to R-IDs | Realized in | Notes |
+|---|---|---|---|
+| AE1 | R3, R5, R12 | U1 | Commercial residue cleanup — removal of activation/pricing/license-delivery |
+| AE2 | R6, R7, R8 | U6 (state), U7 (semantics) | Split across two units; joint end-to-end assertion needed |
+| AE3 | R10 | U2 (removal branch) | Promotion branch (dashboard with event propagation) is deferred — see Deferred to Follow-Up Work |
+| AE4 | R11 | U3 (removal branch) | Retain branch (team with justification + coverage) gated by G2 — out of scope unless G2 retains |
+| F1 | R1, R2, R6, R8 | U2, U6, U7; gated by G4 | Local agent secret resolution — module-level test in U7, G4 contract assertion deferred to G4 resolution |
+| F2 | R1, R2, R6, R9 | U5, U6, U7 | Safe .env work session — module-level lifecycle test in U5/U7 |
+| F3 | R3, R4, R5, R10, R11 | U1–U5; gated by G3 | Boundary maintenance via grep verification across all deletion units |
+| F4 | R7, R8, R12 | U1, U6, U7 | Capability discovery — context surface + parity table + stale-doc cleanup |
 
 ---
 
@@ -69,7 +83,7 @@ The runtime licensing cut improved the vault kernel, but the current package sti
 - `src/index.ts`: public exports currently expose team, deadman, HTTPS, SSO, pairing, alerts, sync, share, and TOTP APIs.
 - `package.json`: still has non-core deployment/commercial dependencies alongside the core `@modelcontextprotocol/sdk`, `better-sqlite3`, and `zod` dependencies.
 - `dashboard/`: still present with ~1,735 TS/TSX LOC and REST client access through `dashboard/src/lib/keyblind-client.ts`.
-- A license-delivery webhook is still present in the core repo.
+The webhook was removed; remaining residues are `scripts/generate-license.ts`, `dist/license.*`, `vitest.config.ts` env var, and doc wording.
 - `docs/commands.md`, `docs/faq.md`, `docs/security.md`, `docs/recipes.md`, `docs/editors.md`: still contain stale license/Pro/Team references.
 
 ### Institutional Learnings
@@ -103,7 +117,7 @@ The runtime licensing cut improved the vault kernel, but the current package sti
 
 - Should cleanup start with commercial residue or dashboard deletion? Start with commercial residue because runtime licensing was already removed and residue now contradicts source behavior.
 - Should context resources be added before deletion? No. Add them after the first deletion wave so they describe the intended core, not the current sprawl.
-- Should the plan try to make the dashboard agent-native? No. The default plan removes dashboard/REST/HTTPS/pairing from core; dashboard productization is deferred unless the product direction changes.
+- Should the plan try to make the dashboard MCP-aware? No. The default plan removes dashboard/REST/HTTPS/pairing from core; dashboard productization is deferred unless the product direction changes.
 
 ### Deferred to Implementation
 
@@ -119,6 +133,16 @@ The runtime licensing cut improved the vault kernel, but the current package sti
 - **G3. Public API contract:** Before cutting `src/index.ts` exports in U2/U3/U4, define whether future extensions integrate through package exports, MCP stdio, or both. Add an export-shape/docs check for the chosen stable core boundary.
 - **G4. Secret-value handling promise:** Before U6/U7 claims transcript safety, decide whether secret resolution remains plaintext MCP response content or moves to an out-of-band injection model such as environment/process invocation. If plaintext MCP responses remain, update docs and tool descriptions so the promise is precise.
 
+### Gate Resolution Log
+
+| Gate | Owner | Status | Resolution | Smoke test |
+|---|---|---|---|---|
+| G1 | Model | open | — | `grep -rn "StreamableHTTPServerTransport\|/api/secrets\|/api/auth/pair" src/server.ts` → zero hits (or minimal MCP-only HTTP path if kept); `keyblind start` exits cleanly with no REST listener; if HTTP kept, `curl http://127.0.0.1:PORT/api/secrets` → 401/403/404 |
+| G2 | Model | open | — | If delete: `grep -rn "teamInit\|__keyblind_team" src/` → zero hits. If retain: `ls src/team.ts` exists + G2 decision doc at `docs/decisions/G2-team-retain.md` exists |
+| G3 | Model | open | — | `grep "^export" src/index.ts \| sort` matches declared boundary. `npm run build && node -e "import('keyblind').then(m => console.log(Object.keys(m)))"` output matches G3 doc |
+| G4 | Model | open | — | `keyblind set test-g4-smoke "v" && keyblind resolve test-g4-smoke` — if plaintext: output contains "v", `docs/security.md` updated. If out-of-band: output does NOT contain "v", `keyblind resolve test-g4-smoke --inject && echo $KEYBLIND_test_g4_smoke` → "v". Cleanup: `keyblind delete test-g4-smoke` |
+
+Each gate must be resolved with a logged decision and passing smoke test before its dependent units start. See unit Dependencies fields for gating.
 ---
 
 ## High-Level Technical Design
@@ -148,21 +172,25 @@ flowchart TD
 
 **Goal:** Complete the removal of paid-feature/licensing artifacts that no longer exist in the runtime core.
 
-**Requirements:** R2, R4, R5, R12
+**Requirements:** R2, R3, R4, R5, R12 — AE1, F3, F4, A3
 
 **Dependencies:** None
 
 **Files:**
 - Modify: `package.json`
 - Modify: `package-lock.json`
+- Modify: `vitest.config.ts` (remove `KEYBLIND_PUBLIC_KEY` env var)
+- Modify: `index.html` (remove pricing tiers, Pro/Team feature claims)
 - Modify: `docs/commands.md`
 - Modify: `docs/faq.md`
 - Modify: `docs/security.md`
 - Modify: `docs/recipes.md`
 - Modify: `docs/editors.md`
 - Modify: `README.md` if stale paid/commercial language remains
-- Delete: `webhook/`
+- Delete: `scripts/generate-license.ts`
+- Clean: `dist/license.*` (stale build output)
 - Search/update: `dashboard/`, `docs/`, `src/`, `package.json`, `package-lock.json`
+- Note: no `webhook/` directory exists in the current checkout (removed prior to this plan)
 
 **Approach:**
 - Remove non-core deployment/commercial dependencies from root dependencies if no surviving root code imports them.
@@ -178,7 +206,7 @@ flowchart TD
 - Package dependency cleanup lessons in `docs/solutions/tooling-decisions/node-26-compatibility-upgrade-2026-07-08.md`.
 
 **Test scenarios:**
-- Error path: no `keyblind activate`, `keyblind deactivate`, `KEYBLIND_LICENSE`, Stripe webhook, Pro/Team license requirement, or license delivery route remains in active product docs/source.
+- Covers AE1. Error path: no `keyblind activate`, `keyblind deactivate`, `KEYBLIND_LICENSE`, Stripe webhook, Pro/Team license requirement, or license delivery route remains in active product docs/source.
 - Integration: `npm install`/lockfile state no longer brings commercial deployment dependencies into the root package if they are unused.
 
 **Verification:**
@@ -192,32 +220,31 @@ flowchart TD
 
 **Goal:** Collapse `src/server.ts` back to an MCP server and remove the stale dashboard/backend split unless dashboard is explicitly promoted out-of-plan.
 
-**Requirements:** R1, R2, R3, R5, R10
+**Requirements:** R1, R2, R3, R5, R10 — AE3, F1, F3, F4, A2, A4
 
-**Dependencies:** U1
+**Dependencies:** U1, G1, G3
 
 **Files:**
-- Modify: `src/server.ts`
-- Modify: `src/cli.ts`
-- Modify: `src/index.ts`
-- Modify: `src/completions.ts`
-- Modify: `docs/commands.md`
-- Modify: `docs/getting-started.md`
-- Modify: `README.md`
-- Modify: `package.json`
+- Modify: `src/server.ts` — remove `StreamableHTTPServerTransport` and `http`/`https`/`pairing` imports, remove `startHttpServer()` (REST routes: `/api/secrets`, `/api/totp`, `/api/share`, `/api/deadman`, `/api/team/*`, `/api/auth/pair`, `/api/generate`, `/api/audit`)
+- Modify: `src/cli.ts` — remove `dashboard-login`, `start --http`, `start --https`, `start --domain/--email/--staging/--port` commands
+- Modify: `src/index.ts` — remove HTTPS exports (provisionCert, createHttpsServer, startAutoRenewal, certExists, certExpiringSoon, ACMEOptions, CertPaths) and pairing exports (generatePairingToken, verifyPairingToken)
+- Modify: `src/completions.ts` — remove `--http` flag from start completions
+- Modify: `docs/commands.md`, `docs/getting-started.md`, `docs/faq.md`, `docs/security.md`, `docs/mcp-integration.md`, `docs/demo-script.md`, `docs/product-hunt.md`
+- Modify: `README.md`, `index.html`, `AGENTS.md`
+- Modify: `package.json` — remove `acme-client` dependency
 - Modify: `package-lock.json`
-- Delete: `src/types/acme-client.d.ts` if HTTPS is removed
-- Delete: `dashboard/` by default
-- Delete: `src/pairing.ts` by default
-- Delete: `src/https.ts` by default
+- Delete: `src/https.ts`
+- Delete: `src/pairing.ts`
+- Delete: `src/types/acme-client.d.ts`
+- Delete: `dashboard/`
 - Delete/update tests that only cover removed dashboard/HTTP/HTTPS/pairing behavior
 
 **Approach:**
-- Remove REST `/api/*` route handling from `src/server.ts`.
+- Remove all REST `/api/*` route handling from `src/server.ts` (20 handler blocks across 8 route groups): `/api/secrets`, `/api/totp`, `/api/share`, `/api/deadman`, `/api/team/*`, `/api/auth/pair`, `/api/generate`, `/api/audit`.
 - Remove `StreamableHTTPServerTransport` and `http`/HTTPS imports unless G1 explicitly keeps a minimal MCP-only HTTP transport.
 - If minimal HTTP survives, bind to loopback by default, require explicit non-loopback opt-in, require session/auth for non-loopback access, restrict origins where applicable, and verify unauthenticated remote requests cannot reach secret tools.
 - Remove CLI flags/commands that only exist for dashboard or remote HTTP/HTTPS dashboard use: `start --http`, `start --https`, dashboard-login/pairing flows.
-- Remove public exports for pairing/HTTPS and update the public API contract from G3.
+- Remove all REST `/api/*` route handling from `src/server.ts` (20 handler blocks across 8 route groups): `/api/secrets`, `/api/totp`, `/api/share`, `/api/deadman`, `/api/team/*`, `/api/auth/pair`, `/api/generate`, `/api/audit`.
 - Remove dashboard docs, hosted app-login references, active web-dashboard product promises, and generic web-dashboard onboarding promises.
 
 **Execution note:** Make a single clean cut. Do not leave hidden dashboard shims or deprecated commands.
@@ -230,8 +257,7 @@ flowchart TD
 - Happy path: `keyblind start` still starts stdio MCP server after build.
 - Error path: removed dashboard/HTTP/HTTPS CLI invocations fail as unknown or are absent from help/completions/docs.
 - Integration: dashboard route/client imports no longer affect root build.
-- Discovery: active README/getting-started/commands/editor docs contain no hosted dashboard, web UI, remote dashboard transport, or pairing promises; any retained dashboard mention is clearly labeled deferred/out-of-core.
-
+- Covers AE3 (removal branch). Discovery: active README/getting-started/commands/editor docs contain no hosted dashboard, web UI, remote dashboard transport, or pairing promises; any retained dashboard mention is clearly labeled deferred/out-of-core. AE3 promotion branch (dashboard with event propagation) is deferred — see Deferred to Follow-Up Work.
 **Verification:**
 - `npm run build` passes.
 - Targeted tests for server/CLI command help pass or are updated.
@@ -243,28 +269,29 @@ flowchart TD
 
 **Goal:** Remove enterprise/recovery features that were tied to paid/team positioning unless implementation-time evidence proves one is core.
 
-**Requirements:** R3, R5, R11
+**Requirements:** R3, R5, R11 — AE4, F3, A3
 
-**Dependencies:** U1, U2, G2
+**Dependencies:** U1, U2, G2, G3
 
 **Files:**
-- Delete by default: `src/sso.ts`
-- Delete by default: `src/deadman.ts`
-- Delete or move by decision: `src/team.ts`
-- Modify: `src/server.ts`
-- Modify: `src/cli.ts`
-- Modify: `src/index.ts`
-- Modify: `src/completions.ts`
-- Modify: `docs/commands.md`
-- Modify: `docs/recipes.md`
-- Modify: `README.md`
+- Delete by default: `src/team.ts` — team vault (encrypted SQLite, PBKDF2, team.vault)
+- Delete by default: `src/sso.ts` — OIDC (Google, Okta, Azure, PKCE, callback server :3101)
+- Delete by default: `src/deadman.ts` — dead man's switch (RSA key shard, email)
+- Modify: `src/server.ts` — remove MCP tools: `team_init`, `team_push`, `team_pull`, `team_list`, `team_resolve`, `team_delete`, `sso_status`, `deadman_status`, `deadman_checkin` (9 tools); remove REST `/api/team/*`, `/api/deadman`, `/api/deadman/checkin`
+- Modify: `src/cli.ts` — remove `team init/push/pull/list/delete`, `deadman setup/checkin/status/disable`, `sso configure/login/logout/status`
+- Modify: `src/index.ts` — remove team, deadman, SSO re-exports
+- Modify: `src/completions.ts` — remove team subcommand completions
+- Modify: `tests/integration.test.ts` — remove SSO tests (~lines 244-268), deadman tests (~lines 172-242), and their imports
+- Modify: `docs/commands.md`, `docs/faq.md`, `docs/security.md`, `docs/recipes.md`, `docs/mcp-integration.md`, `docs/demo-script.md`, `docs/product-hunt.md`, `docs/editors.md`
+- Modify: `README.md`, `index.html`, `AGENTS.md`
 - Modify/delete tests covering only removed domains
-
+- Modify: `tests/integration.test.ts` — remove SSO tests (`describe('SSO integration')` block, ~lines 230-248), deadman tests (`describe('Dead man switch integration')` block, ~lines 177-228), and their imports
 **Approach:**
 - Remove SSO because it primarily supports team vault access and has incomplete MCP parity.
 - Remove dead man's switch because it stores recovery workflow config as prefixed vault secrets and does not directly serve "blind AI to your keys".
 - Execute the team-vault disposition from G2; if retained, split team redesign into a separate follow-up plan instead of deleting it here.
 - Before deleting any secret-owning module, choose data disposition for its prefixed vault records: user-confirmed purge, export/move to an archive store, retained owner, or documented manual cleanup.
+- Denylist prefixed vault records from `listSecrets`: `_keyblind_sso:config`, `_keyblind_sso:token`, `_keyblind_deadman:config`, `_keyblind_deadman:last_checkin`, `__keyblind_team_check`. Remove `team.vault` and `.salt` files from `.keyblind/`.
 - Remove MCP tools and CLI branches together with module deletes.
 
 **Execution note:** If team is retained, split it into a separate follow-up plan instead of half-cleaning it in this deletion unit.
@@ -273,10 +300,10 @@ flowchart TD
 - Existing module delete pattern from licensing removal: remove imports, public exports, CLI branches, MCP tools, docs, tests, and dependencies in one cut.
 
 **Test scenarios:**
-- Error path: removed `sso_*`, `deadman_*`, and deleted `team_*` tools are absent from MCP tool definitions.
+- Covers AE4 (removal branch). Error path: removed `sso_*`, `deadman_*`, and deleted `team_*` tools are absent from MCP tool definitions.
 - Error path: removed CLI commands are absent from help and completions.
 - Integration: tests no longer create or depend on prefixed deadman/team/SSO vault records unless the feature is retained.
-- Data lifecycle: existing deadman/SSO/team records cannot remain silently recoverable through generic secret-resolution paths after the owning feature is removed.
+- Data lifecycle: existing deadman/SSO/team records cannot remain silently recoverable through generic secret-resolution paths after the owning feature is removed. AE4 retain branch (team with justification+coverage) is gated by G2 — out of scope unless G2 retains.
 
 **Verification:**
 - `npm run build` passes.
@@ -288,7 +315,7 @@ flowchart TD
 
 **Goal:** Decide, per surface, whether duplicate distribution packages stay in core, move out, or are deleted.
 
-**Requirements:** R1, R3, R5
+**Requirements:** R1, R3, R5 — F3, A4
 
 **Dependencies:** U2, G3
 
@@ -330,7 +357,7 @@ flowchart TD
 
 **Goal:** Decide and document whether TOTP, share, sync/history/expiry, alerts, and external backends stay in core, move out, or need MCP parity.
 
-**Requirements:** R3, R5, R6, R9
+**Requirements:** R3, R5, R6, R9 — F2, F3, A1, A2
 
 **Dependencies:** U1, U2, U3
 
@@ -372,9 +399,9 @@ flowchart TD
 
 **Goal:** Give agents state awareness without probing by failure.
 
-**Requirements:** R6, R7, R8
+**Requirements:** R6, R7, R8 — AE2, F1, F2, F4, A2
 
-**Dependencies:** U2, U3, U5
+**Dependencies:** U2, U3, U5, G4
 
 **Files:**
 - Modify: `src/server.ts`
@@ -401,7 +428,7 @@ flowchart TD
 - Do not reuse raw `getAuditLog` output for context; create a safe audit projection that exposes action counts, coarse time buckets, and warning flags without raw `secretName` or `clientInfo` by default.
 
 **Test scenarios:**
-- Happy path: initialized vault returns safe status without plaintext.
+- Covers AE2 (state half). Happy path: initialized vault returns safe status without plaintext.
 - Error path: uninitialized vault returns guidance/status instead of throwing raw failures.
 - Security: context output never contains secret values, raw secret names from audit logs, client info, passphrases, raw `.env` values, decrypted TOTP seeds, or internal prefixed records whose owning feature was removed.
 
@@ -416,9 +443,9 @@ flowchart TD
 
 **Goal:** Align CLI, MCP, docs, and tests for the narrowed product surface.
 
-**Requirements:** R5, R6, R8
+**Requirements:** R5, R6, R8 — AE2, F1, F4, A2, A4
 
-**Dependencies:** U6
+**Dependencies:** U6, G3, G4
 
 **Files:**
 - Modify: `src/server.ts`
@@ -443,7 +470,8 @@ flowchart TD
 **Execution note:** Do not try to reach parity against deleted commands. The denominator is the surviving product.
 
 **Test scenarios:**
-- Parity: every retained core CLI command has MCP coverage or an explicit exception in a test fixture/table.
+- Covers AE2 (semantics half). Parity: every retained core CLI command has MCP coverage or an explicit exception in a test fixture/table.
+- Covers F1 (module-level). F1 integration: resolve a secret via vault module, assert audit log records the access; verify response conforms to G4 contract (once G4 is resolved).
 - Safety: destructive tools are discoverable as destructive.
 - Regression: adding a future CLI command without updating the parity table fails a targeted test.
 - API contract: public exports match the G3 stable core boundary and extension authors know whether to depend on package exports, MCP stdio, or both.
@@ -458,11 +486,21 @@ flowchart TD
 ## System-Wide Impact
 
 - **Interaction graph:** `src/server.ts`, `src/cli.ts`, `src/index.ts`, docs, completions, and tests all change together. Deleting modules without updating exports/help/docs will break build or discovery.
+
+  | Deleting | Breaks imports in |
+  |---|---|
+  | `src/https.ts` | `src/server.ts`, `src/cli.ts`, `src/index.ts` |
+  | `src/pairing.ts` | `src/server.ts`, `src/cli.ts`, `src/index.ts` |
+  | `src/team.ts` | `src/server.ts`, `src/cli.ts`, `src/index.ts` |
+  | `src/sso.ts` | `src/server.ts`, `src/cli.ts`, `src/index.ts`, `tests/integration.test.ts` |
+  | `src/deadman.ts` | `src/server.ts`, `src/cli.ts`, `src/index.ts`, `tests/integration.test.ts` |
+
 - **Error propagation:** Removed commands should fail clearly as unknown commands or disappear from help; retained commands should preserve current error behavior unless the unit explicitly changes it.
-- **State lifecycle risks:** Deleting modules that stored prefixed vault records (`_totp`, `_keyblind_deadman`, team metadata, sync/history) can strand encrypted secret-bearing records. Each removed owner needs an explicit data disposition before its CLI/MCP/public exports are cut.
-- **API surface parity:** Public package exports are an API. Removing exports may be breaking, but the plan must replace accidental exports with the explicit G3 stable core boundary and verify `src/index.ts` against it.
-- **Integration coverage:** Unit tests alone will not prove CLI/MCP/docs alignment; add grep/table-driven checks for exported tools, CLI help, completions, and docs where possible.
-- **Unchanged invariants:** AES-256-GCM encryption, PBKDF2 key derivation, machine-identity key wrapping, key/vault mismatch verification, and sandbox fake determinism stay unchanged. Transcript/plaintext behavior is not assumed unchanged; G4 must make the current MCP secret-value contract explicit or redesign it.
+- **State lifecycle risks:** Deleting modules that stored prefixed vault records can strand encrypted secret-bearing records. Each removed owner needs an explicit data disposition before its CLI/MCP/public exports are cut.
+
+  Prefixed vault records to denylist: `_keyblind_sso:config`, `_keyblind_sso:token`, `_keyblind_deadman:config`, `_keyblind_deadman:last_checkin`, `__keyblind_team_check`, `_totp:<name>` (if TOTP removed). Per-file artifacts: `team.vault` + `.salt` in `.keyblind/`.
+
+- **Stale config cleanup:** `vitest.config.ts` still sets `KEYBLIND_PUBLIC_KEY` (license-era residue). `acme-client` dependency unused after `src/https.ts` deletion. `dist/license.*` is stale build output from licensing removal.
 
 ---
 
@@ -494,6 +532,6 @@ flowchart TD
 - Related code: `src/vault.ts`, `src/server.ts`, `src/cli.ts`, `src/index.ts`, `src/completions.ts`, `package.json`
 - Related docs: `README.md`, `docs/commands.md`, `docs/faq.md`, `docs/security.md`, `docs/recipes.md`, `docs/editors.md`
 - Related surfaces: `dashboard/`, `webhook/`, `browser-extension/`, `vscode/`, `vscode-extension/`, `terraform-provider-keyblind/`, `landing/`
-- Agent-native reference: `skill://ce-agent-native-architecture`
+- MCP design reference: `skill://ce-agent-native-architecture`
 - Institutional learning: `docs/solutions/tooling-decisions/node-26-compatibility-upgrade-2026-07-08.md`
 - Architecture solution doc: `docs/solutions/architecture-patterns/deletion-first-architecture-simplification-2026-07-08.md`
