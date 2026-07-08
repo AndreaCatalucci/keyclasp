@@ -1,15 +1,11 @@
-import { describe, it, expect, beforeAll, afterAll, vi, beforeEach } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-// Redirect vault to temp dir
 const tmpDir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "keyblind-test-")));
-vi.mock("node:os", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("node:os")>();
-  return { ...actual, homedir: () => tmpDir };
-});
+const vaultDir = path.join(tmpDir, ".keyblind");
 
 import { initializeVault, storeSecret, resolveSecret, listSecrets, deleteSecret, isInitialized, closeDb } from "../src/vault.js";
 import {
@@ -22,13 +18,15 @@ import { setBackend, getBackend, listAvailableBackends } from "../src/backends.j
 import { generateSecret } from "../src/config.js";
 
 beforeAll(() => {
+  process.env.KEYBLIND_HOME = vaultDir;
   fs.mkdirSync(tmpDir, { recursive: true });
-  fs.mkdirSync(path.join(tmpDir, ".keyblind"), { recursive: true });
+  fs.mkdirSync(vaultDir, { recursive: true });
   if (!isInitialized()) initializeVault("integration-test-passphrase");
 });
 
 afterAll(() => {
   closeDb();
+  delete process.env.KEYBLIND_HOME;
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 

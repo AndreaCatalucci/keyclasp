@@ -1,24 +1,12 @@
-import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-// We need to intercept the vault path before vault.ts loads its module-level state.
-// The vault uses ~/.keyblind/ — we redirect to a temp dir for testing.
 const tmpDir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "keyblind-test-")));
 const vaultDir = path.join(tmpDir, ".keyblind");
 
-// Intercept os.homedir so vault.ts creates files in our temp directory
-vi.mock("node:os", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("node:os")>();
-  return {
-    ...actual,
-    homedir: () => tmpDir,
-  };
-});
-
-// Now we can dynamically import vault after mocking
 import {
   encrypt,
   decrypt,
@@ -36,13 +24,14 @@ import { createServer } from "../src/server.js";
 import { getSecretHistory, saveHistory } from "../src/sync.js";
 
 beforeAll(() => {
-  // Create temp home so vault init doesn't fail on missing directory
+  process.env.KEYBLIND_HOME = vaultDir;
   fs.mkdirSync(tmpDir, { recursive: true });
   fs.mkdirSync(vaultDir, { recursive: true });
 });
 
 afterAll(() => {
   closeDb();
+  delete process.env.KEYBLIND_HOME;
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
