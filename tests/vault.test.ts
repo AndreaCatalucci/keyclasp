@@ -8,6 +8,8 @@ import path from "node:path";
 // The vault uses ~/.keyblind/ — we redirect to a temp dir for testing.
 const tmpDir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "keyblind-test-")));
 const vaultDir = path.join(tmpDir, ".keyblind");
+const previousKeyblindHome = process.env.KEYBLIND_HOME;
+process.env.KEYBLIND_HOME = vaultDir;
 
 // Intercept os.homedir so vault.ts creates files in our temp directory
 vi.mock("node:os", async (importOriginal) => {
@@ -43,6 +45,11 @@ beforeAll(() => {
 
 afterAll(() => {
   closeDb();
+  if (previousKeyblindHome === undefined) {
+    delete process.env.KEYBLIND_HOME;
+  } else {
+    process.env.KEYBLIND_HOME = previousKeyblindHome;
+  }
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 

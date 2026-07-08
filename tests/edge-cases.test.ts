@@ -4,6 +4,9 @@ import path from "node:path";
 import os from "node:os";
 
 const tmpDir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "keyblind-edge-")));
+const vaultDir = path.join(tmpDir, ".keyblind");
+const previousKeyblindHome = process.env.KEYBLIND_HOME;
+process.env.KEYBLIND_HOME = vaultDir;
 
 vi.mock("node:os", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:os")>();
@@ -21,12 +24,17 @@ import {
 } from "../src/vault.js";
 
 beforeAll(() => {
-  fs.mkdirSync(tmpDir, { recursive: true });
+  fs.mkdirSync(vaultDir, { recursive: true });
   if (!isInitialized()) initializeVault("test-passphrase");
 });
 
 afterAll(() => {
   closeDb();
+  if (previousKeyblindHome === undefined) {
+    delete process.env.KEYBLIND_HOME;
+  } else {
+    process.env.KEYBLIND_HOME = previousKeyblindHome;
+  }
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 

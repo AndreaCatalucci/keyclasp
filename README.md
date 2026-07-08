@@ -76,11 +76,17 @@ Add a `.mcp.json` to your project root, or use `claude mcp add`:
 claude mcp add --scope user keyblind -- keyblind start
 ```
 
-With biometric gate (Touch ID required before secrets are resolved):
+With biometric session gate (Touch ID required before the MCP server starts, session expires after 15 minutes):
 
 ```bash
 keyblind unlock                      # Authenticate first
 claude mcp add keyblind -- keyblind start --biometric
+```
+
+With biometric gate on every secret access:
+
+```bash
+claude mcp add keyblind -- keyblind start --biometric-every-time
 ```
 
 ### MCP Tools
@@ -156,7 +162,8 @@ keyblind sandbox [.env]       Replace .env with deterministic fakes
 keyblind unsandbox [.env]     Restore real .env values
 keyblind run <command...>     Run command with secrets as env vars
 keyblind start                Start MCP server (stdio — for AI agents)
-keyblind start --biometric    Start MCP server with biometric requirement
+keyblind start --biometric    Start MCP server with biometric session requirement
+keyblind start --biometric-every-time  Require biometrics for every secret access
 keyblind backends             List available backends
 keyblind backend <name>       Switch backend
 keyblind status               Show vault status

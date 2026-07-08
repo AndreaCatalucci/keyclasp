@@ -33,14 +33,20 @@ Or add to `.mcp.json` (project root):
 }
 ```
 
-With biometric gate (requires Touch ID before secrets are resolved):
+With biometric session gate (requires Touch ID before the MCP server starts, session expires after 15 minutes):
 
 ```bash
 keyblind unlock
 claude mcp add keyblind -- keyblind start --biometric
 ```
 
-> Session expires after 15 minutes. No license key is required.
+With biometric gate on every secret access:
+
+```bash
+claude mcp add keyblind -- keyblind start --biometric-every-time
+```
+
+> No license key is required.
 
 ### Cursor
 

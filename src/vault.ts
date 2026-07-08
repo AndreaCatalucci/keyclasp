@@ -3,7 +3,7 @@ import crypto from "node:crypto";
 import path from "node:path";
 import os from "node:os";
 import fs from "node:fs";
-import { sessionActive } from "./auth.js";
+import { authenticateWithBiometric, sessionActive } from "./auth.js";
 
 const ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 12;
@@ -33,7 +33,7 @@ export function getProjectName(): string | null {
 }
 
 function getVaultDir(): string {
-  const base = path.join(os.homedir(), ".keyblind");
+  const base = process.env.KEYBLIND_HOME || path.join(os.homedir(), ".keyblind");
   if (_projectName) {
     return path.join(base, "projects", _projectName);
   }
@@ -74,17 +74,29 @@ export function decrypt(encrypted: Buffer, iv: Buffer, authTag: Buffer, key: Buf
 let _db: Database.Database | null = null;
 let _key: Buffer | null = null;
 let _requireSession = false;
+let _requireBiometricPerSecretAccess = false;
 
 export function setRequireSession(requireSession: boolean): void {
   _requireSession = requireSession;
 }
 
-export function getKey(): Buffer {
-  if (_key) return _key;
+export function setRequireBiometricPerSecretAccess(requireBiometric: boolean): void {
+  _requireBiometricPerSecretAccess = requireBiometric;
+}
 
+export function requireSecretAccess(reason: string): void {
+  if (!_requireBiometricPerSecretAccess) return;
+  if (!authenticateWithBiometric(reason)) {
+    throw new Error("Biometric authentication required to access secret.");
+  }
+}
+
+export function getKey(): Buffer {
   if (_requireSession && !sessionActive()) {
     throw new Error("Biometric session expired or not started. Run: keyblind unlock");
   }
+
+  if (_key) return _key;
 
   const keyDir = getVaultDir();
   if (!fs.existsSync(keyDir)) {
@@ -210,6 +222,7 @@ export function resolveSecret(name: string): string | null {
     | undefined;
 
   if (!row) return null;
+  requireSecretAccess(`Access Keyblind secret "${name}"`);
   auditLog(name, "resolve");
   return decrypt(row.encrypted_value, row.iv, row.auth_tag, key);
 }

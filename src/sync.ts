@@ -1,4 +1,4 @@
-import { getDb, getKey, encrypt, decrypt } from "./vault.js";
+import { getDb, getKey, encrypt, decrypt, requireSecretAccess } from "./vault.js";
 import { getBackend, setBackend, listAvailableBackends } from "./backends.js";
 import os from "node:os";
 import crypto from "node:crypto";
@@ -51,6 +51,8 @@ export function getSecretHistory(name: string, limit: number = 10): SecretVersio
     "SELECT version, encrypted_value, iv, auth_tag, created_at FROM secret_history WHERE name = ? ORDER BY version DESC LIMIT ?"
   ).all(name, limit) as { version: number; encrypted_value: Buffer; iv: Buffer; auth_tag: Buffer; created_at: string }[];
 
+  if (rows.length > 0) requireSecretAccess(`Access Keyblind secret history "${name}"`);
+
   return rows.map(r => ({
     version: r.version,
     value: decrypt(r.encrypted_value, r.iv, r.auth_tag, key),
@@ -71,6 +73,7 @@ export function rollbackSecret(name: string, version?: number): boolean {
 
   if (!row) return false;
 
+  requireSecretAccess(`Restore Keyblind secret history "${name}"`);
   const value = decrypt(row.encrypted_value, row.iv, row.auth_tag, key);
 
   // Restore this version as current

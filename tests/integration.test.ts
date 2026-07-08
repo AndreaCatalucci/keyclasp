@@ -6,6 +6,9 @@ import path from "node:path";
 
 // Redirect vault to temp dir
 const tmpDir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "keyblind-test-")));
+const vaultDir = path.join(tmpDir, ".keyblind");
+const previousKeyblindHome = process.env.KEYBLIND_HOME;
+process.env.KEYBLIND_HOME = vaultDir;
 vi.mock("node:os", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:os")>();
   return { ...actual, homedir: () => tmpDir };
@@ -23,12 +26,17 @@ import { generateSecret } from "../src/config.js";
 
 beforeAll(() => {
   fs.mkdirSync(tmpDir, { recursive: true });
-  fs.mkdirSync(path.join(tmpDir, ".keyblind"), { recursive: true });
+  fs.mkdirSync(vaultDir, { recursive: true });
   if (!isInitialized()) initializeVault("integration-test-passphrase");
 });
 
 afterAll(() => {
   closeDb();
+  if (previousKeyblindHome === undefined) {
+    delete process.env.KEYBLIND_HOME;
+  } else {
+    process.env.KEYBLIND_HOME = previousKeyblindHome;
+  }
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
