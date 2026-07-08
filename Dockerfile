@@ -1,12 +1,12 @@
 # ---- Build Stage ----
-FROM node:22-alpine AS builder
+FROM node:26-alpine AS builder
 
 WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm ci --omit=dev && npm cache clean --force
 
 # ---- Runtime Stage ----
-FROM node:22-alpine
+FROM node:26-alpine
 
 RUN addgroup -g 1001 keyblind && \
     adduser -u 1001 -G keyblind -s /bin/sh -D keyblind

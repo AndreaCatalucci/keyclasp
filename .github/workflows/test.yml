@@ -11,15 +11,11 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        node-version: [20, 22, 24]
+        node-version: [24, 26]
         exclude:
-          # Skip oldest/newest combos on non-Linux to save CI minutes
-          - os: windows-latest
-            node-version: 20
+          # Run all OSes on the current release, LTS only on Linux
           - os: windows-latest
             node-version: 24
-          - os: macos-latest
-            node-version: 20
           - os: macos-latest
             node-version: 24
 
