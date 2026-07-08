@@ -195,7 +195,8 @@ Add MCP resources/status surfaces, tool annotations, safety modes, and parity te
 - Treat `.env` sandbox/unsandbox as domain operations: they are workflows, but they directly serve the product promise and should not be decomposed into generic file-editing primitives unless Keyblind's product identity changes.
 - Add runtime context after product cuts: context resources are highest leverage once the surviving surface is known.
 
----
+
+> 📚 **Institutional learning:** [deletion-first-architecture-simplification-2026-07-08.md](../solutions/architecture-patterns/deletion-first-architecture-simplification-2026-07-08.md) documents the full workflow that produced this requirements document and the resulting implementation plan.
 
 ## Dependencies / Assumptions
 

@@ -75,6 +75,7 @@ The runtime licensing cut improved the vault kernel, but the current package sti
 ### Institutional Learnings
 
 - `docs/solutions/tooling-decisions/node-26-compatibility-upgrade-2026-07-08.md`: native/runtime dependency choices matter; removing unused deployment/commercial dependencies reduces install and compatibility surface.
+- `docs/solutions/architecture-patterns/deletion-first-architecture-simplification-2026-07-08.md`: the deletion-first pattern used to produce this plan — audit, brainstorm, plan, parallel-review, strengthen. Documents the workflow itself as institutional knowledge.
 
 ### External References
 
@@ -483,7 +484,7 @@ flowchart TD
 - Update README, docs command reference, FAQ, security docs, recipes, editor setup docs, and launch/demo docs only where they represent active product promises.
 - Keep `LICENSE` and MIT legal attribution intact.
 - If deleting large surfaces, mention the product boundary rationale in PR description so reviewers evaluate deletion as architecture work, not missing functionality.
-- After U1-U4, consider adding a `docs/solutions/architecture/` learning that records the simplified core boundary and why dashboard/commercial/enterprise surfaces were cut.
+- After U1-U4, capture a `docs/solutions/architecture-patterns/` learning that records the simplified core boundary and why dashboard/commercial/enterprise surfaces were cut (see existing pattern doc at `docs/solutions/architecture-patterns/deletion-first-architecture-simplification-2026-07-08.md`).
 
 ---
 
@@ -495,3 +496,4 @@ flowchart TD
 - Related surfaces: `dashboard/`, `webhook/`, `browser-extension/`, `vscode/`, `vscode-extension/`, `terraform-provider-keyblind/`, `landing/`
 - Agent-native reference: `skill://ce-agent-native-architecture`
 - Institutional learning: `docs/solutions/tooling-decisions/node-26-compatibility-upgrade-2026-07-08.md`
+- Architecture solution doc: `docs/solutions/architecture-patterns/deletion-first-architecture-simplification-2026-07-08.md`
