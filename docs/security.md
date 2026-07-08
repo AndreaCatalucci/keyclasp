@@ -161,7 +161,7 @@ const iv = crypto.randomBytes(12);
 
 ## Operational Recommendations
 
-1. **Use the biometric gate** (`keyblind unlock --biometric`) for session management
+1. **Use the biometric gate** (`keyblind unlock` with `keyblind start --biometric`, or `keyblind start --biometric-every-time` for per-access prompts)
 2. **Set KEYBLIND_SESSION_TIMEOUT** to auto-lock after inactivity
 3. **Never commit `.keyblind/`** to version control
 4. **Use `keyblind sandbox`** for all projects that interact with AI tools

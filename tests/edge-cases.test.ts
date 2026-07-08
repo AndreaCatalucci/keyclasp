@@ -5,6 +5,8 @@ import os from "node:os";
 
 const tmpDir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "keyblind-edge-")));
 const vaultDir = path.join(tmpDir, ".keyblind");
+const previousKeyblindHome = process.env.KEYBLIND_HOME;
+process.env.KEYBLIND_HOME = vaultDir;
 
 import {
   initializeVault,
@@ -17,7 +19,6 @@ import {
 } from "../src/vault.js";
 
 beforeAll(() => {
-  process.env.KEYBLIND_HOME = vaultDir;
   fs.mkdirSync(tmpDir, { recursive: true });
   fs.mkdirSync(vaultDir, { recursive: true });
   if (!isInitialized()) initializeVault("test-passphrase");
@@ -25,7 +26,11 @@ beforeAll(() => {
 
 afterAll(() => {
   closeDb();
-  delete process.env.KEYBLIND_HOME;
+  if (previousKeyblindHome === undefined) {
+    delete process.env.KEYBLIND_HOME;
+  } else {
+    process.env.KEYBLIND_HOME = previousKeyblindHome;
+  }
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 

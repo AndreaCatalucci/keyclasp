@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { initializeVault, getKey, storeSecret, listSecrets, resolveSecret, deleteSecret, isInitialized, closeDb, setRequireSession, setProjectName, getProjectName, getAuditLog, checkExpired, setExpiry, setClientInfo } from "./vault.js";
+import { initializeVault, getKey, storeSecret, listSecrets, resolveSecret, deleteSecret, isInitialized, closeDb, setRequireSession, setRequireBiometricPerSecretAccess, setProjectName, getProjectName, getAuditLog, checkExpired, setExpiry, setClientInfo } from "./vault.js";
 import { startServer } from "./server.js";
 import { sandboxEnvFile, unsandboxEnvFile } from "./sandbox.js";
 import { setBackend, getBackend, listAvailableBackends } from "./backends.js";
@@ -41,7 +41,9 @@ Usage:
   keyblind list                List all stored secret names
   keyblind delete <name>       Delete a secret
   keyblind start               Start the MCP server (stdio)
-  keyblind start --biometric   Start MCP server with biometric requirement
+  keyblind start --biometric   Start MCP server with biometric session requirement
+  keyblind start --biometric-every-time
+                              Require biometrics for every secret access
   keyblind unlock              Authenticate with biometric (cross-platform)
   keyblind run <command...>    Run a command with secrets as env vars
   keyblind sandbox [.env]      Replace real env values with deterministic fakes
@@ -481,24 +483,31 @@ async function main(): Promise<void> {
           process.exit(1);
         }
         const startFlags = args.slice(1).filter((arg) => arg.startsWith("--"));
-        const unknownFlags = startFlags.filter((flag) => flag !== "--biometric");
+        const unknownFlags = startFlags.filter((flag) => flag !== "--biometric" && flag !== "--biometric-every-time");
         if (unknownFlags.length > 0) {
           console.error(`Unknown start option(s): ${unknownFlags.join(", ")}`);
-          console.error("Supported: keyblind start [--biometric]");
+          console.error("Supported: keyblind start [--biometric] [--biometric-every-time]");
           process.exit(1);
         }
         const biometric = args.includes("--biometric");
-        if (biometric) {
+        const biometricEveryTime = args.includes("--biometric-every-time");
+        if (biometric || biometricEveryTime) {
           if (!biometricAvailable()) {
             console.error("Biometric auth is not available on this system.");
             process.exit(1);
           }
+        }
+        if (biometric) {
           if (!sessionActive()) {
             console.error("Biometric session required. Run 'keyblind unlock' first.");
             process.exit(1);
           }
           setRequireSession(true);
-          console.log("Biometric gate enabled — session expires in 15 minutes.");
+          console.error("Biometric gate enabled; session expires in 15 minutes.");
+        }
+        if (biometricEveryTime) {
+          setRequireBiometricPerSecretAccess(true);
+          console.error("Biometric gate enabled for every secret access.");
         }
         getKey();
         // MCP stdio transport uses stdout — startup messages MUST go to stderr.

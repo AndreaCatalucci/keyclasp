@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { storeSecret, listSecrets, deleteSecret, isInitialized, getAuditLog, setClientInfo, checkExpired, setExpiry, getExpiry, getProjectName, countSecretsByPrefix } from "./vault.js";
+import { storeSecret, listSecrets, deleteSecret, isInitialized, getAuditLog, setClientInfo, checkExpired, setExpiry, getExpiry, getProjectName, countSecretsByPrefix, requireSecretAccess } from "./vault.js";
 import { getBackend, setBackend, listAvailableBackends } from "./backends.js";
 import { sandboxEnvFile, unsandboxEnvFile } from "./sandbox.js";
 import { generateTOTPCode, storeTOTP, listTOTP, deleteTOTP, parseOTPAuthURI } from "./totp.js";
@@ -42,6 +42,13 @@ function visibleSecretNames(): string[] {
   return listSecrets().filter((n) => !n.startsWith("_keyblind") && !n.startsWith("_totp") && !n.startsWith("__keyblind"));
 }
 
+function resolveBackendSecret(backend: ReturnType<typeof getBackend>, name: string): string | null {
+  if (backend.name !== "local") {
+    requireSecretAccess(`Access Keyblind secret "${name}"`);
+  }
+  return backend.resolve(name);
+}
+
 function safeRecentActivity(limit: number): { total: number; byAction: Record<string, number>; recent: { action: string; timestamp: string }[] } {
   const entries = getAuditLog(limit);
   const byAction: Record<string, number> = {};
@@ -76,7 +83,15 @@ export function createServer(): McpServer {
       }
 
       const backend = getBackend();
-      const value = backend.resolve(name);
+      let value: string | null;
+      try {
+        value = resolveBackendSecret(backend, name);
+      } catch (err: any) {
+        return {
+          content: [{ type: "text", text: JSON.stringify({ error: err.message }) }],
+          isError: true,
+        };
+      }
       if (value === null) {
         const allNames = backend.list();
         return {
@@ -446,7 +461,12 @@ export function createServer(): McpServer {
     async ({ name, value, length, symbols, expiresAt }) => {
       if (!isInitialized()) return { content: [{ type: "text", text: JSON.stringify({ error: "Vault not initialized" }) }], isError: true };
       const backend = getBackend();
-      const existing = backend.resolve(name);
+      let existing: string | null;
+      try {
+        existing = resolveBackendSecret(backend, name);
+      } catch (err: any) {
+        return { content: [{ type: "text", text: JSON.stringify({ error: err.message }) }], isError: true };
+      }
       if (existing === null) return { content: [{ type: "text", text: JSON.stringify({ error: `Secret "${name}" not found` }) }], isError: true };
       const nextValue = value ?? generateSecret(length ?? 32, symbols ?? true);
       try {

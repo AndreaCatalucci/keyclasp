@@ -58,7 +58,8 @@ The secret is encrypted into the URL fragment — never sent to any server.
 
 ```bash
 keyblind start                  # MCP server (stdio — for AI agents)
-keyblind start --biometric      # Require Touch ID before resolving secrets
+keyblind start --biometric      # Require a 15-minute biometric session
+keyblind start --biometric-every-time  # Require biometrics for every secret access
 ```
 
 ## Run with Secrets

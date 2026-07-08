@@ -11,7 +11,8 @@ const COMMANDS = [
 
 const FLAGS: Record<string, string> = {
   "--project": "Use a project-specific vault",
-  "--biometric": "Require biometric auth for MCP server",
+  "--biometric": "Require a biometric session for MCP server",
+  "--biometric-every-time": "Require biometric auth for every secret access",
   "--expired": "Check for expired secrets",
 };
 
@@ -44,7 +45,7 @@ _keyblind() {
       fi
       ;;
     start)
-      COMPREPLY=($(compgen -W "--biometric" -- "$cur"))
+      COMPREPLY=($(compgen -W "--biometric --biometric-every-time" -- "$cur"))
       ;;
     check)
       COMPREPLY=($(compgen -W "--expired" -- "$cur"))
@@ -78,7 +79,7 @@ _keyblind() {
       _arguments '*:file:_files'
       ;;
     start)
-      _arguments '--biometric[Require biometric]'
+      _arguments '--biometric[Require biometric session]' '--biometric-every-time[Require biometric auth for every secret access]'
       ;;
     check)
       _arguments '--expired[Check expired secrets]'
@@ -104,7 +105,7 @@ complete -c keyblind -l project -d "Use a project-specific vault" -x
 # Per-command completions
 complete -c keyblind -n "__fish_seen_subcommand_from get delete rotate set" -a "(keyblind list 2>/dev/null | sed 's/  - //')"
 complete -c keyblind -n "__fish_seen_subcommand_from backend" -a "(keyblind backends 2>/dev/null | grep '✓' | awk '{print \$2}')"
-complete -c keyblind -n "__fish_seen_subcommand_from start" -a "--biometric"
+complete -c keyblind -n "__fish_seen_subcommand_from start" -a "--biometric --biometric-every-time"
 complete -c keyblind -n "__fish_seen_subcommand_from check" -a "--expired"
 complete -c keyblind -n "__fish_seen_subcommand_from sandbox unsandbox watch" -F
 `;
