@@ -4,7 +4,6 @@ import path from "node:path";
 import os from "node:os";
 import fs from "node:fs";
 import { sessionActive } from "./auth.js";
-import { getSecretLimit } from "./license.js";
 
 const ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 12;
@@ -177,19 +176,6 @@ export function getDb(): Database.Database {
 
 export function storeSecret(name: string, value: string): void {
   const db = getDb();
-
-  // Check free tier limit (only for new secrets, not updates)
-  const existing = db.prepare("SELECT name FROM secrets WHERE name = ? AND name NOT LIKE '@_@_%' ESCAPE '@'").get(name) as { name: string } | undefined;
-  if (!existing) {
-    const currentCount = (db.prepare("SELECT COUNT(*) as count FROM secrets WHERE name NOT LIKE '@_@_%' ESCAPE '@'").get() as { count: number }).count;
-    const limit = getSecretLimit();
-    if (currentCount >= limit) {
-      throw new Error(
-        `Free tier limit reached (${limit} secrets). Upgrade to Pro for unlimited secrets.\n` +
-        `Get a license at: https://keyblind.dev/pricing`
-      );
-    }
-  }
 
   const key = getKey();
   const { encrypted, iv, authTag } = encrypt(value, key);

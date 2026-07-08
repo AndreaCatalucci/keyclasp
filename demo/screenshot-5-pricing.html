@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=1270, initial-scale=1.0">
-<title>Keyblind — Pricing</title>
+  <title>Keyblind — Open Source</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { background: #0d1117; display: flex; justify-content: center; align-items: center; min-height: 95vh; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; }
@@ -29,55 +29,29 @@
 </head>
 <body>
 <div class="wrap">
-  <!-- Free -->
-  <div class="card">
-    <h3>Free</h3>
-    <div class="price">$0</div>
-    <div class="period">forever</div>
-    <ul>
-      <li class="yes">5 secrets</li>
-      <li class="yes">Local AES-256-GCM vault</li>
-      <li class="yes">Sandbox / Unsandbox</li>
-      <li class="yes">MCP server</li>
-      <li class="yes">7 backends</li>
-      <li class="no">Team vaults</li>
-      <li class="no">Audit log</li>
-      <li class="no">Secret rotation</li>
-      <li class="no">CI/CD integration</li>
-    </ul>
-    <span class="install">npm install -g keyblind</span>
-  </div>
-  <!-- Pro -->
-  <div class="card featured">
-    <h3>Pro</h3>
-    <div class="price">$79</div>
-    <div class="period">/ year</div>
+  <!-- Keyblind — fully open source -->
+  <div class="card" style="max-width: 400px; margin: 0 auto;">
+    <h3>Keyblind</h3>
+    <div class="price">Free</div>
+    <div class="period">open source</div>
     <ul>
       <li class="yes">Unlimited secrets</li>
       <li class="yes">Local AES-256-GCM vault</li>
       <li class="yes">Sandbox / Unsandbox</li>
-      <li class="yes">MCP server</li>
+      <li class="yes">MCP server (16 tools)</li>
       <li class="yes">7 backends</li>
       <li class="yes">Team vaults</li>
       <li class="yes">Audit log</li>
       <li class="yes">Secret rotation</li>
       <li class="yes">CI/CD integration</li>
+      <li class="yes">TOTP 2FA</li>
+      <li class="yes">Dead man's switch</li>
+      <li class="yes">Encrypted sharing</li>
+      <li class="yes">SSO/OIDC</li>
+      <li class="yes">Biometric gate</li>
+      <li class="yes">HTTPS / Let's Encrypt</li>
     </ul>
-    <a href="#" class="btn btn-primary">Buy Pro — $79/year</a>
-  </div>
-  <!-- Team -->
-  <div class="card">
-    <h3>Team</h3>
-    <div class="price">$29</div>
-    <div class="period">/ user / month</div>
-    <ul>
-      <li class="yes">Everything in Pro</li>
-      <li class="yes">Centralized admin</li>
-      <li class="yes">Shared vault policies</li>
-      <li class="yes">Audit export</li>
-      <li class="yes">Priority support</li>
-    </ul>
-    <span class="coming-soon">Coming Soon</span>
+    <span class="install">npm install -g keyblind</span>
   </div>
 </div>
 </body>

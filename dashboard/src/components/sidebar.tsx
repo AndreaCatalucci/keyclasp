@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { useState, useEffect } from "react";
-import { Key, Shield, Clock, Users, FileText, LogOut, Smartphone, Send, Skull } from "lucide-react";
+import { Key, Shield, Clock, Users, LogOut, Smartphone, Send, Skull } from "lucide-react";
 import { KeyblindClient } from "@/lib/keyblind-client";
 
 const navItems = [
@@ -14,7 +14,6 @@ const navItems = [
   { href: "/deadman", label: "Dead Man", icon: Skull },
   { href: "/audit", label: "Audit Log", icon: Clock },
   { href: "/team", label: "Team", icon: Users },
-  { href: "/license", label: "License", icon: FileText },
 ];
 
 export function Sidebar() {

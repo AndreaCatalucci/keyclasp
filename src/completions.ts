@@ -3,7 +3,7 @@ const COMMANDS = [
   "sandbox", "unsandbox", "run", "start", "watch",
   "backends", "backend", "install-hook", "check-secrets", "scan-secrets",
   "audit", "check", "rotate",
-  "activate", "deactivate", "status",
+  "status",
   "team", "generate", "import", "export", "doctor",
   "completions", "config",
   "help", "unlock",

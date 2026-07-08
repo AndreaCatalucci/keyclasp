@@ -3,18 +3,11 @@ import { createSessionToken } from "@/lib/auth";
 
 export async function POST(req: Request) {
   try {
-    const { tier, email } = await req.json();
+    await req.json(); // consume body (no fields needed post-license removal)
 
-    if (!tier) {
-      return NextResponse.json({ error: "tier required" }, { status: 400 });
-    }
-
-    const token = await createSessionToken({
-      email: email || "vault-user@localhost",
-      tier,
-      licenseId: "paired",
-      expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
-    });
+    const token = await createSessionToken(
+      new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+    );
 
     const res = NextResponse.json({ success: true });
     res.cookies.set("keyblind_token", token, {

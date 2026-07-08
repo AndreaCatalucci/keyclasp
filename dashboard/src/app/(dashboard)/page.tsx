@@ -1,5 +1,4 @@
 import { KeyblindClient } from "@/lib/keyblind-client";
-import { Shield } from "lucide-react";
 
 async function getStats() {
   try {
@@ -18,14 +17,10 @@ export default async function Home() {
   return (
     <div>
       <h1 className="text-xl font-semibold mb-6">Dashboard</h1>
-      <div className="grid grid-cols-3 gap-4 mb-8">
+      <div className="grid grid-cols-2 gap-4 mb-8">
         <div className="bg-[#161b22] border border-[#21262d] rounded-lg p-4">
           <p className="text-sm text-[#8b949e]">Secrets</p>
           <p className="text-2xl font-bold text-[#58a6ff]">{stats.secretCount}</p>
-        </div>
-        <div className="bg-[#161b22] border border-[#21262d] rounded-lg p-4">
-          <p className="text-sm text-[#8b949e]">License</p>
-          <p className="text-lg font-bold text-[#3fb950]">Pro</p>
         </div>
         <div className="bg-[#161b22] border border-[#21262d] rounded-lg p-4">
           <p className="text-sm text-[#8b949e]">Status</p>

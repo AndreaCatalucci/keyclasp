@@ -7,7 +7,6 @@ import { authenticateWithBiometric, biometricAvailable, createSession, sessionAc
 import { installHook, checkAndReport, getStagedFiles, scanFiles } from "./hook.js";
 import { watchEnvFile } from "./watch.js";
 import { teamInit, teamPush, teamPull, teamList, teamDelete } from "./team.js";
-import { activateLicense, deactivateLicense, getLicenseInfo, isPro, featuresEnabled } from "./license.js";
 import { readConfig, mergeConfig, generateSecret, parseEnvFile, formatEnvFile } from "./config.js";
 import { runDoctor } from "./doctor.js";
 import { generateBash, generateZsh, generateFish, detectShell, getInstallInstructions } from "./completions.js";
@@ -64,9 +63,7 @@ Usage:
   keyblind check --expired     List secrets past their expiry date
   keyblind rotate <name>       Update a secret (prompts for new value)
   keyblind watch [.env]        Watch .env and auto-sandbox on change
-  keyblind activate <key>      Activate a Keyblind Pro/Team license
-  keyblind deactivate          Deactivate and remove current license
-  keyblind status              Show license and vault status
+  keyblind status              Show vault status
   keyblind team init [path]    Create a shared team vault (git-safe)
   keyblind team push <name>     Push a local secret to the team vault
   keyblind team pull            Import all team secrets to local vault
@@ -174,14 +171,6 @@ async function promptSecret(prompt: string): Promise<string> {
   });
 }
 
-function requirePro(): void {
-  if (!isPro()) {
-    console.error("This feature requires a Keyblind Pro or Team license.");
-    console.error("Get a license at: https://keyblind.dev/pricing");
-    console.error("Then run: keyblind activate <your-license-key>");
-    process.exit(1);
-  }
-}
 
 async function main(): Promise<void> {
   const rawArgs = process.argv.slice(2);
@@ -431,17 +420,12 @@ async function main(): Promise<void> {
           console.error("Available:", listAvailableBackends().filter(b => b.available).map(b => b.name).join(", "));
           process.exit(1);
         }
-        // Cloud backends require Pro
-        if (["aws", "gcp", "azure"].includes(backendName)) {
-          requirePro();
-        }
         setBackend(backendName);
         console.log(`Switched to backend: ${backendName}`);
         break;
       }
 
       case "team": {
-        requirePro();
         if (!isInitialized()) {
           console.error("Keyblind not initialized. Run: keyblind init");
           process.exit(1);
@@ -577,7 +561,6 @@ async function main(): Promise<void> {
       }
 
       case "audit": {
-        requirePro();
         if (!isInitialized()) {
           console.error("Keyblind not initialized. Run: keyblind init");
           process.exit(1);
@@ -595,7 +578,6 @@ async function main(): Promise<void> {
       }
 
       case "check": {
-        requirePro();
         if (!isInitialized()) {
           console.error("Keyblind not initialized. Run: keyblind init");
           process.exit(1);
@@ -618,7 +600,6 @@ async function main(): Promise<void> {
       }
 
       case "rotate": {
-        requirePro();
         if (!isInitialized()) {
           console.error("Keyblind not initialized. Run: keyblind init");
           process.exit(1);
@@ -643,60 +624,16 @@ async function main(): Promise<void> {
         break;
       }
 
-      case "activate": {
-        const key = args[1];
-        if (!key) {
-          console.error("Usage: keyblind activate <license-key>");
-          console.error("Get a license at: https://keyblind.dev/pricing (coming soon)");
-          process.exit(1);
-        }
-        const result = activateLicense(key);
-        console.log(result.message);
-        if (result.success && result.info) {
-          const feats = featuresEnabled();
-          console.log("");
-          console.log("Features unlocked:");
-          console.log(`  Unlimited secrets:    ${feats.unlimitedSecrets ? "✓" : "✗ (5 max)"}`);
-          console.log(`  Team vaults:          ${feats.teamVaults ? "✓" : "✗"}`);
-          console.log(`  Audit log:            ${feats.auditLog ? "✓" : "✗"}`);
-          console.log(`  Secret rotation:      ${feats.secretRotation ? "✓" : "✗"}`);
-          console.log(`  CI/CD integration:    ${feats.ciAction ? "✓" : "✗"}`);
-          console.log(`  Biometric gate:       ${feats.biometricGate ? "✓" : "✗"}`);
-          console.log(`  Cloud backends:       ${feats.cloudBackends ? "✓" : "✗"}`);
-        }
-        if (!result.success) process.exit(1);
-        break;
-      }
-
-      case "deactivate": {
-        const result = deactivateLicense();
-        console.log(result.message);
-        if (!result.success) process.exit(1);
-        break;
-      }
-
       case "status": {
         if (!isInitialized()) {
           console.log("Keyblind: not initialized");
           console.log("Run 'keyblind init' to get started.");
           process.exit(1);
         }
-        const info = getLicenseInfo();
-        const feats = featuresEnabled();
         const names = listSecrets();
-        const limit = feats.unlimitedSecrets ? "unlimited" : "5";
         console.log("Keyblind Status");
         console.log("───────────────");
-        console.log(`  Secrets:    ${names.length}/${limit}`);
-        if (info) {
-          const tierLabel = info.tier === "team" ? "Team" : info.tier === "pro" ? "Pro" : "Free";
-          console.log(`  License:    ${tierLabel}`);
-          console.log(`  Email:      ${info.email}`);
-          console.log(`  Expires:    ${info.exp}`);
-        } else {
-          console.log(`  License:    Free (no license activated)`);
-          console.log(`  Upgrade:    https://keyblind.dev/pricing (coming soon)`);
-        }
+        console.log(`  Secrets:    ${names.length}`);
         console.log(`  Vault:      ~/.keyblind/`);
         const backend = getBackend();
         console.log(`  Backend:    ${backend.name}`);
@@ -722,7 +659,6 @@ async function main(): Promise<void> {
         const email = emailIdx !== -1 ? args[emailIdx + 1] : undefined;
         const staging = args.includes("--staging");
         if (biometric) {
-          requirePro();
           if (!biometricAvailable()) {
             console.error("Biometric auth is not available on this system.");
             process.exit(1);
@@ -736,7 +672,6 @@ async function main(): Promise<void> {
         }
         getKey();
         if (httpsMode) {
-          requirePro();
           if (!domain) {
             console.error("HTTPS mode requires --domain <your-domain.com>");
             console.error("Example: keyblind start --http --https --domain keyblind.example.com --email admin@example.com");
@@ -1075,7 +1010,6 @@ async function main(): Promise<void> {
       }
 
       case "migrate": {
-        requirePro();
         if (!isInitialized()) {
           console.error("Keyblind not initialized. Run: keyblind init");
           process.exit(1);
@@ -1101,7 +1035,6 @@ async function main(): Promise<void> {
       }
 
       case "alerts": {
-        requirePro();
         const alertUrl = args[1];
         const alertEvents = args.slice(2).filter(a => !a.startsWith("--"));
 
@@ -1137,7 +1070,6 @@ async function main(): Promise<void> {
       }
 
       case "totp": {
-        requirePro();
         if (!isInitialized()) {
           console.error("Keyblind not initialized. Run: keyblind init");
           process.exit(1);
@@ -1239,7 +1171,6 @@ async function main(): Promise<void> {
       }
 
       case "share": {
-        requirePro();
         if (!isInitialized()) {
           console.error("Keyblind not initialized. Run: keyblind init");
           process.exit(1);
@@ -1267,7 +1198,6 @@ async function main(): Promise<void> {
       }
 
       case "receive": {
-        requirePro();
         if (!isInitialized()) {
           console.error("Keyblind not initialized. Run: keyblind init");
           process.exit(1);
@@ -1292,7 +1222,6 @@ async function main(): Promise<void> {
       }
 
       case "deadman": {
-        requirePro();
         if (!isInitialized()) {
           console.error("Keyblind not initialized. Run: keyblind init");
           process.exit(1);
@@ -1374,7 +1303,6 @@ async function main(): Promise<void> {
       }
 
       case "sso": {
-        requirePro();
         if (!isInitialized()) {
           console.error("Keyblind not initialized. Run: keyblind init");
           process.exit(1);

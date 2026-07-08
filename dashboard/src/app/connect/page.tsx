@@ -42,7 +42,7 @@ function ConnectForm() {
         const loginRes = await fetch("/api/auth/pair", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ tier: data.tier, email: data.email }),
+          body: JSON.stringify({}),
         });
 
         if (!loginRes.ok) throw new Error("Session creation failed");
@@ -116,10 +116,10 @@ function ConnectForm() {
               Retry
             </button>
             <button
-              onClick={() => router.push("/login")}
-              className="text-sm text-[#58a6ff] hover:text-[#79b8ff]"
+              onClick={handleRetry}
+              className="text-sm bg-[#1f6feb] text-white rounded-md px-4 py-1.5 hover:bg-[#1a5fd4]"
             >
-              Try license key instead
+              Retry
             </button>
           </div>
         </>
