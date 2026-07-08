@@ -31,6 +31,9 @@ import {
   closeDb,
   countSecretsByPrefix,
 } from "../src/vault.js";
+import { setBackend } from "../src/backends.js";
+import { createServer } from "../src/server.js";
+import { getSecretHistory, saveHistory } from "../src/sync.js";
 
 beforeAll(() => {
   // Create temp home so vault init doesn't fail on missing directory
@@ -150,6 +153,34 @@ describe("vault CRUD", () => {
     storeSecret("UPDATE_TEST", "old");
     storeSecret("UPDATE_TEST", "new");
     expect(resolveSecret("UPDATE_TEST")).toBe("new");
+  });
+
+  it("saves the caller-provided previous value to history", () => {
+    const historyName = `HISTORY_FROM_VALUE_${crypto.randomUUID()}`;
+    saveHistory(historyName, "previous-external-value");
+    const history = getSecretHistory(historyName);
+    expect(history).toHaveLength(1);
+    expect(history[0].value).toBe("previous-external-value");
+  });
+
+  it("rotates secrets through the configured backend", async () => {
+    const secretName = `KEYBLIND_ENV_ROTATE_${crypto.randomUUID()}`;
+    process.env[secretName] = "from-env-backend";
+    setBackend("env");
+    try {
+      const server = createServer() as any;
+      const result = await server._registeredTools.rotate_secret.handler({
+        name: secretName,
+        value: "new-value",
+      });
+
+      expect(result.isError).toBe(true);
+      expect(JSON.parse(result.content[0].text).error).toContain("Env backend is read-only");
+      expect(getSecretHistory(secretName)).toHaveLength(0);
+    } finally {
+      setBackend("local");
+      delete process.env[secretName];
+    }
   });
 
   it("deletes a secret", () => {

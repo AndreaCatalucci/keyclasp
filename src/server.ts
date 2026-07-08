@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { storeSecret, listSecrets, deleteSecret, resolveSecret, isInitialized, getAuditLog, setClientInfo, checkExpired, setExpiry, getExpiry, getProjectName, countSecretsByPrefix } from "./vault.js";
+import { storeSecret, listSecrets, deleteSecret, isInitialized, getAuditLog, setClientInfo, checkExpired, setExpiry, getExpiry, getProjectName, countSecretsByPrefix } from "./vault.js";
 import { getBackend, setBackend, listAvailableBackends } from "./backends.js";
 import { sandboxEnvFile, unsandboxEnvFile } from "./sandbox.js";
 import { generateTOTPCode, storeTOTP, listTOTP, deleteTOTP, parseOTPAuthURI } from "./totp.js";
@@ -445,13 +445,18 @@ export function createServer(): McpServer {
     },
     async ({ name, value, length, symbols, expiresAt }) => {
       if (!isInitialized()) return { content: [{ type: "text", text: JSON.stringify({ error: "Vault not initialized" }) }], isError: true };
-      const existing = resolveSecret(name);
+      const backend = getBackend();
+      const existing = backend.resolve(name);
       if (existing === null) return { content: [{ type: "text", text: JSON.stringify({ error: `Secret "${name}" not found` }) }], isError: true };
-      saveHistory(name, existing);
       const nextValue = value ?? generateSecret(length ?? 32, symbols ?? true);
-      storeSecret(name, nextValue);
+      try {
+        backend.store(name, nextValue);
+      } catch (err: any) {
+        return { content: [{ type: "text", text: JSON.stringify({ error: err.message }) }], isError: true };
+      }
+      saveHistory(name, existing);
       if (expiresAt) setExpiry(name, expiresAt);
-      return { content: [{ type: "text", text: JSON.stringify({ rotated: name, generated: value === undefined, expiresAt: getExpiry(name) }) }] };
+      return { content: [{ type: "text", text: JSON.stringify({ rotated: name, backend: backend.name, generated: value === undefined, expiresAt: getExpiry(name) }) }] };
     },
   );
 

@@ -30,20 +30,15 @@ export function ensureHistoryTable(): void {
 }
 
 export function saveHistory(name: string, value: string): void {
-  // This is called from storeSecret before updating
   const db = getDb();
   ensureHistoryTable();
-
-  const existing = db.prepare("SELECT encrypted_value, iv, auth_tag FROM secrets WHERE name = ?").get(name) as
-    | { encrypted_value: Buffer; iv: Buffer; auth_tag: Buffer }
-    | undefined;
-
-  if (!existing) return; // New secret, no history to save
+  const key = getKey();
+  const { encrypted, iv, authTag } = encrypt(value, key);
 
   const nextVersion = (db.prepare("SELECT MAX(version) as maxv FROM secret_history WHERE name = ?").get(name) as { maxv: number | null }).maxv ?? 0;
 
   db.prepare("INSERT INTO secret_history (name, encrypted_value, iv, auth_tag, version) VALUES (?, ?, ?, ?, ?)").run(
-    name, existing.encrypted_value, existing.iv, existing.auth_tag, nextVersion + 1
+    name, encrypted, iv, authTag, nextVersion + 1
   );
 }
 
