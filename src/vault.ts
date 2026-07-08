@@ -33,7 +33,9 @@ export function getProjectName(): string | null {
 }
 
 function getVaultDir(): string {
-  const base = process.env.KEYBLIND_HOME || path.join(os.homedir(), ".keyblind");
+  const base = process.env.KEYBLIND_HOME
+    ? path.resolve(process.env.KEYBLIND_HOME)
+    : path.join(os.homedir(), ".keyblind");
   if (_projectName) {
     return path.join(base, "projects", _projectName);
   }
