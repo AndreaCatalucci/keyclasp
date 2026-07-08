@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { initializeVault, getKey, storeSecret, listSecrets, resolveSecret, deleteSecret, isInitialized, closeDb, setRequireSession, setProjectName, getProjectName, getAuditLog, checkExpired, setExpiry, setClientInfo } from "./vault.js";
-import { startServer, startHttpServer } from "./server.js";
+import { startServer } from "./server.js";
 import { sandboxEnvFile, unsandboxEnvFile } from "./sandbox.js";
 import { setBackend, getBackend, listAvailableBackends } from "./backends.js";
 import { authenticateWithBiometric, biometricAvailable, createSession, sessionActive, clearSession } from "./auth.js";
@@ -17,9 +17,8 @@ import { createShareLink, receiveShare } from "./share.js";
 import { setupDeadman, checkin, getDeadmanStatus, disableDeadman, checkDeadmanTrigger } from "./deadman.js";
 import { configureSSO, ssoLogin, ssoLogout, getSSOToken } from "./sso.js";
 import { setupAll } from "./setup-mcp.js";
-import { generatePairingToken } from "./pairing.js";
 import fs from "node:fs";
-import { spawn, execSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import readline from "node:readline";
 import { stdin, stdout } from "node:process";
 
@@ -46,7 +45,6 @@ Usage:
   keyblind list                List all stored secret names
   keyblind delete <name>       Delete a secret
   keyblind start               Start the MCP server (stdio)
-  keyblind start --http        Start MCP HTTP server (for Smithery, remote)
   keyblind start --biometric   Start MCP server with biometric requirement
   keyblind unlock              Authenticate with biometric (cross-platform)
   keyblind run <command...>    Run a command with secrets as env vars
@@ -55,7 +53,6 @@ Usage:
   keyblind backends            List available secret backends
   keyblind install-hook        Install pre-commit hook to detect secrets
   keyblind setup-mcp           Configure MCP server for Claude Code & other editors
-  keyblind dashboard-login     Generate one-time sign-in link for the web dashboard
   keyblind check-secrets       Scan staged files for secrets (used by hook)
   keyblind scan-secrets <file...>  Scan specific files for secrets
   keyblind backend <name>      Switch active secret backend
@@ -101,8 +98,6 @@ Usage:
   keyblind sso login          Authenticate via browser SSO flow
   keyblind sso logout         Clear SSO session
   keyblind sso status         Show SSO authentication status
-  keyblind start --http --https --domain example.com   HTTPS with Let's Encrypt
-  keyblind start --http --https --domain example.com --staging   Test with staging
   keyblind help                Show this help
 
 Global flags:
@@ -375,18 +370,6 @@ async function main(): Promise<void> {
         break;
       }
 
-      case "dashboard-login": {
-        const port = parseInt(args[1] || "3100", 10);
-        console.error("Generating sign-in link...");
-        const { url } = await generatePairingToken(port);
-        const openCmd = process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
-        execSync(`${openCmd} "${url}"`);
-        console.log("Browser opened. Sign in to continue.");
-        console.log("If the browser doesn't open, visit:");
-        console.log(`  ${url}`);
-        break;
-      }
-
       case "check-secrets": {
         const result = checkAndReport();
         if (result.found > 0) {
@@ -650,14 +633,14 @@ async function main(): Promise<void> {
           console.error("Keyblind not initialized. Run: keyblind init");
           process.exit(1);
         }
+        const startFlags = args.slice(1).filter((arg) => arg.startsWith("--"));
+        const unknownFlags = startFlags.filter((flag) => flag !== "--biometric");
+        if (unknownFlags.length > 0) {
+          console.error(`Unknown start option(s): ${unknownFlags.join(", ")}`);
+          console.error("Supported: keyblind start [--biometric]");
+          process.exit(1);
+        }
         const biometric = args.includes("--biometric");
-        const httpMode = args.includes("--http");
-        const httpsMode = args.includes("--https");
-        const domainIdx = args.indexOf("--domain");
-        const domain = domainIdx !== -1 ? args[domainIdx + 1] : undefined;
-        const emailIdx = args.indexOf("--email");
-        const email = emailIdx !== -1 ? args[emailIdx + 1] : undefined;
-        const staging = args.includes("--staging");
         if (biometric) {
           if (!biometricAvailable()) {
             console.error("Biometric auth is not available on this system.");
@@ -671,25 +654,9 @@ async function main(): Promise<void> {
           console.log("Biometric gate enabled — session expires in 15 minutes.");
         }
         getKey();
-        if (httpsMode) {
-          if (!domain) {
-            console.error("HTTPS mode requires --domain <your-domain.com>");
-            console.error("Example: keyblind start --http --https --domain keyblind.example.com --email admin@example.com");
-            process.exit(1);
-          }
-          const portIdx = args.indexOf("--port");
-          const port = portIdx !== -1 ? parseInt(args[portIdx + 1], 10) : 443;
-          await startHttpServer(port, { domain, email, staging, port });
-        } else if (httpMode) {
-          const portIdx = args.indexOf("--port");
-          const port = portIdx !== -1 ? parseInt(args[portIdx + 1], 10) : 3100;
-          await startHttpServer(port);
-        } else {
-          // MCP stdio transport uses stdout — startup messages MUST go to stderr
-          console.error("Keyblind MCP server started (stdio transport).");
-          console.error("For HTTP/HTTPS (browser dashboard), use: keyblind start --http");
-          await startServer();
-        }
+        // MCP stdio transport uses stdout — startup messages MUST go to stderr.
+        console.error("Keyblind MCP server started (stdio transport).");
+        await startServer();
         break;
       }
 

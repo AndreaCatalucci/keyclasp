@@ -78,11 +78,7 @@ Supports Google, Okta, Azure AD, and generic OIDC providers.
 
 ```bash
 keyblind start                  # MCP server (stdio — for AI agents)
-keyblind start --http           # MCP HTTP server on port 3100 (for dashboard)
-keyblind start --http --port 4000
 keyblind start --biometric      # Require Touch ID before resolving secrets
-keyblind start --http --https --domain example.com --email admin@example.com
-keyblind start --http --https --domain example.com --staging  # Test Let's Encrypt
 ```
 
 ## Run with Secrets

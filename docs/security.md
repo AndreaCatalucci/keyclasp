@@ -146,7 +146,6 @@ const iv = crypto.randomBytes(12);
 ### MCP Transport
 
 - **Stdio transport**: Local process communication. No network exposure.
-- **HTTP transport** (`keyblind start --http`): Plain HTTP on localhost by default. Keep it loopback-only unless you deliberately configure remote access.
 
 ## Attack Surface Analysis
 

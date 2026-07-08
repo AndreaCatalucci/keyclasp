@@ -11,9 +11,7 @@ const COMMANDS = [
 
 const FLAGS: Record<string, string> = {
   "--project": "Use a project-specific vault",
-  "--http": "Start HTTP MCP server",
   "--biometric": "Require biometric auth for MCP server",
-  "--port": "Port for HTTP server",
   "--expired": "Check for expired secrets",
 };
 
@@ -51,7 +49,7 @@ _keyblind() {
       fi
       ;;
     start)
-      COMPREPLY=($(compgen -W "--http --biometric --port" -- "$cur"))
+      COMPREPLY=($(compgen -W "--biometric" -- "$cur"))
       ;;
     check)
       COMPREPLY=($(compgen -W "--expired" -- "$cur"))
@@ -88,7 +86,7 @@ _keyblind() {
       _arguments '*:file:_files'
       ;;
     start)
-      _arguments '--http[Start HTTP server]' '--biometric[Require biometric]' '--port[HTTP port]:port:'
+      _arguments '--biometric[Require biometric]'
       ;;
     check)
       _arguments '--expired[Check expired secrets]'
@@ -115,7 +113,7 @@ complete -c keyblind -l project -d "Use a project-specific vault" -x
 complete -c keyblind -n "__fish_seen_subcommand_from get delete rotate set" -a "(keyblind list 2>/dev/null | sed 's/  - //')"
 complete -c keyblind -n "__fish_seen_subcommand_from backend" -a "(keyblind backends 2>/dev/null | grep '✓' | awk '{print \$2}')"
 complete -c keyblind -n "__fish_seen_subcommand_from team" -a "init push pull list delete"
-complete -c keyblind -n "__fish_seen_subcommand_from start" -a "--http --biometric --port"
+complete -c keyblind -n "__fish_seen_subcommand_from start" -a "--biometric"
 complete -c keyblind -n "__fish_seen_subcommand_from check" -a "--expired"
 complete -c keyblind -n "__fish_seen_subcommand_from sandbox unsandbox watch" -F
 `;
