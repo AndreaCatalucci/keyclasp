@@ -154,7 +154,8 @@ keyblind delete <name>        Delete a secret
 keyblind setup-mcp            Auto-configure MCP for Claude Code
 keyblind sandbox [.env]       Replace .env with deterministic fakes
 keyblind unsandbox [.env]     Restore real .env values
-keyblind run <command...>     Run command with secrets as env vars
+keyblind run <command...>     Run guarded command with secrets as env vars
+keyblind run --allow-unsafe -- <command...>  Disable run leak protection for this command
 keyblind start                Start MCP server (stdio — for AI agents)
 keyblind start --biometric    Start MCP server with biometric requirement
 keyblind backends             List available backends

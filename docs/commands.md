@@ -64,8 +64,9 @@ keyblind start --biometric      # Require Touch ID before resolving secrets
 ## Run with Secrets
 
 ```bash
-keyblind run -- npm start       # Run command with all secrets as env vars
-keyblind run -- npm test        # Secrets injected, never shown
+keyblind run -- npm start       # Run command with all secrets as env vars and guarded output
+keyblind run -- npm test        # Secrets injected; detected output leaks are redacted and terminated
+keyblind run --allow-unsafe -- env  # Disable preflight and output leak protection for this command
 ```
 
 ## Versioning & History
