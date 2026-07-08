@@ -57,7 +57,7 @@ keyblind setup-mcp    # Auto-configure Claude Code MCP
 ## Key Decisions
 
 - **MCP-first, not editor-first.** Works with every AI tool that speaks MCP (Claude Code, Cursor, Copilot, Windsurf, Cline, Zed), not just VS Code.
-- **13 MCP tools** — secrets, TOTP, sharing, sandbox.
+- **26 MCP tools** — secrets, TOTP, sharing, sandbox, context, config/backend, lifecycle.
 - **Local-first MCP server** — stdio transport for AI agents; no dashboard REST backend in core.
 - **Deterministic sandbox fakes** using HMAC-SHA256(project hash + key name) so git diffs stay clean.
 - **Machine-identity-bound key** — encryption key XOR-wrapped with machine fingerprint.

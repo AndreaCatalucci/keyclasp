@@ -2,7 +2,7 @@
 
 ## What is Keyblind?
 
-Keyblind is an encrypted secrets vault that integrates with AI coding tools via the Model Context Protocol (MCP). It stores API keys, tokens, and passwords in an AES-256-GCM encrypted SQLite database and resolves them at runtime — plaintext never appears in your LLM conversation transcript.
+Keyblind is an encrypted secrets vault that integrates with AI coding tools via the Model Context Protocol (MCP). It stores API keys, tokens, and passwords in an AES-256-GCM encrypted SQLite database and resolves them at runtime. `resolve_secret` returns plaintext to the MCP caller by explicit contract; clients must keep that value out of prompts, logs, and chat transcripts.
 
 ## How is this different from a .env file?
 
@@ -36,7 +36,7 @@ Yes. Use a local vault or one of the optional backend adapters available in your
 
 ## What MCP tools does Keyblind expose?
 
-13 tools: `resolve_secret`, `store_secret`, `list_secrets`, `delete_secret`, `sandbox_env`, `unsandbox_env`, `audit_log`, `totp_code`, `totp_store`, `totp_list`, `totp_delete`, `create_share_link`, `receive_share`.
+26 tools covering secrets, sandboxing, TOTP, sharing, safe runtime context, backend/config status, redacted activity, generation, rotation, history, rollback, and expiry checks.
 
 ## How do I switch between backends?
 

@@ -10,7 +10,7 @@
 
 Developers regularly leak API keys, passwords, and tokens to AI coding tools. 100,000+ LLM conversations with exposed secrets were found indexed by search engines in 2025.
 
-AI agents read your `.env` files. They copy-paste secrets into conversations. They commit them accidentally. Keyblind stops this by keeping secrets encrypted at rest and resolving them _at runtime_ — the plaintext value never touches the LLM transcript.
+AI agents read your `.env` files. They copy-paste secrets into conversations. They commit them accidentally. Keyblind stops this by keeping secrets encrypted at rest and resolving them _at runtime_. `resolve_secret` returns plaintext to the MCP caller by explicit contract; clients must keep that value out of prompts, logs, and chat transcripts.
 
 ## How It Works
 
@@ -87,7 +87,7 @@ claude mcp add keyblind -- keyblind start --biometric
 
 | Tool | Description |
 |------|-------------|
-| `resolve_secret` | Resolve a secret at runtime (value hidden from transcript) |
+| `resolve_secret` | Resolve a secret at runtime (returns plaintext by explicit contract) |
 | `store_secret` | Encrypt and store a secret |
 | `list_secrets` | List secret names (values never revealed) |
 | `delete_secret` | Delete a secret |
@@ -100,10 +100,23 @@ claude mcp add keyblind -- keyblind start --biometric
 | `totp_delete` | Delete a TOTP configuration |
 | `create_share_link` | Create encrypted, expiring share link for a secret |
 | `receive_share` | Receive and decrypt a shared secret |
+| `vault_status` | Safe initialized/project/backend summary |
+| `config_status` | Safe project config summary |
+| `backend_status` | Current backend and adapter availability |
+| `capabilities` | Tool list with safety semantics |
+| `recent_activity` | Redacted audit summary |
+| `generate_secret` | Generate and store a secret without returning the value |
+| `rotate_secret` | Rotate an existing secret and save encrypted history |
+| `secret_history` | List history versions without historical values |
+| `rollback_secret` | Restore a previous encrypted version |
+| `check_expired` | List expired secret names |
+| `expiring_soon` | List expiring secret names and dates |
+| `set_config` | Update safe project config keys |
+| `set_backend` | Switch and persist the active backend |
 
 ## Backends
 
-Keyblind supports multiple secret backends:
+Keyblind defaults to the local encrypted vault and supports optional backend adapters:
 
 ```bash
 keyblind backends                          # List available backends

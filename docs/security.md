@@ -150,7 +150,7 @@ const iv = crypto.randomBytes(12);
 
 | Attack Vector | Risk | Mitigation |
 |---------------|------|------------|
-| LLM reads secrets from transcript | **HIGH** | MCP resolves at runtime, plaintext never in prompt |
+| LLM reads secrets from transcript | **HIGH** | MCP resolves at runtime; `resolve_secret` returns plaintext by explicit contract, so clients must not paste values into prompts/logs |
 | Malicious MCP client reads all secrets | **MEDIUM** | MCP tools only return user-facing names, not `_keyblind*` internal entries |
 | Vault.db stolen + passphrase known | **MEDIUM** | Machine-identity-bound DEK prevents decryption on different hardware |
 | Vault.db stolen, no passphrase | **LOW** | AES-256-GCM with 600K PBKDF2 iterations. Brute force infeasible |
