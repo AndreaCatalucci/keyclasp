@@ -5,6 +5,8 @@
 [![npm version](https://img.shields.io/npm/v/keyblind)](https://www.npmjs.com/package/keyblind)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
+> **Fork** of [aarifmms/keyblind](https://github.com/aarifmms/keyblind) — original MIT-licensed project.
+
 ## Why
 
 Developers regularly leak API keys, passwords, and tokens to AI coding tools. 100,000+ LLM conversations with exposed secrets were found indexed by search engines in 2025.
@@ -264,7 +266,7 @@ keyblind completions [shell]  Generate shell completion script
 ## Development
 
 ```bash
-git clone https://github.com/aarifmms/keyblind.git
+git clone https://github.com/AndreaCatalucci/keyblind.git
 cd keyblind
 npm install
 npm run build       # Compile TypeScript

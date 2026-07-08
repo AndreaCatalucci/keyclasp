@@ -2,6 +2,8 @@
 
 > **Encrypted secrets vault with MCP for AI agents. Secrets resolved at runtime, never leaked to LLM conversations.**
 
+> **Fork** of [aarifmms/keyblind](https://github.com/aarifmms/keyblind) (MIT). Upstream remote configured.
+
 ## Tech Stack
 
 - **Runtime**: Node.js (TypeScript, ESM)
