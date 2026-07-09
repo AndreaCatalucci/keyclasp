@@ -53,10 +53,11 @@ describe("run environment preparation", () => {
   it("injects valid secrets and tracks only non-empty leak values", () => {
     const result = buildRunEnvironment({
       baseEnv: { EXISTING: "1" },
-      secretNames: ["API_KEY", "EMPTY_SECRET", "NULL_VAL", "NULL\0NAME"],
+      secretNames: ["API_KEY", "EMPTY_SECRET", "SHORT_SECRET", "NULL_VAL", "NULL\0NAME"],
       resolveSecret: (name) => {
         if (name === "API_KEY") return "sk-test-secret";
         if (name === "EMPTY_SECRET") return "";
+        if (name === "SHORT_SECRET") return "a";
         if (name === "NULL_VAL") return "before\0after";
         return "ignored";
       },
@@ -64,6 +65,7 @@ describe("run environment preparation", () => {
 
     expect(result.env.API_KEY).toBe("sk-test-secret");
     expect(result.env.EMPTY_SECRET).toBe("");
+    expect(result.env.SHORT_SECRET).toBe("a");
     expect(result.env.NULL_VAL).toBeUndefined();
     expect(result.env["NULL\0NAME"]).toBeUndefined();
     expect(result.leakValues).toEqual(["sk-test-secret"]);
@@ -181,6 +183,23 @@ describe("guarded command execution", () => {
     expect(result.kind).toBe("exit");
     expect(result.exitCode).toBe(3);
     expect(stdout).toBe("ok\n");
+  });
+
+  it("does not treat short injected values as output leaks", async () => {
+    let stdout = "";
+    const result = await runCommandWithSecrets({
+      args: [process.execPath, "-e", "console.log('Initializing available terraform packages')"],
+      baseEnv: {},
+      secretNames: ["LETTER"],
+      resolveSecret: () => "a",
+      stdout: (chunk) => { stdout += chunk; },
+      stderr: () => {},
+    });
+
+    expect(result.kind).toBe("exit");
+    expect(result.exitCode).toBe(0);
+    expect(stdout).toBe("Initializing available terraform packages\n");
+    expect(stdout).not.toContain("[KEYBLIND_REDACTED]");
   });
 
   it("redacts stdout leaks and returns nonzero", async () => {

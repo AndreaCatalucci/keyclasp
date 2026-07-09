@@ -4,6 +4,7 @@ import { StringDecoder } from "node:string_decoder";
 import path from "node:path";
 
 export const REDACTION = "[KEYBLIND_REDACTED]";
+export const MIN_LEAK_VALUE_LENGTH = 8;
 
 export interface ParsedRunArgs {
   allowUnsafe: boolean;
@@ -110,7 +111,7 @@ export function buildRunEnvironment(input: RunEnvironmentInput): RunEnvironment 
     if (value === null || value.includes("\0")) continue;
 
     env[name] = value;
-    if (value !== "" && !seenLeakValues.has(value)) {
+    if (value.length >= MIN_LEAK_VALUE_LENGTH && !seenLeakValues.has(value)) {
       leakValues.push(value);
       seenLeakValues.add(value);
     }

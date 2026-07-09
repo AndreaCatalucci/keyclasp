@@ -157,6 +157,8 @@ const iv = crypto.randomBytes(12);
 | Share link intercepted | **LOW-MED** | Fragment never sent to server. But link can be intercepted via browser history or phishing |
 | Replay of old share links | **LOW** | TTL + expiry enforcement |
 | Injected command prints secrets | **HIGH** | `keyblind run` blocks obvious environment dumps, redacts detected injected secret values from stdout/stderr, terminates the child process, and requires `--allow-unsafe` to disable this guard |
+
+`keyblind run` tracks injected values of at least 8 characters for output leak detection. Shorter values are still injected, but they are too ambiguous to scan safely without false positives in ordinary command output.
 | Memory dump of running process | **MEDIUM** | DEK is in memory while vault is open. Mitigate with shorter session lifetimes |
 | Dependency compromise | **MEDIUM** | Runtime dependencies are limited to MCP SDK, SQLite, Zod, and stdlib crypto |
 
