@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { initializeVault, getKey, storeSecret, listSecrets, resolveSecret, resolveSecretWithAlias, createAlias, deleteAlias, listAliases, deleteSecret, isInitialized, closeDb, setRequireSession, setRequireBiometricPerSecretAccess, setProjectName, getProjectName, getAuditLog, checkExpired, setExpiry, setClientInfo } from "./vault.js";
+import { initializeVault, getKey, storeSecret, listSecrets, resolveSecret, resolveSecretWithAlias, createAlias, deleteAlias, listAliases, deleteSecret, isInitialized, closeDb, setRequireSession, setRequireBiometricPerSecretAccess, setProjectName, getProjectName, getAuditLog, checkExpired, setExpiry, setClientInfo, checkVaultDecryptability } from "./vault.js";
 import { startServer } from "./server.js";
 import { sandboxEnvFile, unsandboxEnvFile } from "./sandbox.js";
 import { setBackend, getBackend, listAvailableBackends } from "./backends.js";
@@ -520,6 +520,20 @@ async function main(): Promise<void> {
         console.log(`  Vault:      ~/.keyblind/`);
         const backend = getBackend();
         console.log(`  Backend:    ${backend.name}`);
+        try {
+          const decryptability = checkVaultDecryptability();
+          if (decryptability.checked === 0) {
+            console.log("  Values:     no stored values to verify");
+          } else if (decryptability.failures.length === 0) {
+            console.log(`  Values:     verified (${decryptability.checked} decryptable)`);
+          } else {
+            console.log(`  Values:     FAILED (${decryptability.failures.length}/${decryptability.checked} undecryptable)`);
+            process.exit(1);
+          }
+        } catch (err: any) {
+          console.log(`  Values:     FAILED (${err?.message ?? "decryptability check failed"})`);
+          process.exit(1);
+        }
         break;
       }
 
@@ -749,6 +763,7 @@ async function main(): Promise<void> {
           else err++;
         }
         console.log(`\n${ok} ok, ${warn} warnings, ${err} errors`);
+        if (err > 0) process.exit(1);
         break;
       }
 

@@ -23,6 +23,7 @@ import {
   deleteSecret,
   isInitialized,
   closeDb,
+  clearKey,
   countSecretsByPrefix,
 } from "../src/vault.js";
 import { setBackend } from "../src/backends.js";
@@ -108,6 +109,42 @@ describe("vault CRUD", () => {
   it("stores and resolves a secret", () => {
     storeSecret("TEST_KEY", "test-value-123");
     expect(resolveSecret("TEST_KEY")).toBe("test-value-123");
+  });
+
+  it("uses the newly initialized key after another vault key was cached", () => {
+    const originalHome = process.env.KEYBLIND_HOME;
+    const firstHome = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "keyblind-first-")), ".keyblind");
+    const secondHome = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "keyblind-second-")), ".keyblind");
+
+    try {
+      closeDb();
+      clearKey();
+
+      process.env.KEYBLIND_HOME = firstHome;
+      initializeVault("first-passphrase");
+      storeSecret("FIRST_KEY", "first-value");
+      expect(resolveSecret("FIRST_KEY")).toBe("first-value");
+      closeDb();
+
+      process.env.KEYBLIND_HOME = secondHome;
+      initializeVault("second-passphrase");
+      storeSecret("SECOND_KEY", "second-value");
+      expect(resolveSecret("SECOND_KEY")).toBe("second-value");
+
+      closeDb();
+      clearKey();
+      expect(resolveSecret("SECOND_KEY")).toBe("second-value");
+    } finally {
+      closeDb();
+      clearKey();
+      if (originalHome === undefined) {
+        delete process.env.KEYBLIND_HOME;
+      } else {
+        process.env.KEYBLIND_HOME = originalHome;
+      }
+      fs.rmSync(path.dirname(firstHome), { recursive: true, force: true });
+      fs.rmSync(path.dirname(secondHome), { recursive: true, force: true });
+    }
   });
 
   it("returns null for missing secret", () => {

@@ -34,6 +34,11 @@ export interface AliasResolution {
   value: string | null;
 }
 
+export interface DecryptabilityCheck {
+  checked: number;
+  failures: { name: string; error: string }[];
+}
+
 let _projectName: string | null = null;
 
 export function setProjectName(name: string | null): void {
@@ -159,8 +164,10 @@ export function initializeVault(passphrase: string): void {
   }
 
   fs.writeFileSync(getKeyPath(), Buffer.concat([salt, wrappedKey]), { mode: 0o600 });
+  _key = key;
 
   // Pre-create the database so isInitialized() passes
+  closeDb();
   getDb();
 }
 
@@ -274,6 +281,27 @@ export function listSecrets(): string[] {
   const db = getDb();
   const rows = db.prepare("SELECT name FROM secrets WHERE name NOT LIKE '@_@_%' ESCAPE '@' ORDER BY name").all() as { name: string }[];
   return rows.map((r) => r.name).filter((name) => !REMOVED_INTERNAL_SECRET_NAMES.has(name));
+}
+
+export function checkVaultDecryptability(): DecryptabilityCheck {
+  const db = getDb();
+  const key = getKey();
+  const rows = db.prepare("SELECT name, encrypted_value, iv, auth_tag FROM secrets ORDER BY name").all() as
+    { name: string; encrypted_value: Buffer; iv: Buffer; auth_tag: Buffer }[];
+  const failures: DecryptabilityCheck["failures"] = [];
+  let checked = 0;
+
+  for (const row of rows) {
+    if (REMOVED_INTERNAL_SECRET_NAMES.has(row.name)) continue;
+    checked++;
+    try {
+      decrypt(row.encrypted_value, row.iv, row.auth_tag, key);
+    } catch (err: any) {
+      failures.push({ name: row.name, error: err?.message ?? "Unable to decrypt" });
+    }
+  }
+
+  return { checked, failures };
 }
 
 export function createAlias(alias: string, target: string): SecretAlias {

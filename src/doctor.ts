@@ -1,4 +1,4 @@
-import { isInitialized, getKey, listSecrets, checkExpired, resolveSecret } from "./vault.js";
+import { isInitialized, getKey, listSecrets, checkExpired, checkVaultDecryptability } from "./vault.js";
 import { getBackend, listAvailableBackends } from "./backends.js";
 import { readConfig } from "./config.js";
 import os from "node:os";
@@ -16,7 +16,7 @@ export function runDoctor(): CheckResult[] {
 
   // 1. Vault initialization
   if (isInitialized()) {
-    checks.push({ name: "Vault initialized", status: "ok", detail: "~/.keyblind/ exists and has a valid key" });
+    checks.push({ name: "Vault initialized", status: "ok", detail: "~/.keyblind/ exists with a key file" });
   } else {
     checks.push({ name: "Vault initialized", status: "error", detail: "Not initialized. Run: keyblind init" });
   }
@@ -24,7 +24,7 @@ export function runDoctor(): CheckResult[] {
   // 2. Key access
   try {
     getKey();
-    checks.push({ name: "Encryption key", status: "ok", detail: "Machine-identity-bound key is readable" });
+    checks.push({ name: "Encryption key", status: "ok", detail: "Key file is readable" });
   } catch {
     checks.push({ name: "Encryption key", status: "error", detail: "Cannot read key. Vault may be corrupted. Try: keyblind init" });
   }
@@ -35,7 +35,29 @@ export function runDoctor(): CheckResult[] {
     checks.push({ name: "Secret count", status: "ok", detail: `${names.length} secrets` });
   }
 
-  // 4. Expired secrets
+  // 4. Stored value decryptability
+  if (isInitialized()) {
+    try {
+      const result = checkVaultDecryptability();
+      if (result.checked === 0) {
+        checks.push({ name: "Secret decryptability", status: "ok", detail: "No stored secret values to check" });
+      } else if (result.failures.length === 0) {
+        checks.push({ name: "Secret decryptability", status: "ok", detail: `${result.checked} stored secret value(s) decryptable` });
+      } else {
+        const examples = result.failures.slice(0, 5).map((failure) => failure.name).join(", ");
+        const suffix = result.failures.length > 5 ? `, +${result.failures.length - 5} more` : "";
+        checks.push({
+          name: "Secret decryptability",
+          status: "error",
+          detail: `${result.failures.length}/${result.checked} stored secret value(s) cannot be decrypted by the current key: ${examples}${suffix}`,
+        });
+      }
+    } catch (err: any) {
+      checks.push({ name: "Secret decryptability", status: "error", detail: `Could not verify stored secret values: ${err?.message ?? "unknown error"}` });
+    }
+  }
+
+  // 5. Expired secrets
   if (isInitialized()) {
     try {
       const expired = checkExpired();
