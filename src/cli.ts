@@ -9,7 +9,7 @@ import { watchEnvFile } from "./watch.js";
 import { readConfig, mergeConfig, generateSecret, parseEnvFile, formatEnvFile } from "./config.js";
 import { runDoctor } from "./doctor.js";
 import { generateBash, generateZsh, generateFish, detectShell, getInstallInstructions } from "./completions.js";
-import { saveHistory, getSecretHistory, rollbackSecret, ensureHistoryTable, getExpiringSoon, createSyncBundle, applySyncBundle, migrateSecrets } from "./sync.js";
+import { saveHistory, getSecretHistory, rollbackSecret, ensureHistoryTable, getExpiringSoon, createSyncBundle, applySyncBundle, migrateSecrets, rotateLocalSecret } from "./sync.js";
 import { storeTOTP, getTOTP, listTOTP, deleteTOTP, generateTOTPCode, parseOTPAuthURI } from "./totp.js";
 import { createShareLink, receiveShare } from "./share.js";
 import { setupAll } from "./setup-mcp.js";
@@ -500,17 +500,15 @@ async function main(): Promise<void> {
           console.error("Usage: keyblind rotate <name>");
           process.exit(1);
         }
-        const oldValue = resolveSecret(rotateName);
-        if (oldValue === null) {
-          console.error(`Secret "${rotateName}" not found.`);
-          process.exit(1);
-        }
         const newValue = await readPassphrase(`Enter new value for ${rotateName}: `);
         if (!newValue) {
           console.error("No value provided.");
           process.exit(1);
         }
-        storeSecret(rotateName, newValue);
+        if (!rotateLocalSecret(rotateName, newValue)) {
+          console.error(`Secret "${rotateName}" not found.`);
+          process.exit(1);
+        }
         console.log(`Rotated "${rotateName}"`);
         break;
       }

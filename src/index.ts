@@ -7,7 +7,7 @@ export { watchEnvFile } from "./watch.js";
 export { readConfig, writeConfig, mergeConfig, generateSecret, parseEnvFile, formatEnvFile, type ProjectConfig } from "./config.js";
 export { runDoctor } from "./doctor.js";
 export { generateBash, generateZsh, generateFish, detectShell, getInstallInstructions } from "./completions.js";
-export { ensureHistoryTable, saveHistory, getSecretHistory, rollbackSecret, getExpiringSoon, createSyncBundle, applySyncBundle, migrateSecrets, type SecretVersion, type ExpiryWarning } from "./sync.js";
+export { ensureHistoryTable, saveHistory, rotateLocalSecret, getSecretHistory, rollbackSecret, getExpiringSoon, createSyncBundle, applySyncBundle, migrateSecrets, type SecretVersion, type ExpiryWarning } from "./sync.js";
 export { storeTOTP, getTOTP, listTOTP, deleteTOTP, generateTOTPCode, generateTOTP, generateHOTP, parseOTPAuthURI, timeRemaining, type TOTPConfig } from "./totp.js";
 export { createShareLink, receiveShare, parseTTL, type SharePayload } from "./share.js";
 export { setupAll, type SetupResult } from "./setup-mcp.js";

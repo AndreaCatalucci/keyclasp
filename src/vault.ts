@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import path from "node:path";
 import os from "node:os";
 import fs from "node:fs";
+import { execFileSync } from "node:child_process";
 import { authenticateWithBiometric, sessionActive } from "./auth.js";
 
 const ALGORITHM = "aes-256-gcm";
@@ -11,6 +12,9 @@ const AUTH_TAG_LENGTH = 16;
 const KEY_LENGTH = 32;
 const PBKDF2_ITERATIONS = 600_000;
 const SALT_LENGTH = 32;
+const KEY_FILE_MAGIC = Buffer.from("keyblind:v2\n", "utf8");
+const KEY_FILE_CORRUPT_ERROR = "Keyblind key file is corrupted or incomplete.";
+const KEY_VAULT_MISMATCH_ERROR = "Keyblind key file does not unlock this vault database. Restore the matching .keyblind.key before reading or writing secrets.";
 const REMOVED_INTERNAL_SECRET_NAMES = new Set([
   "_keyblind_sso:config",
   "_keyblind_sso:token",
@@ -39,7 +43,19 @@ export interface DecryptabilityCheck {
   failures: { name: string; error: string }[];
 }
 
+type EncryptedVaultRow = { encrypted_value: Buffer; iv: Buffer; auth_tag: Buffer };
+type NamedEncryptedVaultRow = EncryptedVaultRow & { name: string };
+type FileStamp = { mtimeMs: number; size: number } | null;
+type KeyValidationStamp = {
+  keyPath: string;
+  key: FileStamp;
+  dbPath: string;
+  db: FileStamp;
+  wal: FileStamp;
+};
+
 let _projectName: string | null = null;
+let _machineIdentityForTests: { stable?: Buffer; legacy?: Buffer } | null = null;
 
 export function setProjectName(name: string | null): void {
   _projectName = name;
@@ -70,13 +86,264 @@ function getKeyPath(): string {
   return path.join(getVaultDir(), ".keyblind.key");
 }
 
-function deriveMachineIdentity(): Buffer {
+function deriveLegacyMachineIdentity(): Buffer {
   const parts = [os.hostname(), os.userInfo().username, os.platform(), os.arch()];
   return crypto.createHash("sha256").update(parts.join(":")).digest();
 }
 
+function deriveStableMachineIdentity(): Buffer {
+  return deriveStableMachineIdentities()[0];
+}
+
+function deriveStableMachineIdentities(): Buffer[] {
+  if (_machineIdentityForTests?.stable) return [_machineIdentityForTests.stable];
+
+  const platform = os.platform();
+  const probes: (() => string | null)[] = [];
+
+  if (platform === "darwin") {
+    probes.push(() => {
+      try {
+        const output = execFileSync("/usr/sbin/ioreg", ["-rd1", "-c", "IOPlatformExpertDevice"], {
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "ignore"],
+          timeout: 2000,
+        });
+        return output.match(/"IOPlatformUUID"\s=\s"([^"]+)"/)?.[1] ?? null;
+      } catch {
+        return null;
+      }
+    });
+  }
+
+  probes.push(() => readFirstExistingFile([
+    "/etc/machine-id",
+    "/var/lib/dbus/machine-id",
+    "/var/db/db.uuid",
+  ]));
+
+  if (platform === "win32") {
+    probes.push(() => {
+      try {
+        const output = execFileSync("reg", [
+          "query",
+          "HKLM\\SOFTWARE\\Microsoft\\Cryptography",
+          "/v",
+          "MachineGuid",
+        ], {
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "ignore"],
+          timeout: 2000,
+        });
+        return output.match(/MachineGuid\s+REG_SZ\s+([^\r\n]+)/)?.[1]?.trim() ?? null;
+      } catch {
+        return null;
+      }
+    });
+  }
+
+  const identities: Buffer[] = [];
+  const seen = new Set<string>();
+  for (const probe of probes) {
+    const value = probe();
+    if (value) {
+      const identity = crypto.createHash("sha256").update(`stable:${platform}:${value}`).digest();
+      const hex = identity.toString("hex");
+      if (!seen.has(hex)) {
+        seen.add(hex);
+        identities.push(identity);
+      }
+    }
+  }
+
+  identities.push(deriveLegacyMachineIdentity());
+  return identities;
+}
+
+function readFirstExistingFile(paths: string[]): string | null {
+  for (const candidate of paths) {
+    try {
+      const value = fs.readFileSync(candidate, "utf8").trim();
+      if (value) return value;
+    } catch {
+      // Keep probing platform-specific machine-id locations.
+    }
+  }
+  return null;
+}
+
 function deriveKey(salt: Buffer, passphrase: string): Buffer {
   return crypto.pbkdf2Sync(passphrase, salt, PBKDF2_ITERATIONS, KEY_LENGTH, "sha256");
+}
+
+function deriveWrappingKey(salt: Buffer, machineIdentity: Buffer): Buffer {
+  return crypto.createHash("sha256")
+    .update(KEY_FILE_MAGIC)
+    .update(salt)
+    .update(machineIdentity)
+    .digest();
+}
+
+function xorWithKey(key: Buffer, wrappingKey: Buffer): Buffer {
+  const output = Buffer.alloc(key.length);
+  for (let i = 0; i < key.length; i++) {
+    output[i] = key[i] ^ wrappingKey[i % wrappingKey.length];
+  }
+  return output;
+}
+
+function loadKeyFile(keyData: Buffer, keyPath: string): Buffer {
+  if (keyData.subarray(0, KEY_FILE_MAGIC.length).equals(KEY_FILE_MAGIC)) {
+    const expectedLength = KEY_FILE_MAGIC.length + SALT_LENGTH + KEY_LENGTH;
+    if (keyData.length !== expectedLength) {
+      throw new Error(KEY_FILE_CORRUPT_ERROR);
+    }
+
+    const salt = keyData.subarray(KEY_FILE_MAGIC.length, KEY_FILE_MAGIC.length + SALT_LENGTH);
+    const wrappedKey = keyData.subarray(KEY_FILE_MAGIC.length + SALT_LENGTH);
+    return unwrapWithAnyStableIdentity(salt, wrappedKey);
+  }
+
+  if (keyData.length !== SALT_LENGTH + KEY_LENGTH) {
+    throw new Error(KEY_FILE_CORRUPT_ERROR);
+  }
+
+  const salt = keyData.subarray(0, SALT_LENGTH);
+  const wrappedKey = keyData.subarray(SALT_LENGTH);
+  const legacyIdentity = _machineIdentityForTests?.legacy ?? deriveLegacyMachineIdentity();
+  const key = xorWithKey(wrappedKey, legacyIdentity);
+  assertKeyUnlocksVault(key);
+  writeKeyFile(keyPath, salt, key);
+  return key;
+}
+
+function unwrapWithAnyStableIdentity(salt: Buffer, wrappedKey: Buffer): Buffer {
+  const identities = deriveStableMachineIdentities();
+  for (const identity of identities) {
+    const key = xorWithKey(wrappedKey, deriveWrappingKey(salt, identity));
+    if (canDecryptVaultRows(key)) return key;
+  }
+
+  throw new Error(KEY_VAULT_MISMATCH_ERROR);
+}
+
+function writeKeyFile(keyPath: string, salt: Buffer, key: Buffer): void {
+  const wrappedKey = xorWithKey(key, deriveWrappingKey(salt, deriveStableMachineIdentity()));
+  const tmpPath = `${keyPath}.${process.pid}.${Date.now()}.tmp`;
+  fs.writeFileSync(tmpPath, Buffer.concat([KEY_FILE_MAGIC, salt, wrappedKey]), { mode: 0o600 });
+  backupExistingKeyFile(keyPath);
+  fs.renameSync(tmpPath, keyPath);
+  fs.chmodSync(keyPath, 0o600);
+}
+
+function backupExistingKeyFile(keyPath: string): void {
+  try {
+    fs.renameSync(keyPath, nextKeyBackupPath(keyPath));
+  } catch (err: any) {
+    if (err?.code === "ENOENT") return;
+    throw err;
+  }
+}
+
+function nextKeyBackupPath(keyPath: string): string {
+  for (let index = 1; ; index++) {
+    const backupPath = `${keyPath}.${index}.bak`;
+    if (!fs.existsSync(backupPath)) return backupPath;
+  }
+}
+
+function assertKeyUnlocksVault(key: Buffer): void {
+  if (keyValidationCurrent()) return;
+  if (canDecryptVaultRows(key)) return;
+  throw new Error(KEY_VAULT_MISMATCH_ERROR);
+}
+
+function rememberKeyValidation(): void {
+  _keyValidationStamp = currentKeyValidationStamp();
+}
+
+function keyValidationCurrent(): boolean {
+  const current = currentKeyValidationStamp();
+  return current !== null && _keyValidationStamp !== null && validationStampEquals(current, _keyValidationStamp);
+}
+
+function currentKeyValidationStamp(): KeyValidationStamp | null {
+  const keyPath = getKeyPath();
+  const key = fileStamp(keyPath);
+  if (!key) return null;
+
+  const dbPath = getVaultPath();
+  return {
+    keyPath,
+    key,
+    dbPath,
+    db: fileStamp(dbPath),
+    wal: fileStamp(`${dbPath}-wal`),
+  };
+}
+
+function fileStamp(filePath: string): FileStamp {
+  try {
+    const stat = fs.statSync(filePath);
+    return { mtimeMs: stat.mtimeMs, size: stat.size };
+  } catch {
+    return null;
+  }
+}
+
+function validationStampEquals(a: KeyValidationStamp, b: KeyValidationStamp): boolean {
+  return a.keyPath === b.keyPath &&
+    a.dbPath === b.dbPath &&
+    fileStampEquals(a.key, b.key) &&
+    fileStampEquals(a.db, b.db) &&
+    fileStampEquals(a.wal, b.wal);
+}
+
+function fileStampEquals(a: FileStamp, b: FileStamp): boolean {
+  if (a === null || b === null) return a === b;
+  return a.mtimeMs === b.mtimeMs && a.size === b.size;
+}
+
+function canDecryptVaultRows(key: Buffer): boolean {
+  const dbPath = getVaultPath();
+  if (!fs.existsSync(dbPath)) return true;
+
+  const db = _db ?? new Database(dbPath, { readonly: true, fileMustExist: true });
+  const closeAfter = db !== _db;
+  try {
+    for (const row of iterateEncryptedVaultRows(db)) {
+      decrypt(row.encrypted_value, row.iv, row.auth_tag, key);
+    }
+    return true;
+  } catch {
+    return false;
+  } finally {
+    if (closeAfter) db.close();
+  }
+}
+
+function* iterateEncryptedVaultRows(db: Database.Database): IterableIterator<EncryptedVaultRow> {
+  for (const row of iterateNamedEncryptedVaultRows(db)) {
+    yield row;
+  }
+}
+
+function* iterateNamedEncryptedVaultRows(db: Database.Database): IterableIterator<NamedEncryptedVaultRow> {
+  if (tableExists(db, "secrets")) {
+    yield* db.prepare("SELECT name, encrypted_value, iv, auth_tag FROM secrets ORDER BY name").iterate() as IterableIterator<NamedEncryptedVaultRow>;
+  }
+  if (tableExists(db, "secret_history")) {
+    yield* db.prepare(`
+      SELECT name || ' history v' || version AS name, encrypted_value, iv, auth_tag
+      FROM secret_history
+      ORDER BY name, version
+    `).iterate() as IterableIterator<NamedEncryptedVaultRow>;
+  }
+}
+
+function tableExists(db: Database.Database, table: string): boolean {
+  const row = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(table);
+  return row !== undefined;
 }
 
 export function encrypt(value: string, key: Buffer): { encrypted: Buffer; iv: Buffer; authTag: Buffer } {
@@ -94,7 +361,11 @@ export function decrypt(encrypted: Buffer, iv: Buffer, authTag: Buffer, key: Buf
 }
 
 let _db: Database.Database | null = null;
+let _dbPath: string | null = null;
 let _key: Buffer | null = null;
+let _keyCachePath: string | null = null;
+let _keyCacheStat: { mtimeMs: number; size: number } | null = null;
+let _keyValidationStamp: KeyValidationStamp | null = null;
 let _requireSession = false;
 let _requireBiometricPerSecretAccess = false;
 
@@ -118,8 +389,6 @@ export function getKey(): Buffer {
     throw new Error("Biometric session expired or not started. Run: keyblind unlock");
   }
 
-  if (_key) return _key;
-
   const keyDir = getVaultDir();
   if (!fs.existsSync(keyDir)) {
     throw new Error("Keyblind vault not initialized. Run: keyblind init");
@@ -130,17 +399,23 @@ export function getKey(): Buffer {
     throw new Error("Keyblind key not found. Run: keyblind init");
   }
 
-  const keyData = fs.readFileSync(keyPath);
-  const salt = keyData.subarray(0, SALT_LENGTH);
-  const wrappedKey = keyData.subarray(SALT_LENGTH);
-
-  const machineId = deriveMachineIdentity();
-  const unwrappedKey = Buffer.alloc(wrappedKey.length);
-  for (let i = 0; i < wrappedKey.length; i++) {
-    unwrappedKey[i] = wrappedKey[i] ^ machineId[i % machineId.length];
+  const keyStat = fs.statSync(keyPath);
+  if (
+    _key &&
+    _keyCachePath === keyPath &&
+    _keyCacheStat?.mtimeMs === keyStat.mtimeMs &&
+    _keyCacheStat.size === keyStat.size
+  ) {
+    return _key;
   }
 
-  _key = unwrappedKey;
+  const keyData = fs.readFileSync(keyPath);
+  const loaded = loadKeyFile(keyData, keyPath);
+  const refreshedStat = fs.statSync(keyPath);
+  _key = loaded;
+  _keyCachePath = keyPath;
+  _keyCacheStat = { mtimeMs: refreshedStat.mtimeMs, size: refreshedStat.size };
+  rememberKeyValidation();
   return _key;
 }
 
@@ -154,17 +429,19 @@ export function initializeVault(passphrase: string): void {
     throw new Error("Keyblind is already initialized. To reset, delete ~/.keyblind/");
   }
 
+  if (fs.existsSync(getVaultPath())) {
+    throw new Error("Keyblind vault database exists without a key file. Restore the matching .keyblind.key or remove the vault directory before reinitializing.");
+  }
+
   const salt = crypto.randomBytes(SALT_LENGTH);
   const key = deriveKey(salt, passphrase);
 
-  const machineId = deriveMachineIdentity();
-  const wrappedKey = Buffer.alloc(key.length);
-  for (let i = 0; i < key.length; i++) {
-    wrappedKey[i] = key[i] ^ machineId[i % machineId.length];
-  }
-
-  fs.writeFileSync(getKeyPath(), Buffer.concat([salt, wrappedKey]), { mode: 0o600 });
+  writeKeyFile(getKeyPath(), salt, key);
+  const keyStat = fs.statSync(getKeyPath());
   _key = key;
+  _keyCachePath = getKeyPath();
+  _keyCacheStat = { mtimeMs: keyStat.mtimeMs, size: keyStat.size };
+  rememberKeyValidation();
 
   // Pre-create the database so isInitialized() passes
   closeDb();
@@ -176,10 +453,12 @@ export function isInitialized(): boolean {
 }
 
 export function getDb(): Database.Database {
-  if (_db) return _db;
-
   const dbPath = getVaultPath();
+  if (_db && _dbPath === dbPath) return _db;
+  if (_db) closeDb();
+
   _db = new Database(dbPath);
+  _dbPath = dbPath;
   _db.pragma("busy_timeout = 5000");
   try {
     _db.pragma("journal_mode = WAL");
@@ -236,6 +515,7 @@ export function storeSecret(name: string, value: string): void {
   }
 
   const key = getKey();
+  assertKeyUnlocksVault(key);
   const { encrypted, iv, authTag } = encrypt(value, key);
 
   const stmt = db.prepare(`
@@ -249,6 +529,7 @@ export function storeSecret(name: string, value: string): void {
   `);
   stmt.run(name, encrypted, iv, authTag);
   auditLog(name, "store");
+  rememberKeyValidation();
 }
 
 export function resolveSecret(name: string): string | null {
@@ -285,11 +566,21 @@ export function listSecrets(): string[] {
 
 export function checkVaultDecryptability(): DecryptabilityCheck {
   const db = getDb();
-  const key = getKey();
-  const rows = db.prepare("SELECT name, encrypted_value, iv, auth_tag FROM secrets ORDER BY name").all() as
-    { name: string; encrypted_value: Buffer; iv: Buffer; auth_tag: Buffer }[];
+  const rows = [...iterateNamedEncryptedVaultRows(db)];
   const failures: DecryptabilityCheck["failures"] = [];
   let checked = 0;
+  let key: Buffer;
+
+  try {
+    key = getKey();
+  } catch (err: any) {
+    for (const row of rows) {
+      if (REMOVED_INTERNAL_SECRET_NAMES.has(row.name)) continue;
+      checked++;
+      failures.push({ name: row.name, error: err?.message ?? "Unable to load key" });
+    }
+    return { checked, failures };
+  }
 
   for (const row of rows) {
     if (REMOVED_INTERNAL_SECRET_NAMES.has(row.name)) continue;
@@ -440,8 +731,10 @@ export function setExpiry(name: string, expiresAt: string): boolean {
   // Actually, let's store it directly in the audit or use a simple approach
   // Store in a meta row
   const key = getKey();
+  assertKeyUnlocksVault(key);
   const { encrypted, iv, authTag } = encrypt(expiresAt, key);
   db.prepare("INSERT INTO secrets (name, encrypted_value, iv, auth_tag) VALUES (?, ?, ?, ?) ON CONFLICT(name) DO UPDATE SET encrypted_value = excluded.encrypted_value, iv = excluded.iv, auth_tag = excluded.auth_tag").run(`__expiry:${name}`, encrypted, iv, authTag);
+  rememberKeyValidation();
   return true;
 }
 
@@ -476,9 +769,18 @@ export function closeDb(): void {
   if (_db) {
     _db.close();
     _db = null;
+    _dbPath = null;
   }
 }
 
 export function clearKey(): void {
   _key = null;
+  _keyCachePath = null;
+  _keyCacheStat = null;
+  _keyValidationStamp = null;
+}
+
+export function setMachineIdentityForTests(identity: { stable?: Buffer; legacy?: Buffer } | null): void {
+  _machineIdentityForTests = identity;
+  clearKey();
 }
