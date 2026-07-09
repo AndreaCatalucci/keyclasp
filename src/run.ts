@@ -4,6 +4,7 @@ import { StringDecoder } from "node:string_decoder";
 import path from "node:path";
 
 export const REDACTION = "[KEYBLIND_REDACTED]";
+export const MIN_LEAK_VALUE_LENGTH = 8;
 
 export interface ParsedRunArgs {
   allowUnsafe: boolean;
@@ -110,7 +111,7 @@ export function buildRunEnvironment(input: RunEnvironmentInput): RunEnvironment 
     if (value === null || value.includes("\0")) continue;
 
     env[name] = value;
-    if (value !== "" && !seenLeakValues.has(value)) {
+    if (value.length >= MIN_LEAK_VALUE_LENGTH && !seenLeakValues.has(value)) {
       leakValues.push(value);
       seenLeakValues.add(value);
     }
@@ -143,30 +144,12 @@ export function createSecretRedactor(secretValues: string[]) {
       if (values.length === 0) return { output: chunk, leaked: false };
 
       const combined = carry + chunk;
-      const keepLength = Math.max(0, maxSecretLength - 1);
-      let flushLength = Math.max(0, combined.length - keepLength);
-      let leaked = false;
-
-      for (const value of values) {
-        let index = combined.indexOf(value);
-        while (index !== -1) {
-          leaked = true;
-          const end = index + value.length;
-          if (index < flushLength && end > flushLength) {
-            flushLength = index;
-          }
-          index = combined.indexOf(value, index + 1);
-        }
-      }
-
-      if (combined.length <= keepLength) {
-        carry = combined;
-        return { output: "", leaked };
-      }
+      const keepLength = prefixCarryLength(combined, values, maxSecretLength);
+      const flushLength = combined.length - keepLength;
 
       carry = combined.slice(flushLength);
       const redacted = redact(combined.slice(0, flushLength));
-      return { output: redacted.output, leaked: leaked || redacted.leaked };
+      return redacted;
     },
 
     end(): RedactorResult {
@@ -175,6 +158,14 @@ export function createSecretRedactor(secretValues: string[]) {
       return redacted;
     },
   };
+}
+
+function prefixCarryLength(input: string, values: string[], maxSecretLength: number): number {
+  for (let length = Math.min(input.length, maxSecretLength - 1); length > 0; length -= 1) {
+    const suffix = input.slice(-length);
+    if (values.some((value) => value.startsWith(suffix))) return length;
+  }
+  return 0;
 }
 
 export async function runCommandWithSecrets(options: RunCommandOptions): Promise<RunOutcome> {
