@@ -178,6 +178,7 @@ keyblind start --biometric-every-time  Require biometrics for every secret acces
 keyblind backends             List available backends
 keyblind backend <name>       Switch backend
 keyblind status               Show vault status
+keyblind version              Show package or local/dev version
 keyblind audit                Show secret resolution audit log
 keyblind check --expired      List secrets past expiry
 keyblind rotate <name>        Update a secret value
@@ -206,6 +207,20 @@ npm run build       # Compile TypeScript
 npm test            # Run tests
 npm run dev         # Watch mode
 ```
+
+### Versioning
+
+`package.json.version` is the publishable npm semver and should change only for an intentional release.
+Local git checkouts derive their displayed identity from that semver plus source state, for example `0.6.0-dev+git.abc1234.dirty`.
+Packaged or gitless installs report the plain package semver.
+
+```bash
+keyblind version
+npm version patch   # or minor / major, when preparing a release
+npm publish
+```
+
+Deliberate prereleases should use npm prerelease versions and a non-latest tag, for example `npm version prerelease --preid beta` followed by `npm publish --tag beta`.
 
 ## License
 

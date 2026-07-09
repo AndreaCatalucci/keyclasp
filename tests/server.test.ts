@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createServer } from "../src/server.js";
+import { getDisplayVersion } from "../src/version.js";
 import { initializeVault, isInitialized, storeSecret, deleteSecret, deleteAlias, listAliases, closeDb } from "../src/vault.js";
 import { setBackend } from "../src/backends.js";
 
@@ -28,6 +29,15 @@ afterAll(() => {
 });
 
 describe("MCP server surface", () => {
+  it("uses shared version metadata for MCP server info", () => {
+    const server = createServer() as any;
+
+    expect(server.server._serverInfo).toEqual({
+      name: "keyblind",
+      version: getDisplayVersion(),
+    });
+  });
+
   it("registers the retained core tools and excludes removed surfaces", () => {
     const server = createServer() as any;
     const tools = Object.keys(server._registeredTools).sort();

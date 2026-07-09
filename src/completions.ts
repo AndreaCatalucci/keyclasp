@@ -6,11 +6,12 @@ const COMMANDS = [
   "status",
   "generate", "import", "export", "doctor",
   "completions", "config",
-  "help", "unlock",
+  "help", "unlock", "version",
 ];
 
 const FLAGS: Record<string, string> = {
   "--project": "Use a project-specific vault",
+  "--version": "Show Keyblind version",
   "--biometric": "Require a biometric session for MCP server",
   "--biometric-every-time": "Require biometric auth for every secret access",
   "--expired": "Check for expired secrets",
@@ -23,7 +24,7 @@ _keyblind() {
   _init_completion || return
 
   if [[ $cword -eq 1 ]]; then
-    COMPREPLY=($(compgen -W "${COMMANDS.join(" ")}" -- "$cur"))
+    COMPREPLY=($(compgen -W "${COMMANDS.join(" ")} --version -v --help -h" -- "$cur"))
     return
   fi
 
@@ -70,6 +71,8 @@ _keyblind() {
 
   _arguments -C \\
     '--project[Use a project-specific vault]:project name:' \\
+    '--version[Show Keyblind version]' \\
+    '-v[Show Keyblind version]' \\
     '1:command:(${COMMANDS.join(" ")})' \\
     '*::arg:->args'
 
@@ -106,6 +109,7 @@ set -l commands ${COMMANDS.join(" ")}
 complete -c keyblind -f
 complete -c keyblind -n "not __fish_seen_subcommand_from $commands" -a "$commands"
 complete -c keyblind -s h -l help -d "Show help"
+complete -c keyblind -s v -l version -d "Show Keyblind version"
 
 # --project flag
 complete -c keyblind -l project -d "Use a project-specific vault" -x

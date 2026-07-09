@@ -106,6 +106,21 @@ keyblind completions [bash|zsh|fish]  # Generate shell completions
 keyblind install-hook           # Install pre-commit hook for secret detection
 keyblind watch [.env]           # Watch .env and auto-sandbox on change
 keyblind unlock                 # Touch ID authentication
+keyblind version                # Show package or local/dev version
+```
+
+## Package Versioning
+
+`package.json.version` is the publishable npm semver.
+Do not bump it for local development.
+Local git checkouts report a derived identity such as `0.6.0-dev+git.abc1234.dirty`; packaged or gitless installs report the plain package version.
+
+```bash
+keyblind version
+npm version patch               # or minor / major for an intentional release
+npm publish
+npm version prerelease --preid beta
+npm publish --tag beta          # deliberate prerelease channel, not latest
 ```
 
 ## Backends
