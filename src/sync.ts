@@ -1,4 +1,4 @@
-import { getDb, getKey, encrypt, decrypt, requireSecretAccess } from "./vault.js";
+import { getDb, getKey, encrypt, decrypt, requireSecretAccess, resolveSecret, storeSecret } from "./vault.js";
 import { getBackend, setBackend, listAvailableBackends } from "./backends.js";
 import os from "node:os";
 import crypto from "node:crypto";
@@ -40,6 +40,19 @@ export function saveHistory(name: string, value: string): void {
   db.prepare("INSERT INTO secret_history (name, encrypted_value, iv, auth_tag, version) VALUES (?, ?, ?, ?, ?)").run(
     name, encrypted, iv, authTag, nextVersion + 1
   );
+}
+
+export function rotateLocalSecret(name: string, value: string): boolean {
+  const previous = resolveSecret(name);
+  if (previous === null) return false;
+
+  replaceLocalSecretWithHistory(name, previous, value);
+  return true;
+}
+
+export function replaceLocalSecretWithHistory(name: string, previousValue: string, nextValue: string): void {
+  saveHistory(name, previousValue);
+  storeSecret(name, nextValue);
 }
 
 export function getSecretHistory(name: string, limit: number = 10): SecretVersion[] {
@@ -208,6 +221,11 @@ export function applySyncBundle(bundleJson: string): { imported: number; skipped
       continue;
     }
 
+    const encryptedValue = Buffer.from(secret.value, "base64");
+    const iv = Buffer.from(secret.iv, "base64");
+    const authTag = Buffer.from(secret.authTag, "base64");
+    decrypt(encryptedValue, iv, authTag, key);
+
     db.prepare(`
       INSERT INTO secrets (name, encrypted_value, iv, auth_tag, updated_at)
       VALUES (?, ?, ?, ?, ?)
@@ -218,9 +236,9 @@ export function applySyncBundle(bundleJson: string): { imported: number; skipped
         updated_at = excluded.updated_at
     `).run(
       secret.name,
-      Buffer.from(secret.value, "base64"),
-      Buffer.from(secret.iv, "base64"),
-      Buffer.from(secret.authTag, "base64"),
+      encryptedValue,
+      iv,
+      authTag,
       secret.updatedAt
     );
     imported++;

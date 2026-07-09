@@ -7,7 +7,7 @@ import { sandboxEnvFile, unsandboxEnvFile } from "./sandbox.js";
 import { generateTOTPCode, storeTOTP, listTOTP, deleteTOTP, parseOTPAuthURI } from "./totp.js";
 import { createShareLink, receiveShare } from "./share.js";
 import { readConfig, mergeConfig, generateSecret } from "./config.js";
-import { saveHistory, getSecretHistory, rollbackSecret, getExpiringSoon } from "./sync.js";
+import { saveHistory, replaceLocalSecretWithHistory, getSecretHistory, rollbackSecret, getExpiringSoon } from "./sync.js";
 import { getDisplayVersion } from "./version.js";
 
 const CAPABILITIES = [
@@ -555,11 +555,15 @@ export function createServer(): McpServer {
       if (existing === null) return { content: [{ type: "text", text: JSON.stringify({ error: `Secret "${name}" not found` }) }], isError: true };
       const nextValue = value ?? generateSecret(length ?? 32, symbols ?? true);
       try {
-        backend.store(name, nextValue);
+        if (backend.name === "local") {
+          replaceLocalSecretWithHistory(name, existing, nextValue);
+        } else {
+          backend.store(name, nextValue);
+        }
       } catch (err: any) {
         return { content: [{ type: "text", text: JSON.stringify({ error: err.message }) }], isError: true };
       }
-      saveHistory(name, existing);
+      if (backend.name !== "local") saveHistory(name, existing);
       if (expiresAt) setExpiry(name, expiresAt);
       return { content: [{ type: "text", text: JSON.stringify({ rotated: name, backend: backend.name, generated: value === undefined, expiresAt: getExpiry(name) }) }] };
     },
