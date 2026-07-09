@@ -18,6 +18,21 @@ const REMOVED_INTERNAL_SECRET_NAMES = new Set([
   "_keyblind_deadman:last_checkin",
   "__keyblind_team_check",
 ]);
+const RESERVED_ALIAS_PREFIXES = ["__keyblind", "__expiry:", "_totp", "_keyblind"];
+
+export interface SecretAlias {
+  alias: string;
+  target: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AliasResolution {
+  requestedName: string;
+  resolvedName: string;
+  aliasUsed: boolean;
+  value: string | null;
+}
 
 let _projectName: string | null = null;
 
@@ -187,6 +202,18 @@ export function getDb(): Database.Database {
     )
   `);
   _db.exec(`
+    CREATE TABLE IF NOT EXISTS secret_aliases (
+      alias_name TEXT PRIMARY KEY,
+      target_name TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY(target_name) REFERENCES secrets(name) ON DELETE CASCADE
+    )
+  `);
+  _db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_secret_aliases_target ON secret_aliases(target_name);
+  `);
+  _db.exec(`
     CREATE INDEX IF NOT EXISTS idx_audit_log_secret ON audit_log(secret_name);
   `);
   _db.exec(`
@@ -197,6 +224,9 @@ export function getDb(): Database.Database {
 
 export function storeSecret(name: string, value: string): void {
   const db = getDb();
+  if (getAliasTarget(name)) {
+    throw new Error(`Cannot store secret "${name}" because it already exists as an alias.`);
+  }
 
   const key = getKey();
   const { encrypted, iv, authTag } = encrypt(value, key);
@@ -229,10 +259,59 @@ export function resolveSecret(name: string): string | null {
   return decrypt(row.encrypted_value, row.iv, row.auth_tag, key);
 }
 
+export function resolveSecretWithAlias(name: string): AliasResolution {
+  const target = getAliasTarget(name);
+  const resolvedName = target ?? name;
+  return {
+    requestedName: name,
+    resolvedName,
+    aliasUsed: target !== null,
+    value: resolveSecret(resolvedName),
+  };
+}
+
 export function listSecrets(): string[] {
   const db = getDb();
   const rows = db.prepare("SELECT name FROM secrets WHERE name NOT LIKE '@_@_%' ESCAPE '@' ORDER BY name").all() as { name: string }[];
   return rows.map((r) => r.name).filter((name) => !REMOVED_INTERNAL_SECRET_NAMES.has(name));
+}
+
+export function createAlias(alias: string, target: string): SecretAlias {
+  validateAliasName(alias, "alias");
+  validateAliasName(target, "target");
+  if (alias === target) throw new Error("Alias cannot target itself.");
+  if (secretExists(alias)) throw new Error(`Cannot create alias "${alias}" because it already exists as a secret.`);
+  if (getAliasTarget(alias)) throw new Error(`Alias "${alias}" already exists. Delete it before recreating it.`);
+  if (getAliasTarget(target)) throw new Error(`Alias "${alias}" cannot target another alias "${target}".`);
+  if (!secretExists(target)) throw new Error(`Target secret "${target}" not found.`);
+
+  const db = getDb();
+  db.prepare(`
+    INSERT INTO secret_aliases (alias_name, target_name, updated_at)
+    VALUES (?, ?, datetime('now'))
+  `).run(alias, target);
+  return getAlias(alias)!;
+}
+
+export function deleteAlias(alias: string): boolean {
+  const db = getDb();
+  const result = db.prepare("DELETE FROM secret_aliases WHERE alias_name = ?").run(alias);
+  return result.changes > 0;
+}
+
+export function listAliases(): SecretAlias[] {
+  const db = getDb();
+  const rows = db.prepare(`
+    SELECT alias_name, target_name, created_at, updated_at
+    FROM secret_aliases
+    ORDER BY alias_name
+  `).all() as { alias_name: string; target_name: string; created_at: string; updated_at: string }[];
+  return rows.map((row) => ({
+    alias: row.alias_name,
+    target: row.target_name,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }));
 }
 
 export function countSecretsByPrefix(prefix: string): number {
@@ -244,10 +323,54 @@ export function countSecretsByPrefix(prefix: string): number {
 export function deleteSecret(name: string): boolean {
   const db = getDb();
   auditLog(name, "delete");
+  db.prepare("DELETE FROM secret_aliases WHERE target_name = ?").run(name);
   const result = db.prepare("DELETE FROM secrets WHERE name = ? AND name NOT LIKE '@_@_expiry:%' ESCAPE '@' AND name NOT LIKE '@_@_keyblind%' ESCAPE '@'").run(name);
   // Also delete any expiry entry
   db.prepare("DELETE FROM secrets WHERE name = ?").run(`__expiry:${name}`);
   return result.changes > 0;
+}
+
+function getAlias(alias: string): SecretAlias | null {
+  const db = getDb();
+  const row = db.prepare(`
+    SELECT alias_name, target_name, created_at, updated_at
+    FROM secret_aliases
+    WHERE alias_name = ?
+  `).get(alias) as { alias_name: string; target_name: string; created_at: string; updated_at: string } | undefined;
+  if (!row) return null;
+  return {
+    alias: row.alias_name,
+    target: row.target_name,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function getAliasTarget(alias: string): string | null {
+  const db = getDb();
+  const row = db.prepare("SELECT target_name FROM secret_aliases WHERE alias_name = ?").get(alias) as
+    | { target_name: string }
+    | undefined;
+  return row?.target_name ?? null;
+}
+
+function secretExists(name: string): boolean {
+  const db = getDb();
+  const row = db.prepare("SELECT 1 FROM secrets WHERE name = ?").get(name);
+  return row !== undefined;
+}
+
+function validateAliasName(name: string, label: "alias" | "target"): void {
+  if (name.length === 0 || name.includes("\0")) {
+    throw new Error(`Invalid ${label} name.`);
+  }
+  if (isReservedAliasName(name)) {
+    throw new Error(`Cannot use reserved ${label} name "${name}".`);
+  }
+}
+
+function isReservedAliasName(name: string): boolean {
+  return REMOVED_INTERNAL_SECRET_NAMES.has(name) || RESERVED_ALIAS_PREFIXES.some((prefix) => name.startsWith(prefix));
 }
 
 // --- Audit Log ---

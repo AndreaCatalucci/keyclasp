@@ -1,5 +1,5 @@
 const COMMANDS = [
-  "init", "set", "get", "list", "delete",
+  "init", "set", "get", "list", "alias", "aliases", "unalias", "delete",
   "sandbox", "unsandbox", "run", "start", "watch",
   "backends", "backend", "install-hook", "check-secrets", "scan-secrets",
   "audit", "check", "rotate",
@@ -29,9 +29,14 @@ _keyblind() {
 
   local cmd="\${words[1]}"
   case "$cmd" in
-    get|delete|rotate|set)
+    get|delete|rotate|set|alias)
       if [[ $cword -eq 2 ]]; then
         COMPREPLY=($(compgen -W "$(keyblind list 2>/dev/null | sed 's/^  - //')" -- "$cur"))
+      fi
+      ;;
+    unalias)
+      if [[ $cword -eq 2 ]]; then
+        COMPREPLY=($(compgen -W "$(keyblind aliases 2>/dev/null | sed 's/^  - //' | awk '{print $1}')" -- "$cur"))
       fi
       ;;
     backend)
@@ -69,8 +74,11 @@ _keyblind() {
     '*::arg:->args'
 
   case $words[1] in
-    get|delete|rotate|set)
+    get|delete|rotate|set|alias)
       _arguments '2:secret:($(keyblind list 2>/dev/null | sed "s/  - //"))'
+      ;;
+    unalias)
+      _arguments '2:alias:($(keyblind aliases 2>/dev/null | sed "s/  - //" | awk "{print \\$1}"))'
       ;;
     backend)
       _arguments '2:backend:($(keyblind backends 2>/dev/null | grep "✓" | awk "{print \\$2}"))'
@@ -103,7 +111,8 @@ complete -c keyblind -s h -l help -d "Show help"
 complete -c keyblind -l project -d "Use a project-specific vault" -x
 
 # Per-command completions
-complete -c keyblind -n "__fish_seen_subcommand_from get delete rotate set" -a "(keyblind list 2>/dev/null | sed 's/  - //')"
+complete -c keyblind -n "__fish_seen_subcommand_from get delete rotate set alias" -a "(keyblind list 2>/dev/null | sed 's/  - //')"
+complete -c keyblind -n "__fish_seen_subcommand_from unalias" -a "(keyblind aliases 2>/dev/null | sed 's/  - //' | awk '{print \$1}')"
 complete -c keyblind -n "__fish_seen_subcommand_from backend" -a "(keyblind backends 2>/dev/null | grep '✓' | awk '{print \$2}')"
 complete -c keyblind -n "__fish_seen_subcommand_from start" -a "--biometric --biometric-every-time"
 complete -c keyblind -n "__fish_seen_subcommand_from check" -a "--expired"

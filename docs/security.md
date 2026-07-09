@@ -133,12 +133,15 @@ const iv = crypto.randomBytes(12);
 ### What's Stored in Plaintext
 
 - Secret names (for querying)
+- Alias metadata (alias name and canonical target name)
 - Internal metadata (`_keyblind_meta`, `_expiry:*`)
 - TOTP URIs
 
 ### What's Encrypted
 
 - Secret values (each with unique IV)
+
+Aliases are local-vault metadata pointers only. They do not duplicate encrypted secret values, and listing aliases never returns plaintext.
 
 ## Protocol Security
 
@@ -151,7 +154,8 @@ const iv = crypto.randomBytes(12);
 | Attack Vector | Risk | Mitigation |
 |---------------|------|------------|
 | LLM reads secrets from transcript | **HIGH** | MCP resolves at runtime; `resolve_secret` returns plaintext by explicit contract, so clients must not paste values into prompts/logs |
-| Malicious MCP client reads all secrets | **MEDIUM** | MCP tools only return user-facing names, not `_keyblind*` internal entries |
+| Malicious MCP client reads all secrets | **MEDIUM** | MCP tools only return user-facing names and alias metadata, not `_keyblind*` internal entries |
+| Alias metadata reveals naming conventions | **LOW** | Alias tools return names and targets only, never plaintext secret values |
 | Vault.db stolen + passphrase known | **MEDIUM** | Machine-identity-bound DEK prevents decryption on different hardware |
 | Vault.db stolen, no passphrase | **LOW** | AES-256-GCM with 600K PBKDF2 iterations. Brute force infeasible |
 | Share link intercepted | **LOW-MED** | Fragment never sent to server. But link can be intercepted via browser history or phishing |

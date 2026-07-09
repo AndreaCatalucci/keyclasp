@@ -15,7 +15,11 @@ import {
   initializeVault,
   storeSecret,
   resolveSecret,
+  resolveSecretWithAlias,
   listSecrets,
+  createAlias,
+  deleteAlias,
+  listAliases,
   deleteSecret,
   isInitialized,
   closeDb,
@@ -183,5 +187,70 @@ describe("vault CRUD", () => {
     expect(deleteSecret("DELETE_TEST")).toBe(true);
     expect(resolveSecret("DELETE_TEST")).toBeNull();
     expect(deleteSecret("DELETE_TEST")).toBe(false);
+  });
+});
+
+describe("secret aliases", () => {
+  beforeAll(() => {
+    if (!isInitialized()) {
+      initializeVault("test-passphrase");
+    }
+  });
+
+  it("resolves an alias without creating a duplicate secret", () => {
+    storeSecret("ALIAS_HELLO", "hello-value");
+    createAlias("ALIAS_WORLD", "ALIAS_HELLO");
+
+    const resolved = resolveSecretWithAlias("ALIAS_WORLD");
+
+    expect(resolved).toEqual({
+      requestedName: "ALIAS_WORLD",
+      resolvedName: "ALIAS_HELLO",
+      aliasUsed: true,
+      value: "hello-value",
+    });
+    expect(listSecrets()).toContain("ALIAS_HELLO");
+    expect(listSecrets()).not.toContain("ALIAS_WORLD");
+    expect(listAliases()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ alias: "ALIAS_WORLD", target: "ALIAS_HELLO" }),
+    ]));
+  });
+
+  it("rejects aliases that collide with canonical secrets", () => {
+    storeSecret("ALIAS_CANONICAL", "value");
+    storeSecret("ALIAS_COLLISION", "existing");
+
+    expect(() => createAlias("ALIAS_COLLISION", "ALIAS_CANONICAL")).toThrow(/already exists as a secret/);
+    expect(resolveSecret("ALIAS_COLLISION")).toBe("existing");
+  });
+
+  it("rejects alias chains and internal names", () => {
+    storeSecret("ALIAS_CHAIN_TARGET", "value");
+    createAlias("ALIAS_CHAIN_ONE", "ALIAS_CHAIN_TARGET");
+
+    expect(() => createAlias("ALIAS_CHAIN_TWO", "ALIAS_CHAIN_ONE")).toThrow(/target another alias/);
+    expect(() => createAlias("__keyblind_ALIAS", "ALIAS_CHAIN_TARGET")).toThrow(/reserved/);
+    expect(() => createAlias("_totp_ALIAS", "ALIAS_CHAIN_TARGET")).toThrow(/reserved/);
+    expect(() => createAlias("_keyblind_sso:token", "ALIAS_CHAIN_TARGET")).toThrow(/reserved/);
+  });
+
+  it("removes aliases when deleting the target secret", () => {
+    storeSecret("ALIAS_DELETE_TARGET", "value");
+    createAlias("ALIAS_DELETE_ALIAS", "ALIAS_DELETE_TARGET");
+
+    expect(deleteSecret("ALIAS_DELETE_TARGET")).toBe(true);
+
+    expect(resolveSecretWithAlias("ALIAS_DELETE_ALIAS").value).toBeNull();
+    expect(listAliases().map((alias) => alias.alias)).not.toContain("ALIAS_DELETE_ALIAS");
+  });
+
+  it("deletes only alias metadata", () => {
+    storeSecret("ALIAS_KEEP_TARGET", "value");
+    createAlias("ALIAS_REMOVE_ONLY", "ALIAS_KEEP_TARGET");
+
+    expect(deleteAlias("ALIAS_REMOVE_ONLY")).toBe(true);
+
+    expect(resolveSecret("ALIAS_KEEP_TARGET")).toBe("value");
+    expect(resolveSecretWithAlias("ALIAS_REMOVE_ONLY").value).toBeNull();
   });
 });

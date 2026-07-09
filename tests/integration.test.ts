@@ -9,7 +9,19 @@ const vaultDir = path.join(tmpDir, ".keyblind");
 const previousKeyblindHome = process.env.KEYBLIND_HOME;
 process.env.KEYBLIND_HOME = vaultDir;
 
-import { initializeVault, storeSecret, resolveSecret, listSecrets, deleteSecret, isInitialized, closeDb } from "../src/vault.js";
+import {
+  initializeVault,
+  storeSecret,
+  resolveSecret,
+  resolveSecretWithAlias,
+  listSecrets,
+  createAlias,
+  deleteAlias,
+  listAliases,
+  deleteSecret,
+  isInitialized,
+  closeDb,
+} from "../src/vault.js";
 import {
   storeTOTP, generateTOTPCode, listTOTP, deleteTOTP, parseOTPAuthURI,
   generateTOTP, generateHOTP, timeRemaining,
@@ -217,6 +229,35 @@ describe("Secret generator", () => {
     const a = generateSecret(32);
     const b = generateSecret(32);
     expect(a).not.toBe(b);
+  });
+});
+
+// --- Secret aliases integration -------------------------------------------
+describe("Secret aliases integration", () => {
+  beforeEach(() => {
+    for (const alias of listAliases()) {
+      if (alias.alias.startsWith("INTEGRATION_ALIAS_")) deleteAlias(alias.alias);
+    }
+    for (const name of ["INTEGRATION_ALIAS_HELLO", "INTEGRATION_ALIAS_WORLD"]) {
+      try { deleteSecret(name); } catch {}
+    }
+  });
+
+  it("creates, resolves, lists, and deletes aliases without duplicating values", () => {
+    storeSecret("INTEGRATION_ALIAS_HELLO", "alias-secret-value");
+    createAlias("INTEGRATION_ALIAS_WORLD", "INTEGRATION_ALIAS_HELLO");
+
+    expect(resolveSecretWithAlias("INTEGRATION_ALIAS_WORLD").value).toBe("alias-secret-value");
+    expect(listSecrets()).toContain("INTEGRATION_ALIAS_HELLO");
+    expect(listSecrets()).not.toContain("INTEGRATION_ALIAS_WORLD");
+    expect(listAliases()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ alias: "INTEGRATION_ALIAS_WORLD", target: "INTEGRATION_ALIAS_HELLO" }),
+    ]));
+    expect(JSON.stringify(listAliases())).not.toContain("alias-secret-value");
+
+    expect(deleteAlias("INTEGRATION_ALIAS_WORLD")).toBe(true);
+    expect(resolveSecret("INTEGRATION_ALIAS_HELLO")).toBe("alias-secret-value");
+    expect(resolveSecretWithAlias("INTEGRATION_ALIAS_WORLD").value).toBeNull();
   });
 });
 
