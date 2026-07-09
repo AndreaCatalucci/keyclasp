@@ -8,6 +8,7 @@ import { generateTOTPCode, storeTOTP, listTOTP, deleteTOTP, parseOTPAuthURI } fr
 import { createShareLink, receiveShare } from "./share.js";
 import { readConfig, mergeConfig, generateSecret } from "./config.js";
 import { saveHistory, getSecretHistory, rollbackSecret, getExpiringSoon } from "./sync.js";
+import { getDisplayVersion } from "./version.js";
 
 const CAPABILITIES = [
   { name: "resolve_secret", category: "secret", safety: "read-secret", destructive: false, idempotent: true, returnsPlaintext: true },
@@ -73,7 +74,7 @@ export function createServer(): McpServer {
 
   const server = new McpServer({
     name: "keyblind",
-    version: "0.6.0",
+    version: getDisplayVersion(),
   });
 
   server.tool(

@@ -14,6 +14,7 @@ import { storeTOTP, getTOTP, listTOTP, deleteTOTP, generateTOTPCode, parseOTPAut
 import { createShareLink, receiveShare } from "./share.js";
 import { setupAll } from "./setup-mcp.js";
 import { parseRunArgs, runCommandWithSecrets } from "./run.js";
+import { getDisplayVersion } from "./version.js";
 import fs from "node:fs";
 import readline from "node:readline";
 import { stdin, stdout } from "node:process";
@@ -86,9 +87,11 @@ Usage:
   keyblind share <name>       Create encrypted expiring share link
   keyblind share <name> --ttl 7d --max-views 3   Custom TTL and view limit
   keyblind receive <url>      Receive and store a shared secret
+  keyblind version            Show Keyblind version
   keyblind help                Show this help
 
 Global flags:
+  --version, -v               Show Keyblind version
   --project <name>            Use a project-specific vault (isolated per project)
 
 Examples:
@@ -170,6 +173,11 @@ async function main(): Promise<void> {
 
   const args = rawArgs;
   const command = args[0];
+
+  if (command === "version" || command === "--version" || command === "-v") {
+    console.log(getDisplayVersion());
+    return;
+  }
 
   if (!command || command === "help" || command === "--help" || command === "-h") {
     printHelp();

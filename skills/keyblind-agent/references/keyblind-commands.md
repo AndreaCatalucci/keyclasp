@@ -23,9 +23,10 @@ keyblind aliases
 keyblind doctor
 keyblind config
 keyblind backends
+keyblind version
 ```
 
-Use these before asking for missing credentials. `keyblind list` and `keyblind aliases` expose names/metadata only.
+Use these before asking for missing credentials. `keyblind list` and `keyblind aliases` expose names/metadata only. `keyblind version` exposes package or local/dev identity only.
 
 ## Store, Generate, Rotate
 
