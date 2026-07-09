@@ -156,6 +156,7 @@ const iv = crypto.randomBytes(12);
 | Vault.db stolen, no passphrase | **LOW** | AES-256-GCM with 600K PBKDF2 iterations. Brute force infeasible |
 | Share link intercepted | **LOW-MED** | Fragment never sent to server. But link can be intercepted via browser history or phishing |
 | Replay of old share links | **LOW** | TTL + expiry enforcement |
+| Injected command prints secrets | **HIGH** | `keyblind run` blocks obvious environment dumps, redacts detected injected secret values from stdout/stderr, terminates the child process, and requires `--allow-unsafe` to disable this guard |
 | Memory dump of running process | **MEDIUM** | DEK is in memory while vault is open. Mitigate with shorter session lifetimes |
 | Dependency compromise | **MEDIUM** | Runtime dependencies are limited to MCP SDK, SQLite, Zod, and stdlib crypto |
 

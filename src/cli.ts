@@ -13,8 +13,8 @@ import { saveHistory, getSecretHistory, rollbackSecret, ensureHistoryTable, getE
 import { storeTOTP, getTOTP, listTOTP, deleteTOTP, generateTOTPCode, parseOTPAuthURI } from "./totp.js";
 import { createShareLink, receiveShare } from "./share.js";
 import { setupAll } from "./setup-mcp.js";
+import { parseRunArgs, runCommandWithSecrets } from "./run.js";
 import fs from "node:fs";
-import { spawn } from "node:child_process";
 import readline from "node:readline";
 import { stdin, stdout } from "node:process";
 
@@ -45,7 +45,7 @@ Usage:
   keyblind start --biometric-every-time
                               Require biometrics for every secret access
   keyblind unlock              Authenticate with biometric (cross-platform)
-  keyblind run <command...>    Run a command with secrets as env vars
+  keyblind run [--allow-unsafe] <command...>    Run a guarded command with secrets as env vars
   keyblind sandbox [.env]      Replace real env values with deterministic fakes
   keyblind unsandbox [.env]    Restore real env values from vault
   keyblind backends            List available secret backends
@@ -93,7 +93,7 @@ Examples:
   keyblind set DATABASE_URL -
   keyblind list
   keyblind sandbox             # Fake your .env, backup real values to vault
-  keyblind run -- npm start    # Run with real secrets injected
+  keyblind run -- npm start    # Run with real secrets injected and leak-guarded output
   keyblind unsandbox           # Restore real .env values
   keyblind unlock              # Touch ID auth to unlock vault
   `);
@@ -541,31 +541,21 @@ async function main(): Promise<void> {
           console.error("Keyblind not initialized. Run: keyblind init");
           process.exit(1);
         }
-        const cmdArgs = args.slice(1).filter((a) => a !== "--");
-        if (cmdArgs.length === 0) {
-          console.error("Usage: keyblind run <command...>");
+        const cmdArgs = args.slice(1);
+        if (parseRunArgs(cmdArgs).commandArgs.length === 0) {
+          console.error("Usage: keyblind run [--allow-unsafe] <command...>");
           process.exit(1);
         }
 
-        const env = { ...process.env };
-        for (const name of listSecrets()) {
-          // Skip secrets with null bytes in name or value (corrupted/invalid)
-          if (name.includes("\0")) continue;
-          const value = resolveSecret(name);
-          if (value !== null && !value.includes("\0")) {
-            env[name] = value;
-          }
-        }
-
-        const [cmd, ...rest] = cmdArgs;
-        const child = spawn(cmd, rest, {
-          stdio: "inherit",
-          env,
+        const result = await runCommandWithSecrets({
+          args: cmdArgs,
+          baseEnv: process.env,
+          secretNames: listSecrets(),
+          resolveSecret,
+          stdout: (chunk) => process.stdout.write(chunk),
+          stderr: (chunk) => process.stderr.write(chunk),
         });
-
-        child.on("exit", (code) => {
-          process.exit(code ?? 0);
-        });
+        process.exit(result.exitCode);
         break;
       }
 
