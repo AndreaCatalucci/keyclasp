@@ -10,8 +10,13 @@
 | `keyblind get <name>` | Retrieve a secret |
 | `keyblind list` | List all secret names |
 | `keyblind delete <name>` | Delete a secret |
+| `keyblind alias <target> <alias>` | Create a local alias for a secret |
+| `keyblind aliases` | List aliases (metadata only) |
+| `keyblind unalias <alias>` | Delete an alias |
 | `keyblind generate <name>` | Generate a strong random secret |
 | `keyblind rotate <name>` | Update a secret value |
+
+Aliases are local-vault metadata pointers only; external backend alias parity is deferred. `keyblind get WORLD` can resolve a persistent alias like `WORLD -> HELLO`, but `keyblind aliases` never returns plaintext.
 
 ## MCP Setup
 
@@ -67,8 +72,11 @@ keyblind start --biometric-every-time  # Require biometrics for every secret acc
 ```bash
 keyblind run -- npm start       # Run command with all secrets as env vars and guarded output
 keyblind run -- npm test        # Secrets injected; detected output leaks are redacted and terminated
+keyblind run --env HELLO:WORLD -- printenv WORLD  # Transient per-command env mapping
 keyblind run --allow-unsafe -- env  # Disable preflight and output leak protection for this command
 ```
+
+By default, `keyblind run` injects canonical secret names plus persistent alias names. `--env SOURCE[:TARGET]` is only for that command invocation and does not create alias metadata.
 
 ## Versioning & History
 

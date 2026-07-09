@@ -11,6 +11,7 @@ describe("run argument parsing", () => {
   it("removes separators and preserves a safe command", () => {
     expect(parseRunArgs(["--", "npm", "test"])).toEqual({
       allowUnsafe: false,
+      envSpecs: [],
       commandArgs: ["npm", "test"],
     });
   });
@@ -18,6 +19,7 @@ describe("run argument parsing", () => {
   it("consumes --allow-unsafe before the child command", () => {
     expect(parseRunArgs(["--allow-unsafe", "--", "env"])).toEqual({
       allowUnsafe: true,
+      envSpecs: [],
       commandArgs: ["env"],
     });
   });
@@ -25,8 +27,35 @@ describe("run argument parsing", () => {
   it("preserves child arguments after the separator", () => {
     expect(parseRunArgs(["--", "node", "--allow-unsafe"])).toEqual({
       allowUnsafe: false,
+      envSpecs: [],
       commandArgs: ["node", "--allow-unsafe"],
     });
+  });
+
+  it("parses repeatable env mappings before the child command", () => {
+    expect(parseRunArgs(["--env", "HELLO:WORLD", "--env=FOO", "--", "npm", "start"])).toEqual({
+      allowUnsafe: false,
+      envSpecs: [
+        { sourceName: "HELLO", targetName: "WORLD" },
+        { sourceName: "FOO", targetName: "FOO" },
+      ],
+      commandArgs: ["npm", "start"],
+    });
+  });
+
+  it("treats --env after the command starts as a child argument", () => {
+    expect(parseRunArgs(["node", "--env", "HELLO:WORLD"])).toEqual({
+      allowUnsafe: false,
+      envSpecs: [],
+      commandArgs: ["node", "--env", "HELLO:WORLD"],
+    });
+  });
+
+  it("rejects malformed env mappings", () => {
+    expect(() => parseRunArgs(["--env"])).toThrow(/Missing value/);
+    expect(() => parseRunArgs(["--env", ":WORLD"])).toThrow(/Invalid source/);
+    expect(() => parseRunArgs(["--env", "HELLO:"])).toThrow(/Invalid target/);
+    expect(() => parseRunArgs(["--env", "HELLO:BAD-NAME"])).toThrow(/Invalid target/);
   });
 });
 
@@ -69,6 +98,55 @@ describe("run environment preparation", () => {
     expect(result.env.NULL_VAL).toBeUndefined();
     expect(result.env["NULL\0NAME"]).toBeUndefined();
     expect(result.leakValues).toEqual(["sk-test-secret"]);
+  });
+
+  it("injects explicit env mappings from source names to target names", () => {
+    const result = buildRunEnvironment({
+      baseEnv: {},
+      secretNames: ["IGNORED_BY_EXPLICIT_SPECS"],
+      envSpecs: [{ sourceName: "HELLO", targetName: "WORLD" }],
+      resolveSecret: (name) => (name === "HELLO" ? "mapped-secret" : null),
+    });
+
+    expect(result.env.WORLD).toBe("mapped-secret");
+    expect(result.env.HELLO).toBeUndefined();
+    expect(result.env.IGNORED_BY_EXPLICIT_SPECS).toBeUndefined();
+    expect(result.leakValues).toEqual(["mapped-secret"]);
+  });
+
+  it("injects persistent alias names when included in the default secret set", () => {
+    const result = buildRunEnvironment({
+      baseEnv: {},
+      secretNames: ["HELLO", "WORLD"],
+      resolveSecret: (name) => {
+        if (name === "HELLO") return "canonical-secret";
+        if (name === "WORLD") return "canonical-secret";
+        return null;
+      },
+    });
+
+    expect(result.env.HELLO).toBe("canonical-secret");
+    expect(result.env.WORLD).toBe("canonical-secret");
+    expect(result.leakValues).toEqual(["canonical-secret"]);
+  });
+
+  it("fails explicit env mappings with duplicate targets or missing sources", () => {
+    expect(() => buildRunEnvironment({
+      baseEnv: {},
+      secretNames: [],
+      envSpecs: [
+        { sourceName: "ONE", targetName: "WORLD" },
+        { sourceName: "TWO", targetName: "WORLD" },
+      ],
+      resolveSecret: () => "value",
+    })).toThrow(/Duplicate target environment name/);
+
+    expect(() => buildRunEnvironment({
+      baseEnv: {},
+      secretNames: [],
+      envSpecs: [{ sourceName: "MISSING", targetName: "WORLD" }],
+      resolveSecret: () => null,
+    })).toThrow(/Secret "MISSING" not found/);
   });
 });
 
@@ -133,6 +211,7 @@ describe("guarded command execution", () => {
       args: ["env", "sk-test-secret"],
       baseEnv: {},
       secretNames: ["API_KEY"],
+      envSpecs: [{ sourceName: "API_KEY", targetName: "ALIAS_KEY" }],
       resolveSecret: (name) => {
         resolvedNames.push(name);
         return "sk-test-secret";
@@ -175,6 +254,29 @@ describe("guarded command execution", () => {
     expect(allowed.kind).toBe("exit");
     expect(allowed.exitCode).toBe(7);
     expect(allowedStderr).toContain("WARNING:");
+  });
+
+  it("injects an explicit env mapping into the child process", async () => {
+    let stdout = "";
+    const result = await runCommandWithSecrets({
+      args: [
+        "--env",
+        "HELLO:WORLD",
+        "--",
+        process.execPath,
+        "-e",
+        "console.log(process.env.WORLD === 'mapped-secret' ? 'ok' : 'missing');",
+      ],
+      baseEnv: {},
+      secretNames: [],
+      resolveSecret: (name) => (name === "HELLO" ? "mapped-secret" : null),
+      stdout: (chunk) => { stdout += chunk; },
+      stderr: () => {},
+    });
+
+    expect(result.kind).toBe("exit");
+    expect(result.exitCode).toBe(0);
+    expect(stdout).toBe("ok\n");
   });
 
   it("passes clean output and child exit code through", async () => {

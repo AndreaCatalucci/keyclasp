@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { storeSecret, listSecrets, deleteSecret, isInitialized, getAuditLog, setClientInfo, checkExpired, setExpiry, getExpiry, getProjectName, countSecretsByPrefix, requireSecretAccess } from "./vault.js";
+import { storeSecret, listSecrets, resolveSecretWithAlias, createAlias, deleteAlias, listAliases, deleteSecret, isInitialized, getAuditLog, setClientInfo, checkExpired, setExpiry, getExpiry, getProjectName, countSecretsByPrefix, requireSecretAccess } from "./vault.js";
 import { getBackend, setBackend, listAvailableBackends } from "./backends.js";
 import { sandboxEnvFile, unsandboxEnvFile } from "./sandbox.js";
 import { generateTOTPCode, storeTOTP, listTOTP, deleteTOTP, parseOTPAuthURI } from "./totp.js";
@@ -13,6 +13,9 @@ const CAPABILITIES = [
   { name: "resolve_secret", category: "secret", safety: "read-secret", destructive: false, idempotent: true, returnsPlaintext: true },
   { name: "store_secret", category: "secret", safety: "write", destructive: false, idempotent: false, secretSensitiveInputs: ["value"] },
   { name: "list_secrets", category: "secret", safety: "read-metadata", destructive: false, idempotent: true },
+  { name: "create_alias", category: "secret", safety: "write-metadata", destructive: false, idempotent: false },
+  { name: "delete_alias", category: "secret", safety: "destructive-metadata", destructive: true, idempotent: true },
+  { name: "list_aliases", category: "secret", safety: "read-metadata", destructive: false, idempotent: true, returnsPlaintext: false },
   { name: "delete_secret", category: "secret", safety: "destructive", destructive: true, idempotent: true },
   { name: "sandbox_env", category: "env", safety: "state-changing", destructive: false, idempotent: false },
   { name: "unsandbox_env", category: "env", safety: "state-changing", destructive: false, idempotent: false },
@@ -47,6 +50,11 @@ function resolveBackendSecret(backend: ReturnType<typeof getBackend>, name: stri
     requireSecretAccess(`Access Keyblind secret "${name}"`);
   }
   return backend.resolve(name);
+}
+
+function visibleResolvableNames(backend: ReturnType<typeof getBackend>): string[] {
+  if (backend.name !== "local") return backend.list();
+  return [...visibleSecretNames(), ...listAliases().map((entry) => entry.alias)].sort();
 }
 
 function safeRecentActivity(limit: number): { total: number; byAction: Record<string, number>; recent: { action: string; timestamp: string }[] } {
@@ -84,8 +92,17 @@ export function createServer(): McpServer {
 
       const backend = getBackend();
       let value: string | null;
+      let alias: { requestedName: string; resolvedName: string } | undefined;
       try {
-        value = resolveBackendSecret(backend, name);
+        if (backend.name === "local") {
+          const resolved = resolveSecretWithAlias(name);
+          value = resolved.value;
+          if (resolved.aliasUsed) {
+            alias = { requestedName: resolved.requestedName, resolvedName: resolved.resolvedName };
+          }
+        } else {
+          value = resolveBackendSecret(backend, name);
+        }
       } catch (err: any) {
         return {
           content: [{ type: "text", text: JSON.stringify({ error: err.message }) }],
@@ -93,7 +110,7 @@ export function createServer(): McpServer {
         };
       }
       if (value === null) {
-        const allNames = backend.list();
+        const allNames = visibleResolvableNames(backend);
         return {
           content: [{ type: "text", text: JSON.stringify({ error: `Secret "${name}" not found. Available: ${allNames.join(", ") || "(none)"}` }) }],
           isError: true,
@@ -101,7 +118,7 @@ export function createServer(): McpServer {
       }
 
       return {
-        content: [{ type: "text", text: JSON.stringify({ name, value }) }],
+        content: [{ type: "text", text: JSON.stringify({ name, value, alias }) }],
       };
     },
   );
@@ -121,10 +138,17 @@ export function createServer(): McpServer {
         };
       }
 
-      storeSecret(name, value);
-      return {
-        content: [{ type: "text", text: JSON.stringify({ stored: name, status: "encrypted_and_saved" }) }],
-      };
+      try {
+        storeSecret(name, value);
+        return {
+          content: [{ type: "text", text: JSON.stringify({ stored: name, status: "encrypted_and_saved" }) }],
+        };
+      } catch (err: any) {
+        return {
+          content: [{ type: "text", text: JSON.stringify({ error: err.message }) }],
+          isError: true,
+        };
+      }
     },
   );
 
@@ -142,6 +166,66 @@ export function createServer(): McpServer {
       const names = visibleSecretNames();
       return {
         content: [{ type: "text", text: JSON.stringify({ secrets: names }) }],
+      };
+    },
+  );
+
+  server.tool(
+    "create_alias",
+    "Write-metadata/non-idempotent. Create a local-vault alias that points to a canonical secret. Values are never returned or duplicated.",
+    {
+      target: z.string().describe("Canonical local-vault secret name to reference"),
+      alias: z.string().describe("Alias name to create"),
+    },
+    async ({ target, alias }) => {
+      if (!isInitialized()) {
+        return {
+          content: [{ type: "text", text: '{"error":"Keyblind vault not initialized. Run: keyblind init"}' }],
+          isError: true,
+        };
+      }
+
+      try {
+        const created = createAlias(alias, target);
+        return { content: [{ type: "text", text: JSON.stringify({ alias: created.alias, target: created.target }) }] };
+      } catch (err: any) {
+        return { content: [{ type: "text", text: JSON.stringify({ error: err.message }) }], isError: true };
+      }
+    },
+  );
+
+  server.tool(
+    "delete_alias",
+    "Destructive-metadata/idempotent. Delete a local-vault alias without deleting the target secret.",
+    {
+      alias: z.string().describe("Alias name to delete"),
+    },
+    async ({ alias }) => {
+      if (!isInitialized()) {
+        return {
+          content: [{ type: "text", text: '{"error":"Keyblind vault not initialized. Run: keyblind init"}' }],
+          isError: true,
+        };
+      }
+
+      return { content: [{ type: "text", text: JSON.stringify({ alias, deleted: deleteAlias(alias) }) }] };
+    },
+  );
+
+  server.tool(
+    "list_aliases",
+    "Read-metadata/idempotent. List local-vault aliases as alias and target names only. Values are never returned.",
+    {},
+    async () => {
+      if (!isInitialized()) {
+        return { content: [{ type: "text", text: JSON.stringify({ aliases: [] }) }] };
+      }
+
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({ aliases: listAliases().map(({ alias, target }) => ({ alias, target })) }),
+        }],
       };
     },
   );

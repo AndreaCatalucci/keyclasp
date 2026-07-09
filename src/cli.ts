@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { initializeVault, getKey, storeSecret, listSecrets, resolveSecret, deleteSecret, isInitialized, closeDb, setRequireSession, setRequireBiometricPerSecretAccess, setProjectName, getProjectName, getAuditLog, checkExpired, setExpiry, setClientInfo } from "./vault.js";
+import { initializeVault, getKey, storeSecret, listSecrets, resolveSecret, resolveSecretWithAlias, createAlias, deleteAlias, listAliases, deleteSecret, isInitialized, closeDb, setRequireSession, setRequireBiometricPerSecretAccess, setProjectName, getProjectName, getAuditLog, checkExpired, setExpiry, setClientInfo } from "./vault.js";
 import { startServer } from "./server.js";
 import { sandboxEnvFile, unsandboxEnvFile } from "./sandbox.js";
 import { setBackend, getBackend, listAvailableBackends } from "./backends.js";
@@ -39,13 +39,17 @@ Usage:
   keyblind set <name> -        Store a secret (prompts securely)
   keyblind get <name>          Resolve and print a secret value
   keyblind list                List all stored secret names
+  keyblind alias <target> <alias>  Create an alias that points to a stored secret
+  keyblind aliases             List secret aliases
+  keyblind unalias <alias>     Delete a secret alias
   keyblind delete <name>       Delete a secret
   keyblind start               Start the MCP server (stdio)
   keyblind start --biometric   Start MCP server with biometric session requirement
   keyblind start --biometric-every-time
                               Require biometrics for every secret access
   keyblind unlock              Authenticate with biometric (cross-platform)
-  keyblind run [--allow-unsafe] <command...>    Run a guarded command with secrets as env vars
+  keyblind run [--allow-unsafe] [--env SOURCE[:TARGET]] <command...>
+                              Run a guarded command with secrets as env vars
   keyblind sandbox [.env]      Replace real env values with deterministic fakes
   keyblind unsandbox [.env]    Restore real env values from vault
   keyblind backends            List available secret backends
@@ -92,8 +96,10 @@ Examples:
   echo "sk-abc123" | keyblind set OPENAI_API_KEY
   keyblind set DATABASE_URL -
   keyblind list
+  keyblind alias OPENAI_API_KEY AI_KEY
   keyblind sandbox             # Fake your .env, backup real values to vault
-  keyblind run -- npm start    # Run with real secrets injected and leak-guarded output
+  keyblind run --env OPENAI_API_KEY:AI_KEY -- npm start
+                              # Run with one-off env mapping and leak-guarded output
   keyblind unsandbox           # Restore real .env values
   keyblind unlock              # Touch ID auth to unlock vault
   `);
@@ -242,7 +248,7 @@ async function main(): Promise<void> {
           console.error("Usage: keyblind get <name>");
           process.exit(1);
         }
-        const val = resolveSecret(secretName);
+        const val = resolveSecretWithAlias(secretName).value;
         if (val === null) {
           console.error(`Secret "${secretName}" not found.`);
           process.exit(1);
@@ -262,6 +268,51 @@ async function main(): Promise<void> {
         } else {
           names.forEach((n) => console.log(`  - ${n}`));
         }
+        break;
+      }
+
+      case "alias": {
+        if (!isInitialized()) {
+          console.error("Keyblind not initialized. Run: keyblind init");
+          process.exit(1);
+        }
+        const target = args[1];
+        const alias = args[2];
+        if (!target || !alias) {
+          console.error("Usage: keyblind alias <target> <alias>");
+          process.exit(1);
+        }
+        createAlias(alias, target);
+        console.log(`Alias "${alias}" -> "${target}"`);
+        break;
+      }
+
+      case "aliases": {
+        if (!isInitialized()) {
+          console.error("Keyblind not initialized. Run: keyblind init");
+          process.exit(1);
+        }
+        const aliases = listAliases();
+        if (aliases.length === 0) {
+          console.log("(no aliases stored)");
+        } else {
+          aliases.forEach((entry) => console.log(`  - ${entry.alias} -> ${entry.target}`));
+        }
+        break;
+      }
+
+      case "unalias": {
+        if (!isInitialized()) {
+          console.error("Keyblind not initialized. Run: keyblind init");
+          process.exit(1);
+        }
+        const alias = args[1];
+        if (!alias) {
+          console.error("Usage: keyblind unalias <alias>");
+          process.exit(1);
+        }
+        const deleted = deleteAlias(alias);
+        console.log(deleted ? `Deleted alias "${alias}"` : `Alias "${alias}" not found.`);
         break;
       }
 
@@ -543,15 +594,15 @@ async function main(): Promise<void> {
         }
         const cmdArgs = args.slice(1);
         if (parseRunArgs(cmdArgs).commandArgs.length === 0) {
-          console.error("Usage: keyblind run [--allow-unsafe] <command...>");
+          console.error("Usage: keyblind run [--allow-unsafe] [--env SOURCE[:TARGET]] <command...>");
           process.exit(1);
         }
 
         const result = await runCommandWithSecrets({
           args: cmdArgs,
           baseEnv: process.env,
-          secretNames: listSecrets(),
-          resolveSecret,
+          secretNames: [...listSecrets(), ...listAliases().map((entry) => entry.alias)],
+          resolveSecret: (name) => resolveSecretWithAlias(name).value,
           stdout: (chunk) => process.stdout.write(chunk),
           stderr: (chunk) => process.stderr.write(chunk),
         });

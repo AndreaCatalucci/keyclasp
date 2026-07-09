@@ -8,6 +8,7 @@ export const MIN_LEAK_VALUE_LENGTH = 8;
 
 export interface ParsedRunArgs {
   allowUnsafe: boolean;
+  envSpecs: RunEnvSpec[];
   commandArgs: string[];
 }
 
@@ -18,12 +19,18 @@ export interface UnsafeCommand {
 export interface RunEnvironmentInput {
   baseEnv: NodeJS.ProcessEnv;
   secretNames: string[];
+  envSpecs?: RunEnvSpec[];
   resolveSecret: (name: string) => string | null;
 }
 
 export interface RunEnvironment {
   env: NodeJS.ProcessEnv;
   leakValues: string[];
+}
+
+export interface RunEnvSpec {
+  sourceName: string;
+  targetName: string;
 }
 
 export type RunOutcomeKind = "blocked" | "exit" | "leak" | "error";
@@ -38,6 +45,7 @@ export interface RunCommandOptions {
   args: string[];
   baseEnv: NodeJS.ProcessEnv;
   secretNames: string[];
+  envSpecs?: RunEnvSpec[];
   resolveSecret: (name: string) => string | null;
   stdout: (chunk: string) => void;
   stderr: (chunk: string) => void;
@@ -62,12 +70,25 @@ const SHELL_DUMP_PATTERN = /\b(env|printenv|export|declare|typeset|compgen)\b/;
 
 export function parseRunArgs(args: string[]): ParsedRunArgs {
   const commandArgs: string[] = [];
+  const envSpecs: RunEnvSpec[] = [];
   let allowUnsafe = false;
   let parsingKeyblindOptions = true;
 
-  for (const arg of args) {
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
     if (parsingKeyblindOptions && arg === "--allow-unsafe") {
       allowUnsafe = true;
+      continue;
+    }
+    if (parsingKeyblindOptions && arg === "--env") {
+      const spec = args[index + 1];
+      if (!spec) throw new Error("Missing value for --env. Expected SOURCE or SOURCE:TARGET.");
+      envSpecs.push(parseEnvSpec(spec));
+      index += 1;
+      continue;
+    }
+    if (parsingKeyblindOptions && arg.startsWith("--env=")) {
+      envSpecs.push(parseEnvSpec(arg.slice("--env=".length)));
       continue;
     }
     if (parsingKeyblindOptions && arg === "--") {
@@ -78,7 +99,25 @@ export function parseRunArgs(args: string[]): ParsedRunArgs {
     commandArgs.push(arg);
   }
 
-  return { allowUnsafe, commandArgs };
+  return { allowUnsafe, envSpecs, commandArgs };
+}
+
+function parseEnvSpec(spec: string): RunEnvSpec {
+  const separator = spec.indexOf(":");
+  const sourceName = separator === -1 ? spec : spec.slice(0, separator);
+  const targetName = separator === -1 ? spec : spec.slice(separator + 1);
+  validateRunEnvName(sourceName, "source");
+  validateRunEnvName(targetName, "target");
+  return { sourceName, targetName };
+}
+
+function validateRunEnvName(name: string, label: "source" | "target"): void {
+  if (name.length === 0 || name.includes("\0")) {
+    throw new Error(`Invalid ${label} environment name.`);
+  }
+  if (label === "target" && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
+    throw new Error(`Invalid target environment name "${name}".`);
+  }
 }
 
 export function checkUnsafeCommand(commandArgs: string[]): UnsafeCommand | null {
@@ -104,13 +143,36 @@ export function buildRunEnvironment(input: RunEnvironmentInput): RunEnvironment 
   const env: NodeJS.ProcessEnv = { ...input.baseEnv };
   const leakValues: string[] = [];
   const seenLeakValues = new Set<string>();
+  const explicitSpecs = input.envSpecs !== undefined && input.envSpecs.length > 0;
+  const specs = explicitSpecs
+    ? input.envSpecs!
+    : input.secretNames.map((name) => ({ sourceName: name, targetName: name }));
+  const seenTargets = new Set<string>();
 
-  for (const name of input.secretNames) {
-    if (name.includes("\0")) continue;
-    const value = input.resolveSecret(name);
-    if (value === null || value.includes("\0")) continue;
+  for (const spec of specs) {
+    try {
+      validateRunEnvName(spec.sourceName, "source");
+      validateRunEnvName(spec.targetName, "target");
+    } catch (err) {
+      if (explicitSpecs) throw err;
+      continue;
+    }
+    if (seenTargets.has(spec.targetName)) {
+      throw new Error(`Duplicate target environment name "${spec.targetName}".`);
+    }
+    seenTargets.add(spec.targetName);
 
-    env[name] = value;
+    const value = input.resolveSecret(spec.sourceName);
+    if (value === null) {
+      if (explicitSpecs) throw new Error(`Secret "${spec.sourceName}" not found.`);
+      continue;
+    }
+    if (value.includes("\0")) {
+      if (explicitSpecs) throw new Error(`Secret "${spec.sourceName}" contains a null byte and cannot be injected.`);
+      continue;
+    }
+
+    env[spec.targetName] = value;
     if (value.length >= MIN_LEAK_VALUE_LENGTH && !seenLeakValues.has(value)) {
       leakValues.push(value);
       seenLeakValues.add(value);
@@ -169,9 +231,15 @@ function prefixCarryLength(input: string, values: string[], maxSecretLength: num
 }
 
 export async function runCommandWithSecrets(options: RunCommandOptions): Promise<RunOutcome> {
-  const parsed = parseRunArgs(options.args);
+  let parsed: ParsedRunArgs;
+  try {
+    parsed = parseRunArgs(options.args);
+  } catch (err: any) {
+    options.stderr(`${err.message}\n`);
+    return { kind: "error", exitCode: 1 };
+  }
   if (parsed.commandArgs.length === 0) {
-    options.stderr("Usage: keyblind run [--allow-unsafe] <command...>\n");
+    options.stderr("Usage: keyblind run [--allow-unsafe] [--env SOURCE[:TARGET]] <command...>\n");
     return { kind: "error", exitCode: 1 };
   }
 
@@ -182,11 +250,19 @@ export async function runCommandWithSecrets(options: RunCommandOptions): Promise
     return { kind: "blocked", exitCode: 2 };
   }
 
-  const { env, leakValues } = buildRunEnvironment({
-    baseEnv: options.baseEnv,
-    secretNames: options.secretNames,
-    resolveSecret: options.resolveSecret,
-  });
+  let env: NodeJS.ProcessEnv;
+  let leakValues: string[];
+  try {
+    ({ env, leakValues } = buildRunEnvironment({
+      baseEnv: options.baseEnv,
+      secretNames: options.secretNames,
+      envSpecs: parsed.envSpecs.length > 0 ? parsed.envSpecs : options.envSpecs,
+      resolveSecret: options.resolveSecret,
+    }));
+  } catch (err: any) {
+    options.stderr(`${err.message}\n`);
+    return { kind: "error", exitCode: 1 };
+  }
 
   if (parsed.allowUnsafe) {
     options.stderr("WARNING: keyblind run exfiltration protection disabled by --allow-unsafe.\n");

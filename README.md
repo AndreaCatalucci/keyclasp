@@ -18,7 +18,7 @@ AI agents read your `.env` files. They copy-paste secrets into conversations. Th
 ┌──────────┐     ┌────────────────┐     ┌─────────────────┐
 │ AI Agent │ ──→ │  Keyblind MCP  │ ──→ │  Encrypted      │
 │ (Claude) │     │  Server        │     │  SQLite Vault   │
-│          │ ←── │  (16 tools)    │ ←── │  (AES-256-GCM)  │
+│          │ ←── │  (29 tools)    │ ←── │  (AES-256-GCM)  │
 └──────────┘     └────────────────┘     └─────────────────┘
       ↑                                        │
       │ secret value never appears             │ secrets never
@@ -47,10 +47,14 @@ keyblind sandbox
 # 6. Resolve a secret
 keyblind get OPENAI_API_KEY
 
-# 7. Run commands with secrets injected as env vars
+# 7. Add a local alias for tools that expect a different name
+keyblind alias OPENAI_API_KEY AI_TOKEN
+keyblind get AI_TOKEN
+
+# 8. Run commands with secrets injected as env vars
 keyblind run -- npm start
 
-# 8. List all secrets (names only, values hidden)
+# 9. List all secrets (names only, values hidden)
 keyblind list
 ```
 
@@ -97,6 +101,9 @@ claude mcp add keyblind -- keyblind start --biometric-every-time
 | `store_secret` | Encrypt and store a secret |
 | `list_secrets` | List secret names (values never revealed) |
 | `delete_secret` | Delete a secret |
+| `create_alias` | Create a local alias pointer for a stored secret |
+| `list_aliases` | List alias metadata only (no plaintext values) |
+| `delete_alias` | Delete an alias pointer |
 | `sandbox_env` | Replace `.env` values with deterministic fakes |
 | `unsandbox_env` | Restore real `.env` values from vault |
 | `audit_log` | View secret resolution audit trail |
@@ -157,10 +164,13 @@ keyblind set <name> -         Store a secret (prompts securely)
 keyblind get <name>           Resolve and print a secret
 keyblind list                 List all stored secrets
 keyblind delete <name>        Delete a secret
+keyblind alias <target> <alias>  Create a local alias for a secret
+keyblind aliases              List aliases (metadata only)
+keyblind unalias <alias>      Delete an alias
 keyblind setup-mcp            Auto-configure MCP for Claude Code
 keyblind sandbox [.env]       Replace .env with deterministic fakes
 keyblind unsandbox [.env]     Restore real .env values
-keyblind run <command...>     Run guarded command with secrets as env vars
+keyblind run [--env SOURCE[:TARGET]] <command...>  Run guarded command with secrets as env vars
 keyblind run --allow-unsafe -- <command...>  Disable run leak protection for this command
 keyblind start                Start MCP server (stdio — for AI agents)
 keyblind start --biometric    Start MCP server with biometric session requirement
@@ -183,6 +193,8 @@ keyblind import [.env]        Bulk import from .env file
 keyblind export               Export all secrets
 keyblind completions [shell]  Generate shell completion script
 ```
+
+Aliases are local-vault metadata pointers. They do not duplicate secret values, and alias lists never return plaintext. External backend alias parity is deferred. `keyblind run` injects both canonical secret names and persistent alias names by default; `--env HELLO:WORLD` is a transient per-command mapping and does not create alias metadata.
 
 ## Development
 

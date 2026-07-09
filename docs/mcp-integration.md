@@ -111,6 +111,9 @@ Add to `~/.config/zed/mcp.json`:
 | `store_secret` | Store a secret | `name: string, value: string` |
 | `list_secrets` | List all secrets | none |
 | `delete_secret` | Delete a secret | `name: string` |
+| `create_alias` | Create a local alias pointer | `target: string, alias: string` |
+| `list_aliases` | List alias metadata only | none |
+| `delete_alias` | Delete an alias pointer | `alias: string` |
 | `sandbox_env` | Sandbox .env file | `path: string?` |
 | `unsandbox_env` | Restore .env file | `path: string?` |
 | `audit_log` | View audit log | `limit: number?` |
@@ -134,4 +137,6 @@ Add to `~/.config/zed/mcp.json`:
 | `set_config` | Set safe project config | `key: string, value: string|number|boolean` |
 | `set_backend` | Switch active backend | `name: string` |
 
-`resolve_secret` explicitly returns plaintext in MCP response content so the caller can use the value at runtime. Clients and agents must not paste that value into prompts, logs, or chat transcripts. Status, capability, activity, history, expiry, and list tools return metadata only.
+`resolve_secret` explicitly returns plaintext in MCP response content so the caller can use the value at runtime. When the requested name is an alias, the response may include safe alias metadata such as the requested alias and resolved target. Clients and agents must not paste the plaintext value into prompts, logs, or chat transcripts. Status, capability, alias, activity, history, expiry, and list tools return metadata only.
+
+Alias tools manage local-vault metadata pointers only. They do not duplicate secret values, and external backend alias parity is deferred.
