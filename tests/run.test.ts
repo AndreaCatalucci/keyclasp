@@ -94,6 +94,14 @@ describe("secret redaction", () => {
     expect(second.leaked).toBe(true);
   });
 
+  it("does not withhold ordinary interactive prompts", () => {
+    const redactor = createSecretRedactor(["sk-test-secret-with-long-value"]);
+    const written = redactor.write("var.region\n  Enter a value: ");
+
+    expect(written.leaked).toBe(false);
+    expect(written.output).toBe("var.region\n  Enter a value: ");
+  });
+
   it("does not treat sandbox-looking values as leaks unless they are tracked", () => {
     const redactor = createSecretRedactor(["sk-real-secret"]);
     const written = redactor.write("KEYBLIND_SANDBOX_deadbeef");
