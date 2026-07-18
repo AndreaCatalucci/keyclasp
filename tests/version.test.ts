@@ -10,7 +10,7 @@ import {
 } from "../src/version.js";
 
 function withTempPackage(version: unknown, callback: (dir: string) => void): void {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "keyblind-version-test-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "keyclasp-version-test-"));
   try {
     fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ version }), "utf8");
     callback(dir);

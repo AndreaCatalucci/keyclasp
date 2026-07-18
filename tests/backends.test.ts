@@ -38,10 +38,10 @@ describe("backends", () => {
   it("env backend resolves from process.env", () => {
     setBackend("env");
     const backend = getBackend();
-    process.env.__KEYBLIND_TEST_VAR = "test-env-value";
-    expect(backend.resolve("__KEYBLIND_TEST_VAR")).toBe("test-env-value");
+    process.env.__KEYCLASP_TEST_VAR = "test-env-value";
+    expect(backend.resolve("__KEYCLASP_TEST_VAR")).toBe("test-env-value");
     expect(backend.resolve("__NONEXISTENT_VAR_12345")).toBeNull();
-    delete process.env.__KEYBLIND_TEST_VAR;
+    delete process.env.__KEYCLASP_TEST_VAR;
     // Reset to local
     setBackend("local");
   });

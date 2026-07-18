@@ -25,5 +25,5 @@
   <text x="120" y="175" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="32" font-weight="700" fill="#f0f6fc" letter-spacing="-0.5">Key<span fill="#58a6ff">blind</span></text>
 
   <!-- Tagline -->
-  <text x="120" y="202" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="10.5" fill="#8b949e">Blind AI to your API keys</text>
+  <text x="120" y="202" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="10.5" fill="#8b949e">Keep API keys out of agent context</text>
 </svg>

@@ -24,7 +24,7 @@ function createLocalBackend(): SecretBackend {
   return {
     name: "local",
     resolve: (name) => resolveSecret(name),
-    list: () => listSecrets().filter((n: string) => !n.startsWith("_keyblind") && !n.startsWith("_totp") && !n.startsWith("__keyblind")),
+    list: () => listSecrets().filter((n: string) => !n.startsWith("_keyclasp") && !n.startsWith("_keyblind") && !n.startsWith("_totp") && !n.startsWith("__keyclasp") && !n.startsWith("__keyblind")),
     store: (name, value) => storeSecret(name, value),
     isAvailable: () => true, // Local backend is always available (errors surfaced at operation level)
   };
@@ -96,7 +96,7 @@ function createBitwardenBackend(): SecretBackend {
       }
     },
     store: () => {
-      throw new Error("Bitwarden backend does not support storing via Keyblind. Use 'bw create' directly.");
+      throw new Error("Bitwarden backend does not support storing via Keyclasp. Use 'bw create' directly.");
     },
     isAvailable: () => hasCommand("bw"),
   };
@@ -110,7 +110,7 @@ function createEnvBackend(): SecretBackend {
     resolve: (name) => process.env[name] ?? null,
     list: () => Object.keys(process.env).filter((k) => !k.startsWith("npm_") && !k.startsWith("_")),
     store: () => {
-      throw new Error("Env backend is read-only. Use 'keyblind set' with local backend.");
+      throw new Error("Env backend is read-only. Use 'keyclasp set' with local backend.");
     },
     isAvailable: () => true,
   };
@@ -211,7 +211,7 @@ function createAzureBackend(): SecretBackend {
     list: () => {
       try {
         // List requires a vault name — default to checking common env vars
-        const vault = process.env.AZURE_KEY_VAULT || process.env.KEYBLIND_AZURE_VAULT;
+        const vault = process.env.AZURE_KEY_VAULT || process.env.KEYCLASP_AZURE_VAULT || process.env.KEYBLIND_AZURE_VAULT;
         if (!vault) return [];
         const result = execSync(
           `az keyvault secret list --vault-name "${vault}" --query [].id -o tsv`,

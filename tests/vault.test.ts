@@ -4,10 +4,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const tmpDir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "keyblind-test-")));
-const vaultDir = path.join(tmpDir, ".keyblind");
-const previousKeyblindHome = process.env.KEYBLIND_HOME;
-process.env.KEYBLIND_HOME = vaultDir;
+const tmpDir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "keyclasp-test-")));
+const vaultDir = path.join(tmpDir, ".keyclasp");
+const previousKeyclaspHome = process.env.KEYCLASP_HOME;
+process.env.KEYCLASP_HOME = vaultDir;
 
 import {
   encrypt,
@@ -31,17 +31,17 @@ import {
 import { getSecretHistory, saveHistory } from "../src/sync.js";
 
 beforeAll(() => {
-  process.env.KEYBLIND_HOME = vaultDir;
+  process.env.KEYCLASP_HOME = vaultDir;
   fs.mkdirSync(tmpDir, { recursive: true });
   fs.mkdirSync(vaultDir, { recursive: true });
 });
 
 afterAll(() => {
   closeDb();
-  if (previousKeyblindHome === undefined) {
-    delete process.env.KEYBLIND_HOME;
+  if (previousKeyclaspHome === undefined) {
+    delete process.env.KEYCLASP_HOME;
   } else {
-    process.env.KEYBLIND_HOME = previousKeyblindHome;
+    process.env.KEYCLASP_HOME = previousKeyclaspHome;
   }
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
@@ -112,21 +112,21 @@ describe("vault CRUD", () => {
   });
 
   it("uses the newly initialized key after another vault key was cached", () => {
-    const originalHome = process.env.KEYBLIND_HOME;
-    const firstHome = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "keyblind-first-")), ".keyblind");
-    const secondHome = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "keyblind-second-")), ".keyblind");
+    const originalHome = process.env.KEYCLASP_HOME;
+    const firstHome = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "keyclasp-first-")), ".keyclasp");
+    const secondHome = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "keyclasp-second-")), ".keyclasp");
 
     try {
       closeDb();
       clearKey();
 
-      process.env.KEYBLIND_HOME = firstHome;
+      process.env.KEYCLASP_HOME = firstHome;
       initializeVault("first-passphrase");
       storeSecret("FIRST_KEY", "first-value");
       expect(resolveSecret("FIRST_KEY")).toBe("first-value");
       closeDb();
 
-      process.env.KEYBLIND_HOME = secondHome;
+      process.env.KEYCLASP_HOME = secondHome;
       initializeVault("second-passphrase");
       storeSecret("SECOND_KEY", "second-value");
       expect(resolveSecret("SECOND_KEY")).toBe("second-value");
@@ -138,9 +138,9 @@ describe("vault CRUD", () => {
       closeDb();
       clearKey();
       if (originalHome === undefined) {
-        delete process.env.KEYBLIND_HOME;
+        delete process.env.KEYCLASP_HOME;
       } else {
-        process.env.KEYBLIND_HOME = originalHome;
+        process.env.KEYCLASP_HOME = originalHome;
       }
       fs.rmSync(path.dirname(firstHome), { recursive: true, force: true });
       fs.rmSync(path.dirname(secondHome), { recursive: true, force: true });
@@ -161,11 +161,11 @@ describe("vault CRUD", () => {
 
   it("hides orphaned internal records from removed features", () => {
     const removedRecords = [
-      "_keyblind_sso:config",
-      "_keyblind_sso:token",
-      "_keyblind_deadman:config",
-      "_keyblind_deadman:last_checkin",
-      "__keyblind_team_check",
+      "_keyclasp_sso:config",
+      "_keyclasp_sso:token",
+      "_keyclasp_deadman:config",
+      "_keyclasp_deadman:last_checkin",
+      "__keyclasp_team_check",
     ];
 
     for (const name of removedRecords) {
@@ -180,9 +180,9 @@ describe("vault CRUD", () => {
   });
 
   it("counts internal records by prefix without exposing them in list output", () => {
-    storeSecret("__keyblind_sandbox_backup__COUNTED", "backup-value");
-    expect(countSecretsByPrefix("__keyblind_sandbox_backup__")).toBeGreaterThanOrEqual(1);
-    expect(listSecrets()).not.toContain("__keyblind_sandbox_backup__COUNTED");
+    storeSecret("__keyclasp_sandbox_backup__COUNTED", "backup-value");
+    expect(countSecretsByPrefix("__keyclasp_sandbox_backup__")).toBeGreaterThanOrEqual(1);
+    expect(listSecrets()).not.toContain("__keyclasp_sandbox_backup__COUNTED");
   });
 
   it("updates an existing secret", () => {
@@ -265,9 +265,9 @@ describe("secret aliases", () => {
     createAlias("ALIAS_CHAIN_ONE", "ALIAS_CHAIN_TARGET");
 
     expect(() => createAlias("ALIAS_CHAIN_TWO", "ALIAS_CHAIN_ONE")).toThrow(/target another alias/);
-    expect(() => createAlias("__keyblind_ALIAS", "ALIAS_CHAIN_TARGET")).toThrow(/reserved/);
+    expect(() => createAlias("__keyclasp_ALIAS", "ALIAS_CHAIN_TARGET")).toThrow(/reserved/);
     expect(() => createAlias("_totp_ALIAS", "ALIAS_CHAIN_TARGET")).toThrow(/reserved/);
-    expect(() => createAlias("_keyblind_sso:token", "ALIAS_CHAIN_TARGET")).toThrow(/reserved/);
+    expect(() => createAlias("_keyclasp_sso:token", "ALIAS_CHAIN_TARGET")).toThrow(/reserved/);
   });
 
   it("removes aliases when deleting the target secret", () => {

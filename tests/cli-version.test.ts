@@ -10,7 +10,7 @@ function runCliProcess(args: string[]) {
   return spawnSync(process.execPath, [cliPath, ...args], {
     cwd: process.cwd(),
     encoding: "utf8",
-    env: { ...process.env, KEYBLIND_HOME: path.join(process.cwd(), ".not-used-by-version-test") },
+    env: { ...process.env, KEYCLASP_HOME: path.join(process.cwd(), ".not-used-by-version-test") },
     stdio: ["ignore", "pipe", "pipe"],
   });
 }
@@ -61,7 +61,7 @@ describe("removed CLI surface", () => {
 
     expect(help).not.toContain("setup-");
     expect(help).not.toMatch(/--bio(?:metric)|unlock/);
-    expect(help).toContain("keyblind run");
-    expect(help).toContain("keyblind sandbox");
+    expect(help).toContain("keyclasp run");
+    expect(help).toContain("keyclasp sandbox");
   });
 });

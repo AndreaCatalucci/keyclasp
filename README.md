@@ -1,142 +1,135 @@
-# Keyblind — Blind AI to Your Keys
+# Keyclasp — Runtime Secrets for Coding Agents
 
-**A local encrypted vault that keeps real credentials out of files coding agents can read.**
+**Keep API keys out of coding-agent context and inject them only into trusted commands.**
 
-[![npm version](https://img.shields.io/npm/v/keyblind)](https://www.npmjs.com/package/keyblind)
+[![npm version](https://img.shields.io/npm/v/keyclasp)](https://www.npmjs.com/package/keyclasp)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-## What Keyblind Does
+Keyclasp is a local secrets manager and encrypted vault for AI coding agents such as Codex, Claude Code, Cursor, Cline, and GitHub Copilot. It lets an agent run tests, builds, API calls, cloud CLIs, and deployment tools without reading the real API keys, tokens, passwords, or credentials those commands need.
 
-Keyblind stores API keys, passwords, tokens, and other credentials in an encrypted local vault. It helps you work with coding agents without leaving real secrets in `.env` files, terminal commands, generated code, or git diffs.
+If you are looking for a way to use secrets with an AI coding agent without putting them in `.env`, prompts, shell arguments, logs, or source files, Keyclasp is built for that problem.
 
-Use Keyblind to:
+## The Problem Keyclasp Solves
 
-- replace real `.env` values with stable, realistic fakes before an agent reads the project;
-- run commands with secrets injected only into the child process;
-- block obvious environment-dump commands and stop output that contains injected secrets;
-- store, rotate, share, and audit secrets from one local CLI;
-- optionally read from 1Password, Bitwarden, environment variables, AWS, GCP, or Azure.
+Coding agents inspect project files, execute commands, collect logs, and keep context about what they read. A normal `.env` file places plaintext credentials directly inside that working set.
 
-Keyblind is local-first. The default vault requires no account, network connection, or telemetry.
-
-## Why It Helps
-
-Coding agents inspect configuration, run commands, edit files, and collect logs. A normal `.env` file puts plaintext credentials directly inside that working set.
-
-Keyblind separates project configuration from real credentials:
+Keyclasp separates what the agent can inspect from what a trusted process can receive:
 
 ```text
-project files       Keyblind vault           child process
-safe fake values -> encrypted secrets -> runtime environment
+coding agent          Keyclasp vault           trusted child process
+secret names only  -> encrypted values      -> runtime environment
+safe .env fakes    -> local storage         -> credentials when needed
 ```
 
-The agent can understand which variables a project expects without reading their real values. When a command needs credentials, `keyblind run` injects them at execution time and watches output for accidental disclosure.
+The agent can understand that a project expects `OPENAI_API_KEY` without seeing its value. When a command needs that key, `keyclasp run` injects it at the process boundary. Keyclasp watches the command's output, redacts a detected secret, and terminates the process if it leaks one.
+
+## Why Use Keyclasp Instead of a Plain `.env` File?
+
+| Workflow | Where the real secret appears | Visible to a coding agent? |
+|---|---|---:|
+| Plain `.env` | Project file | Usually |
+| Shell argument | Shell history and process arguments | Often |
+| Pasted into a prompt | Conversation history | Yes |
+| `keyclasp run` | Encrypted vault and trusted child environment | No, unless the child process exposes it |
+
+Keyclasp is local-first. The default vault needs no account, cloud service, network connection, dashboard, telemetry, or MCP server.
 
 ## Quick Start
 
 ### 1. Install and initialize
 
 ```bash
-npm install -g keyblind
-keyblind init
+npm install -g keyclasp
+keyclasp init
 ```
 
-Keep the vault passphrase safe. Keyblind cannot recover it for you.
+Keep the vault passphrase safe. Keyclasp cannot recover it for you.
 
-### 2. Store a secret securely
+### 2. Store an API key without putting it in shell history
 
 ```bash
-keyblind set OPENAI_API_KEY -
+keyclasp set OPENAI_API_KEY -
 ```
 
-Paste the value at the secure prompt and press Ctrl+D. Avoid typing secrets directly into shell commands, where they may remain in shell history.
+Paste the value at the secure prompt and press Ctrl+D.
 
-### 3. Prepare a project for an agent
-
-If the project already has a real `.env`, import it before replacing its values:
+### 3. Replace real `.env` values before an agent reads the project
 
 ```bash
-keyblind import .env
-keyblind sandbox .env
+keyclasp import .env
+keyclasp sandbox .env
 ```
 
-The sandbox uses deterministic fake values, so repeated runs do not create noisy git diffs.
+The sandbox replaces real values with deterministic fakes. The same variable receives the same fake, so repeated runs do not create noisy git diffs.
 
-### 4. Run a command with secrets
+### 4. Run a command with secrets injected at runtime
 
 ```bash
-keyblind run -- npm test
-keyblind run -- npm start
+keyclasp run --env OPENAI_API_KEY -- npm test
+keyclasp run --env STRIPE_SECRET_KEY -- npm start
 ```
 
-Keyblind injects stored secrets as environment variables for the child process. If detected output contains an injected secret, Keyblind redacts the value and terminates the command.
-
-### 5. Verify the setup
+Use explicit `--env` options so each command receives only the secrets it needs. To inject every configured secret, use the shorter form:
 
 ```bash
-keyblind status
-keyblind list
+keyclasp run -- npm test
 ```
 
-`status` checks the vault and active backend. `list` prints secret names only, never their values.
+### 5. Check the setup without revealing values
+
+```bash
+keyclasp status
+keyclasp list
+keyclasp doctor
+```
+
+`list` prints secret names only. It never prints their values.
+
+## Use Keyclasp With Codex and Other Coding Agents
+
+Tell the agent:
+
+> Use Keyclasp for commands that need credentials. Inspect secret names with `keyclasp list`, choose the minimum required `--env` mappings, and run the trusted command through `keyclasp run`. Never call `keyclasp get` or `keyclasp export --env`, and never print injected environment variables.
+
+Keyclasp ships an agent skill at [`skills/keyclasp-agent`](skills/keyclasp-agent). Install that directory as a Codex skill, then invoke `$keyclasp-agent` or let Codex select it when a command needs credentials. The skill teaches the agent to discover secret names, apply least privilege, and avoid plaintext-revealing commands.
+
+The npm package includes the skill so agent tooling can discover the same instructions from the installed package.
 
 ## Common Workflows
 
-### Map a secret to another variable name
-
-For one command:
+### Map a stored secret to the variable a command expects
 
 ```bash
-keyblind run --env OPENAI_API_KEY:AI_TOKEN -- npm test
+keyclasp run --env OPENAI_KEY:OPENAI_API_KEY -- npm test
 ```
 
 For a reusable local alias:
 
 ```bash
-keyblind alias OPENAI_API_KEY AI_TOKEN
-keyblind aliases
+keyclasp alias OPENAI_KEY OPENAI_API_KEY
+keyclasp aliases
 ```
 
-Aliases point to the original encrypted value; they do not duplicate it.
-
-### Generate or rotate without revealing the value
+### Generate, rotate, and audit secrets
 
 ```bash
-keyblind generate SESSION_SECRET
-keyblind rotate OPENAI_API_KEY
+keyclasp generate SESSION_SECRET
+keyclasp rotate OPENAI_API_KEY
+keyclasp audit
+keyclasp check --expired
 ```
 
 ### Restore a sandboxed `.env`
 
 ```bash
-keyblind unsandbox .env
+keyclasp unsandbox .env
 ```
 
-Restore real values only when a local workflow genuinely requires them. Sandbox the file again before giving a coding agent access to the project.
+Restore plaintext only when a local workflow genuinely requires it. Sandbox the file again before a coding agent inspects the project.
 
-### Check health and activity
+## Secret Backends
 
-```bash
-keyblind doctor
-keyblind audit
-keyblind check --expired
-```
-
-## Using Keyblind With Coding Agents
-
-Keyblind works best when the agent follows three rules:
-
-1. Inspect secret names and redacted status, not plaintext values.
-2. Sandbox `.env` files before reading or editing them.
-3. Use `keyblind run -- <command>` when a tool needs credentials.
-
-Keyblind ships a Codex skill at [`skills/keyblind-agent`](skills/keyblind-agent). Ask Codex's `$skill-installer` to install that directory from this repository, then invoke `$keyblind-agent` explicitly or let Codex select it when a command needs credentials. The skill lists secret names, chooses least-privilege `--env` mappings, and runs the target command through Keyblind without reading plaintext values into the agent context.
-
-The npm package includes the skill directory so other distribution tooling can consume the same artifact.
-
-## Backends
-
-The default local backend stores AES-256-GCM encrypted values in SQLite. Optional adapters use their provider CLIs and may require accounts and network access.
+The default backend stores AES-256-GCM encrypted values in a local SQLite vault. Optional adapters use provider CLIs and may require an account and network access.
 
 | Backend | Read | Write | Requirement |
 |---|---:|---:|---|
@@ -149,21 +142,56 @@ The default local backend stores AES-256-GCM encrypted values in SQLite. Optiona
 | **azure** | ✓ | ✓ | `az` CLI |
 
 ```bash
-keyblind backends
-keyblind config backend 1password
+keyclasp backends
+keyclasp config backend 1password
 ```
 
 ## Security Boundaries
 
 - Secret values are encrypted individually with AES-256-GCM.
-- The default vault lives under `~/.keyblind/` with owner-only permissions.
-- Secret names and some metadata remain plaintext so Keyblind can query them.
-- A process receiving an injected secret can still misuse or print it; `keyblind run` reduces this risk but cannot make an untrusted program safe.
-- Commands such as `keyblind get` and `keyblind export --env` deliberately print plaintext. Their output may remain in terminal scrollback or logs.
-- Machine identity binding makes copied vaults harder to decrypt, but also affects machine migration and recovery. Review the security guide before relying on it as your only copy.
-- Keyblind has not received a professional third-party security audit.
+- New local vaults live under `~/.keyclasp/` with owner-only permissions.
+- Secret names and some metadata remain plaintext so Keyclasp can query them.
+- A child process receiving a secret can still misuse or print it. `keyclasp run` reduces this risk but cannot make untrusted code safe.
+- `keyclasp get` and `keyclasp export --env` deliberately print plaintext. Their output may remain in terminal scrollback or logs.
+- Machine-identity binding makes copied vaults harder to decrypt, but affects machine migration and recovery.
+- Keyclasp has not received a professional third-party security audit.
 
-See the [security design](docs/security.md) for the full threat model.
+Read the [security design](docs/security.md) for the full threat model.
+
+## Migrating From Keyblind
+
+Keyclasp recognizes existing Keyblind vaults and project configuration:
+
+- `~/.keyblind/` is used when `~/.keyclasp/` does not exist;
+- `KEYBLIND_HOME` remains accepted as a fallback for `KEYCLASP_HOME`;
+- `.keyblind.key`, Keyblind v2 key headers, sandbox backups, and sync bundles remain readable;
+- `.keyblind` project configuration remains readable, while future writes use `.keyclasp`.
+
+Install the new package and use the new command:
+
+```bash
+npm uninstall -g keyblind
+npm install -g keyclasp
+keyclasp status
+keyclasp install-hook
+```
+
+`keyclasp install-hook` replaces a pre-commit hook generated by Keyblind. Also replace any Keyblind completion setup in your shell configuration with the matching Keyclasp command:
+
+```bash
+# ~/.zshrc: replace source <(keyblind completions zsh) with:
+source <(keyclasp completions zsh)
+
+# ~/.bashrc: replace source <(keyblind completions bash) with:
+source <(keyclasp completions bash)
+
+# Fish: remove ~/.config/fish/completions/keyblind.fish, then run:
+keyclasp completions fish > ~/.config/fish/completions/keyclasp.fish
+```
+
+Use only the command for your shell, then restart the shell or reload its configuration.
+
+Back up your vault before moving or renaming its files manually.
 
 ## Documentation
 
@@ -176,13 +204,19 @@ See the [security design](docs/security.md) for the full threat model.
 ## Development
 
 ```bash
-git clone https://github.com/AndreaCatalucci/keyblind.git
-cd keyblind
+git clone https://github.com/AndreaCatalucci/keyclasp.git
+cd keyclasp
 npm install
 npm run build
 npm test
 ```
 
+## Upstream Attribution
+
+Keyclasp began as a fork of [Keyblind](https://github.com/aarifmms/keyblind), created by Mohammed Aarif Shaikh. The original project established the encrypted local vault, deterministic sandbox values, CLI workflows, and many of the capabilities that Keyclasp continues to build on.
+
+Keyclasp has since diverged into a local, CLI-first process-boundary tool for coding agents. The upstream git history is preserved, the original MIT copyright notice remains in [LICENSE](LICENSE), and additional attribution is recorded in [NOTICE](NOTICE).
+
 ## License
 
-MIT
+Keyclasp is available under the [MIT License](LICENSE).

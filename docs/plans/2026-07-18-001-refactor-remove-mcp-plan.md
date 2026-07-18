@@ -1,5 +1,5 @@
 ---
-title: Remove MCP From Keyblind - Plan
+title: Remove MCP From Keyclasp - Plan
 type: refactor
 date: 2026-07-18
 artifact_contract: ce-unified-plan/v1
@@ -8,11 +8,11 @@ product_contract_source: ce-plan-bootstrap
 execution: code
 ---
 
-# Remove MCP From Keyblind - Plan
+# Remove MCP From Keyclasp - Plan
 
 ## Goal Capsule
 
-- **Objective:** Remove the MCP server and every supporting product surface in one breaking change, leaving Keyblind as a local CLI for encrypted storage, deterministic `.env` sandboxing, and guarded process injection.
+- **Objective:** Remove the MCP server and every supporting product surface in one breaking change, leaving Keyclasp as a local CLI for encrypted storage, deterministic `.env` sandboxing, and guarded process injection.
 - **Source:** Internal product-direction decision from the repository owner.
 - **Input:** The current TypeScript package, CLI, tests, package metadata, website, bundled skill, and documentation.
 - **Operation:** Delete the protocol boundary and its orphaned authentication/audit machinery, then align tests and published surfaces around the CLI-only product.
@@ -26,7 +26,7 @@ execution: code
 
 ### Summary
 
-Keyblind will become a smaller CLI-first product centered on encrypted storage, agent-safe project files, and guarded command execution.
+Keyclasp will become a smaller CLI-first product centered on encrypted storage, agent-safe project files, and guarded command execution.
 
 ### Problem Frame
 
@@ -37,18 +37,18 @@ The MCP boundary returns plaintext to its client, weakening the product promise 
 **Runtime and package boundary**
 
 - R1. Delete the MCP server, setup automation, SDK dependency, bundled MCP-oriented skill, package metadata, public exports, and protocol-specific tests.
-- R2. Remove `keyblind start`, `keyblind setup-mcp`, their flags, completions, help text, generated configuration, and all aliases or shims for those commands.
-- R3. Delete `keyblind unlock`, exported biometric/session APIs, and unreachable per-secret-access machinery as intentional breaking removals; do not redesign them as CLI features.
+- R2. Remove `keyclasp start`, `keyclasp setup-mcp`, their flags, completions, help text, generated configuration, and all aliases or shims for those commands.
+- R3. Delete `keyclasp unlock`, exported biometric/session APIs, and unreachable per-secret-access machinery as intentional breaking removals; do not redesign them as CLI features.
 - R4. Remove MCP-only audit client metadata while preserving the audit log's secret name, action, and timestamp behavior.
 
 **Product surface**
 
-- R5. Keep vault, backend, sandbox/unsandbox, guarded `keyblind run`, aliases, TOTP, sharing, sync/history, doctor, hook/watch, completions, and their current CLI behavior.
+- R5. Keep vault, backend, sandbox/unsandbox, guarded `keyclasp run`, aliases, TOTP, sharing, sync/history, doctor, hook/watch, completions, and their current CLI behavior.
 - R6. Publish the removal as version `0.7.0` with no deprecation period, compatibility package, migration shim, or retained stale documentation; the GitHub/npm release notice must name the removed commands, integrations, exports, and the surviving sandbox/run workflow.
 
 ### Acceptance Examples
 
-- AE1. Given a clean install, when the user runs `keyblind start` or `keyblind setup-mcp`, then the CLI follows the normal unknown-command path and no compatibility message or hidden server starts.
+- AE1. Given a clean install, when the user runs `keyclasp start` or `keyclasp setup-mcp`, then the CLI follows the normal unknown-command path and no compatibility message or hidden server starts.
 - AE2. Given an existing vault containing audit rows with legacy `client_info` data, when the updated CLI lists audit activity, then the supported fields still render and the unused legacy column does not require a data migration.
 - AE3. Given the packaged output, when dependencies, exports, commands, skills, and live docs are inspected, then the only MCP reference permitted is this retained decision plan.
 
@@ -68,7 +68,7 @@ The MCP boundary returns plaintext to its client, weakening the product promise 
 - KTD1. **One atomic deletion.** Runtime, CLI, package, tests, documentation, and the `0.7.0` version change land together so no intermediate release advertises or imports a missing server.
 - KTD2. **Delete orphaned biometrics.** `src/auth.ts` and the vault session/per-access gates exist to protect the long-lived server process. Removing them is simpler than inventing a new CLI contract.
 - KTD3. **Tolerate legacy audit schema.** Remove `setClientInfo` and `clientInfo` from code and public types, but select named surviving columns so existing SQLite tables with an extra column continue working incidentally.
-- KTD4. **CLI-only product identity.** `keyblind sandbox` and `keyblind run` are the coding-agent integration boundary. Documentation teaches names, fake values, and guarded processes rather than direct secret resolution by an agent.
+- KTD4. **CLI-only product identity.** `keyclasp sandbox` and `keyclasp run` are the coding-agent integration boundary. Documentation teaches names, fake values, and guarded processes rather than direct secret resolution by an agent.
 
 ### Sequencing
 
@@ -103,7 +103,7 @@ This breaks installed editor configurations, server/setup/biometric/session impo
 ### U3. Finish the CLI-only product cut
 
 - **Goal:** Ensure every shipped and maintained surface describes only the surviving product. Covers R5, R6, and AE3.
-- **Files:** Modify `README.md`, `AGENTS.md`, `docs/*.md`, `index.html`, `privacy.html`, and remaining `demo/**`; delete `skills/keyblind-agent/**`, `Dockerfile`, `docker-compose.yml`, obsolete protocol-specific docs, demos, plans, decisions, and solutions.
+- **Files:** Modify `README.md`, `AGENTS.md`, `docs/*.md`, `index.html`, `privacy.html`, and remaining `demo/**`; delete `skills/keyclasp-agent/**`, `Dockerfile`, `docker-compose.yml`, obsolete protocol-specific docs, demos, plans, decisions, and solutions.
 - **Patterns:** Use the rewritten README flow: explain the problem, secure setup, sandboxing, guarded execution, common workflows, and limitations before reference material.
 - **Approach:** Remove editor/server configuration and direct agent-resolution claims, delete the server-only container deployment and current agent skill, replace website/demo copy and assets with sandbox/run workflows, and remove stale historical artifacts instead of annotating superseded architecture. Retain this plan as the decision record and exempt only its path from the final text audit. Document a future CLI-first agent skill as deferred; do not build it in this change. Publish a concise GitHub/npm release notice from R6 without retaining compatibility documentation in the product guides.
 - **Test scenarios:** Every documentation link resolves; install and command examples use real surviving commands; no packaged or container entrypoint invokes `start`; local-vault claims are qualified separately from remote backends; the packed artifact contains no agent skill.
@@ -121,7 +121,7 @@ This breaks installed editor configurations, server/setup/biometric/session impo
 | Release identity | `package.json` and lockfile both report `0.7.0`; release notice covers R6 | U1, U3 |
 | Dependency | `npm ls @modelcontextprotocol/sdk` reports absent | U1 |
 | Removed surface | Repository grep patterns from U1-U3 return no hits except this plan | U1-U3 |
-| Surviving workflow | `keyblind init`, secure set, sandbox, guarded run, status, and list smoke flow in an isolated temporary vault | R5 |
+| Surviving workflow | `keyclasp init`, secure set, sandbox, guarded run, status, and list smoke flow in an isolated temporary vault | R5 |
 
 ---
 

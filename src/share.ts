@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { resolveSecret, storeSecret } from "./vault.js";
 
 const SHARE_VERSION = 1;
+const SHARE_BASE_URL = "https://github.com/AndreaCatalucci/keyclasp";
 
 export interface SharePayload {
   version: number;
@@ -61,7 +62,7 @@ export function createShareLink(
   const keyB64 = key.toString("base64url");
 
   return {
-    url: `https://keyblind.dev/share#v${SHARE_VERSION}.${keyB64}.${payloadB64}`,
+    url: `${SHARE_BASE_URL}#v${SHARE_VERSION}.${keyB64}.${payloadB64}`,
     fragment: `v${SHARE_VERSION}.${keyB64}.${payloadB64}`,
   };
 }

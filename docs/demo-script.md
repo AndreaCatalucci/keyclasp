@@ -1,6 +1,6 @@
-**Title:** Keyblind Demo — Blind AI to Your API Keys (2-Minute Screencast)
+**Title:** Keyclasp Demo — Keep API Keys Out of Agent Context (2-Minute Screencast)
 
-**Description:** Terminal screencast + split-screen editor showing how Keyblind encrypts secrets, sandboxes project files, and injects credentials into guarded commands.
+**Description:** Terminal screencast + split-screen editor showing how Keyclasp encrypts secrets, sandboxes project files, and injects credentials into guarded commands.
 
 **Tags:** `demo` `screencast` `security` `privacy` `ai` `api-keys` `devtools` `open-source`
 
@@ -28,13 +28,13 @@ STRIPE_SECRET=sk_live_abc123def456
 **Visual:** Terminal commands with clean output.
 
 ```
-$ npm install -g keyblind
-$ keyblind init
+$ npm install -g keyclasp
+$ keyclasp init
 Enter vault passphrase (or empty for machine-only key):
-🔑 Keyblind vault created at ~/.keyblind/
+🔑 Keyclasp vault created at ~/.keyclasp/
 ```
 
-**Voiceover:** "Keyblind encrypts your secrets, replaces project values with stable fakes, and injects credentials only into the commands that need them. Install it, initialize a vault, and you're ready."
+**Voiceover:** "Keyclasp encrypts your secrets, replaces project values with stable fakes, and injects credentials only into the commands that need them. Install it, initialize a vault, and you're ready."
 
 ---
 
@@ -43,18 +43,18 @@ Enter vault passphrase (or empty for machine-only key):
 **Visual:** Piping secrets into the vault.
 
 ```
-$ echo "sk-proj-abc123xyz890" | keyblind set OPENAI_API_KEY
+$ echo "sk-proj-abc123xyz890" | keyclasp set OPENAI_API_KEY
 Stored "OPENAI_API_KEY"
 
-$ keyblind set DATABASE_URL -
+$ keyclasp set DATABASE_URL -
 Enter value for DATABASE_URL: ******
 Stored "DATABASE_URL"
 
-$ keyblind set STRIPE_SECRET -
+$ keyclasp set STRIPE_SECRET -
 Enter value for STRIPE_SECRET: ******
 Stored "STRIPE_SECRET"
 
-$ keyblind list
+$ keyclasp list
   - DATABASE_URL
   - OPENAI_API_KEY
   - STRIPE_SECRET
@@ -69,7 +69,7 @@ $ keyblind list
 **Visual:** Side-by-side terminal showing before/after of .env.
 
 ```
-$ keyblind sandbox
+$ keyclasp sandbox
 Sandboxed 3 value(s) in .env:
   - DATABASE_URL → fake (real value backed up to vault)
   - OPENAI_API_KEY → fake (real value backed up to vault)
@@ -81,7 +81,7 @@ DATABASE_URL=sandbox_b7c8d9e0f1a2_DATABASE_URL
 STRIPE_SECRET=sandbox_c3d4e5f6a7b8_STRIPE_SECRET
 ```
 
-**Voiceover:** "Now run `keyblind sandbox`. Every real value is replaced with a deterministic fake — same fake every time, so your git diffs stay clean. The real values are encrypted and stored in the vault."
+**Voiceover:** "Now run `keyclasp sandbox`. Every real value is replaced with a deterministic fake — same fake every time, so your git diffs stay clean. The real values are encrypted and stored in the vault."
 
 ---
 
@@ -90,18 +90,18 @@ STRIPE_SECRET=sandbox_c3d4e5f6a7b8_STRIPE_SECRET
 **Visual:** Split screen — left side shows AI agent reading .env, right side shows vault stays encrypted.
 
 **Left side (editor):** AI agent reads `.env` — sees only sandbox fakes.
-**Right side (terminal):** `keyblind get OPENAI_API_KEY` returns real value (never shown to AI).
+**Right side (terminal):** `keyclasp get OPENAI_API_KEY` returns real value (never shown to AI).
 
 ```
 # AI agent reads .env — sees only fakes:
 OPENAI_API_KEY=sandbox_a3f2e1b4c5d6_OPENAI_API_KEY
 
 # But you can still use real values:
-$ keyblind run -- npm test
+$ keyclasp run -- npm test
 # ↑ injects real secrets as env vars for this command only
 ```
 
-**Voiceover:** "When an AI agent reads your `.env`, it only sees the fakes. But when your code runs, Keyblind injects the real values as environment variables. Your secrets work. Your AI doesn't see them."
+**Voiceover:** "When an AI agent reads your `.env`, it only sees the fakes. But when your code runs, Keyclasp injects the real values as environment variables. Your secrets work. Your AI doesn't see them."
 
 ---
 
@@ -110,14 +110,14 @@ $ keyblind run -- npm test
 **Visual:** Restoring real values.
 
 ```
-$ keyblind unsandbox
+$ keyclasp unsandbox
 Restored 3 value(s) in .env:
   - DATABASE_URL → real
   - OPENAI_API_KEY → real
   - STRIPE_SECRET → real
 ```
 
-**Voiceover:** "When you need the real values back, `keyblind unsandbox` restores them instantly. Sandbox before you code. Unsandbox when you're done working with AI."
+**Voiceover:** "When you need the real values back, `keyclasp unsandbox` restores them instantly. Sandbox before you code. Unsandbox when you're done working with AI."
 
 ---
 
@@ -126,15 +126,15 @@ Restored 3 value(s) in .env:
 **Visual:** Terminal showing 2FA code generation and secret sharing.
 
 ```
-$ keyblind totp code github
+$ keyclasp totp code github
 003486  (rotates in 22s)
 
-$ keyblind share DATABASE_URL --ttl 1h --max-views 1
+$ keyclasp share DATABASE_URL --ttl 1h --max-views 1
 Share link for "DATABASE_URL" (expires in 1h):
-https://keyblind.dev/share#v1.abc.def...
+https://github.com/AndreaCatalucci/keyclasp#v1.abc.def...
 ```
 
-**Voiceover:** "Keyblind also handles 2FA codes and secure secret sharing. Generate TOTP codes for any service. Or share a secret with a teammate — encrypted in the URL fragment so it never touches a server."
+**Voiceover:** "Keyclasp also handles 2FA codes and secure secret sharing. Generate TOTP codes for any service. Or share a secret with a teammate — encrypted in the URL fragment so it never touches a server."
 
 ---
 
@@ -143,8 +143,8 @@ https://keyblind.dev/share#v1.abc.def...
 **Visual:** Show an agent working with a sandboxed `.env`, then run the project with secrets injected.
 
 ```bash
-keyblind sandbox .env
-keyblind run -- npm test
+keyclasp sandbox .env
+keyclasp run -- npm test
 ```
 
 **Voiceover:** "This workflow works with every coding agent because it protects the files and process boundary instead of depending on an editor integration."
@@ -156,10 +156,10 @@ keyblind run -- npm test
 **Visual:** GitHub repo README, npm badge, MIT license.
 
 ```
-npm install -g keyblind
+npm install -g keyclasp
 ```
 
-**Voiceover:** "Keyblind is open source, MIT licensed, zero network, zero telemetry. Install it today at github.com/AndreaCatalucci/keyblind."
+**Voiceover:** "Keyclasp is open source, MIT licensed, zero network, zero telemetry. Install it today at github.com/AndreaCatalucci/keyclasp."
 
 ---
 
@@ -179,7 +179,7 @@ npm install -g keyblind
 ```bash
 # Clean state
 rm -f .env
-rm -rf ~/.keyblind/
+rm -rf ~/.keyclasp/
 
 # Setup
 cat > .env << 'EOF'
@@ -188,13 +188,13 @@ DATABASE_URL=postgresql://admin:s3cret@db.example.com/prod
 STRIPE_SECRET=sk_live_abc123def456
 EOF
 
-npm install -g keyblind
-keyblind init  # press enter for machine-only key
+npm install -g keyclasp
+keyclasp init  # press enter for machine-only key
 
-echo "sk-proj-abc123xyz890" | keyblind set OPENAI_API_KEY
-echo "postgresql://admin:s3cret@db.example.com/prod" | keyblind set DATABASE_URL
-echo "sk_live_abc123def456" | keyblind set STRIPE_SECRET
+echo "sk-proj-abc123xyz890" | keyclasp set OPENAI_API_KEY
+echo "postgresql://admin:s3cret@db.example.com/prod" | keyclasp set DATABASE_URL
+echo "sk_live_abc123def456" | keyclasp set STRIPE_SECRET
 
 # Pre-store TOTP for demo
-keyblind totp set github "otpauth://totp/GitHub:demo-user?secret=JBSWY3DPEHPK3PXP&issuer=GitHub"
+keyclasp totp set github "otpauth://totp/GitHub:demo-user?secret=JBSWY3DPEHPK3PXP&issuer=GitHub"
 ```

@@ -1,8 +1,8 @@
 ---
-title: keyblind run stream scanning must preserve CLI compatibility
+title: keyclasp run stream scanning must preserve CLI compatibility
 date: 2026-07-09
 category: integration-issues
-module: keyblind run
+module: keyclasp run
 problem_type: integration_issue
 component: tooling
 symptoms:
@@ -11,26 +11,26 @@ symptoms:
 root_cause: logic_error
 resolution_type: code_fix
 severity: high
-tags: [keyblind-run, stream-redaction, terraform, stdin, secrets]
+tags: [keyclasp-run, stream-redaction, terraform, stdin, secrets]
 ---
 
-# keyblind run stream scanning must preserve CLI compatibility
+# keyclasp run stream scanning must preserve CLI compatibility
 
 ## Problem
 
-`keyblind run` added stdout/stderr scanning so commands that print injected secrets are redacted and terminated. The first implementation protected the transcript, but it broke real CLI workflows such as Terraform by treating ambiguous output as a leak and by buffering interactive prompts.
+`keyclasp run` added stdout/stderr scanning so commands that print injected secrets are redacted and terminated. The first implementation protected the transcript, but it broke real CLI workflows such as Terraform by treating ambiguous output as a leak and by buffering interactive prompts.
 
 ## Symptoms
 
-- `keyblind run -- terraform init` redacted normal Terraform words such as `Initializing`, `available`, and `terraform`, then terminated the child as a leak.
-- `keyblind run -- terraform plan` appeared to ignore pasted stdin because Terraform-style prompt text could be held in the redactor carry buffer instead of being displayed while the child waited for input.
-- The remaining Terraform backend failure after the fix was a real provider/backend auth error (`InvalidAccessKeyId`), not a Keyblind guard failure.
+- `keyclasp run -- terraform init` redacted normal Terraform words such as `Initializing`, `available`, and `terraform`, then terminated the child as a leak.
+- `keyclasp run -- terraform plan` appeared to ignore pasted stdin because Terraform-style prompt text could be held in the redactor carry buffer instead of being displayed while the child waited for input.
+- The remaining Terraform backend failure after the fix was a real provider/backend auth error (`InvalidAccessKeyId`), not a Keyclasp guard failure.
 
 ## What Didn't Work
 
 - Matching every non-empty injected value was too broad. A one-character secret value like `a` turns ordinary English output into false leak matches.
 - Holding back `longestSecret - 1` characters from every output chunk was too conservative. It protects split-secret detection, but a short prompt such as `Enter a value:` can be shorter than the longest secret and therefore never reach the terminal before the child waits for stdin.
-- Relying on `--allow-unsafe` would have restored CLI behavior, but it would disable the protection that `keyblind run` is supposed to provide by default.
+- Relying on `--allow-unsafe` would have restored CLI behavior, but it would disable the protection that `keyclasp run` is supposed to provide by default.
 
 ## Solution
 
@@ -86,8 +86,8 @@ The regression tests in [tests/run.test.ts](../../../tests/run.test.ts) encode b
 
 - Any stream-scanning secret guard must test both safety and CLI compatibility. Add regression cases for exact leaks, split leaks, short-value false positives, and prompt-like output that does not end in a newline.
 - Avoid fixed-size output buffering unless the buffer length is tied to an actual possible match. For interactive tools, unrelated output should pass through immediately.
-- When testing `keyblind run` against Terraform or similar tools, distinguish Keyblind guard failures from the wrapped tool's real backend errors. In this case, `InvalidAccessKeyId` was a Terraform backend credential problem after the Keyblind guard stopped interfering.
+- When testing `keyclasp run` against Terraform or similar tools, distinguish Keyclasp guard failures from the wrapped tool's real backend errors. In this case, `InvalidAccessKeyId` was a Terraform backend credential problem after the Keyclasp guard stopped interfering.
 
 ## Related Issues
 
-- PR #6 updates the `keyblind run` guard to ignore tiny leak signatures and preserve interactive prompts.
+- PR #6 updates the `keyclasp run` guard to ignore tiny leak signatures and preserve interactive prompts.

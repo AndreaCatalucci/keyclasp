@@ -1,28 +1,28 @@
 # Getting Started
 
-## Install Keyblind
+## Install Keyclasp
 
 ```bash
-npm install -g keyblind
-keyblind init
+npm install -g keyclasp
+keyclasp init
 ```
 
-Choose a strong vault passphrase and store it safely. Keyblind cannot recover a lost passphrase.
+Choose a strong vault passphrase and store it safely. Keyclasp cannot recover a lost passphrase.
 
 ## Store Your First Secret
 
 Use the secure prompt so the value does not enter shell history:
 
 ```bash
-keyblind set OPENAI_API_KEY -
+keyclasp set OPENAI_API_KEY -
 # Paste the value, then press Ctrl+D
 ```
 
 Confirm that the vault contains the name without printing its value:
 
 ```bash
-keyblind list
-keyblind status
+keyclasp list
+keyclasp status
 ```
 
 ## Prepare an Existing Project
@@ -30,8 +30,8 @@ keyblind status
 If the project already contains a real `.env`, import it before sandboxing:
 
 ```bash
-keyblind import .env
-keyblind sandbox .env
+keyclasp import .env
+keyclasp sandbox .env
 ```
 
 Sandboxing replaces real values with deterministic fakes. The project keeps the same variable names and stable fake values, so a coding agent can inspect configuration without reading credentials and repeated runs do not create noisy diffs.
@@ -39,22 +39,22 @@ Sandboxing replaces real values with deterministic fakes. The project keeps the 
 ## Run Commands With Secrets
 
 ```bash
-keyblind run -- npm test
-keyblind run -- npm start
+keyclasp run -- npm test
+keyclasp run -- npm start
 ```
 
-Keyblind injects stored secrets into the child process environment. It blocks obvious environment-dump commands by default and watches stdout and stderr for injected values. If it detects a leak, it redacts the value and terminates the child process.
+Keyclasp injects stored secrets into the child process environment. It blocks obvious environment-dump commands by default and watches stdout and stderr for injected values. If it detects a leak, it redacts the value and terminates the child process.
 
 When a command expects another variable name:
 
 ```bash
-keyblind run --env OPENAI_API_KEY:AI_TOKEN -- npm test
+keyclasp run --env OPENAI_API_KEY:AI_TOKEN -- npm test
 ```
 
 ## Restore a Sandboxed File
 
 ```bash
-keyblind unsandbox .env
+keyclasp unsandbox .env
 ```
 
 Restore real values only for a trusted local workflow. Sandbox the file again before letting a coding agent inspect or edit the project.

@@ -22,11 +22,11 @@ In 2025, security researchers found over 100,000 LLM conversation transcripts co
 - Committed secrets exposed by an AI suggestion
 - Had their sandboxed environment read by an agent with file access
 
-The existing solutions often depend on a particular editor. Keyblind instead protects the project files and commands that every coding agent works with.
+The existing solutions often depend on a particular editor. Keyclasp instead protects the project files and commands that every coding agent works with.
 
-## Enter Keyblind: Guarded Secret Workflows
+## Enter Keyclasp: Guarded Secret Workflows
 
-Keyblind is a local encrypted vault and CLI. It replaces real `.env` values with deterministic fakes and injects credentials only into commands that need them.
+Keyclasp is a local encrypted vault and CLI. It replaces real `.env` values with deterministic fakes and injects credentials only into commands that need them.
 
 Here's the architecture:
 
@@ -37,29 +37,29 @@ Here's the architecture:
 └───────────────┘     └─────────────────┘     └─────────────────┘
 ```
 
-When a test, build, or development server needs credentials, run it through `keyblind run -- <command>`. Keyblind injects the values into that child process, blocks obvious environment dumps, and stops detected output leaks.
+When a test, build, or development server needs credentials, run it through `keyclasp run -- <command>`. Keyclasp injects the values into that child process, blocks obvious environment dumps, and stops detected output leaks.
 
 ## The Sandbox Trick
 
-Keyblind's killer feature is `.env` sandboxing:
+Keyclasp's killer feature is `.env` sandboxing:
 
 ```bash
 # Real .env
 OPENAI_API_KEY=sk-proj-abc123xyz
 DATABASE_URL=postgresql://user:pass@localhost/db
 
-# After: keyblind sandbox
+# After: keyclasp sandbox
 OPENAI_API_KEY=sandbox_f4e2a9b1c3d5_OPENAI_API_KEY
 DATABASE_URL=sandbox_a1b2c3d4e5f6_DATABASE_URL
 ```
 
 Your real values are encrypted and stored in the vault. The `.env` file now contains deterministic fake values **the same fake every time**, so your git diffs stay clean. AI agents reading your `.env` see only the fakes.
 
-When you're ready to work: `keyblind unsandbox`. Real values restored instantly.
+When you're ready to work: `keyclasp unsandbox`. Real values restored instantly.
 
 ## Seven Secret Backends
 
-Keyblind doesn't force you into a single way of managing secrets:
+Keyclasp doesn't force you into a single way of managing secrets:
 
 | Backend | What It Does |
 |---------|-------------|
@@ -71,7 +71,7 @@ Keyblind doesn't force you into a single way of managing secrets:
 | **GCP Secret Manager** | Full CRUD via `gcloud` CLI |
 | **Azure Key Vault** | Full CRUD via `az` CLI |
 
-Use your password manager. Use your cloud provider. Use the local vault. Mix and match. Keyblind abstracts the "where" so your AI tools don't care.
+Use your password manager. Use your cloud provider. Use the local vault. Mix and match. Keyclasp abstracts the "where" so your AI tools don't care.
 
 ## Zero Network, Zero Telemetry
 
@@ -79,25 +79,25 @@ The default vault is fully local: no account, analytics, or network calls. Optio
 
 ## Works With Any Coding Agent
 
-Keyblind protects files and commands instead of depending on an editor extension:
+Keyclasp protects files and commands instead of depending on an editor extension:
 
 ```bash
-keyblind import .env
-keyblind sandbox .env
-keyblind run -- npm test
+keyclasp import .env
+keyclasp sandbox .env
+keyclasp run -- npm test
 ```
 
 The same workflow works whether you use Claude Code, Cursor, Copilot, Windsurf, Cline, Zed, or a terminal-only agent.
 
 ## The Competition
 
-[Cloak](https://getcloak.dev) launched two days before Keyblind (May 25, 2026). It's a Rust CLI and editor extension that sandboxes `.env` files. Keyblind adds guarded command execution, secret lifecycle commands, and optional backends.
+[Cloak](https://getcloak.dev) launched two days before Keyclasp (May 25, 2026). It's a Rust CLI and editor extension that sandboxes `.env` files. Keyclasp adds guarded command execution, secret lifecycle commands, and optional backends.
 
-Keyblind's bet is that the safest integration point is the process boundary: keep plaintext out of project files and inject it only into the trusted commands that need it.
+Keyclasp's bet is that the safest integration point is the process boundary: keep plaintext out of project files and inject it only into the trusted commands that need it.
 
 ## What's Next
 
-Keyblind v0.2.0 shipped with:
+Keyclasp v0.2.0 shipped with:
 - Guarded command execution and deterministic `.env` sandboxing
 - 7 secret backends (local, cloud, and password managers)
 - Secret rotation and expiry tracking
@@ -109,17 +109,17 @@ The roadmap includes secret scanning across repos, automatic secret rotation, an
 ## Try It
 
 ```bash
-npm install -g keyblind
-keyblind init
-echo "sk-your-key" | keyblind set OPENAI_API_KEY
-keyblind sandbox
+npm install -g keyclasp
+keyclasp init
+echo "sk-your-key" | keyclasp set OPENAI_API_KEY
+keyclasp sandbox
 ```
 
 Your `.env` is now safe from AI agents. Your secrets are encrypted. Your peace of mind is restored.
 
 ---
 
-**[Keyblind on GitHub](https://github.com/AndreaCatalucci/keyblind)** | **[npm](https://www.npmjs.com/package/keyblind)**
+**[Keyclasp on GitHub](https://github.com/AndreaCatalucci/keyclasp)** | **[npm](https://www.npmjs.com/package/keyclasp)**
 
 *MIT Licensed. Built with TypeScript, SQLite, and paranoia.*
 Disclosure: It's MIT-licensed open source free to use. No accounts, no telemetry, no network calls. Your secrets stay on your machine.

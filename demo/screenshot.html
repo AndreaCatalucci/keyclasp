@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=800, initial-scale=1.0">
-<title>Keyblind — Terminal Screenshot</title>
+<title>Keyclasp — Terminal Screenshot</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
@@ -50,7 +50,7 @@
     <span class="dot red"></span>
     <span class="dot yellow"></span>
     <span class="dot green"></span>
-    <span class="title">Terminal — keyblind — zsh</span>
+    <span class="title">Terminal — keyclasp — zsh</span>
   </div>
   <div class="body">
     <div class="line"><span class="dim"># Real .env — exposed API keys</span></div>
@@ -60,15 +60,15 @@
     <div class="line"><span class="output">STRIPE_SECRET=sk_live_abc123def456</span></div>
     <div class="line"></div>
     <div class="line"><span class="dim"># Store secrets in encrypted vault</span></div>
-    <div class="line"><span class="prompt">❯</span> <span class="cmd">echo "sk-proj-abc123xyz890" | keyblind set OPENAI_API_KEY</span></div>
+    <div class="line"><span class="prompt">❯</span> <span class="cmd">echo "sk-proj-abc123xyz890" | keyclasp set OPENAI_API_KEY</span></div>
     <div class="line"><span class="green">Stored "OPENAI_API_KEY"</span></div>
-    <div class="line"><span class="prompt">❯</span> <span class="cmd">keyblind set DATABASE_URL -</span></div>
+    <div class="line"><span class="prompt">❯</span> <span class="cmd">keyclasp set DATABASE_URL -</span></div>
     <div class="line"><span class="green">Stored "DATABASE_URL"</span></div>
-    <div class="line"><span class="prompt">❯</span> <span class="cmd">keyblind set STRIPE_SECRET -</span></div>
+    <div class="line"><span class="prompt">❯</span> <span class="cmd">keyclasp set STRIPE_SECRET -</span></div>
     <div class="line"><span class="green">Stored "STRIPE_SECRET"</span></div>
     <div class="line"></div>
     <div class="line"><span class="dim"># Sandbox .env — AI agents see fakes</span></div>
-    <div class="line"><span class="prompt">❯</span> <span class="cmd">keyblind sandbox</span></div>
+    <div class="line"><span class="prompt">❯</span> <span class="cmd">keyclasp sandbox</span></div>
     <div class="line">Sandboxed <span class="hl">3 value(s)</span> in .env:</div>
     <div class="line">  <span class="yellow">- DATABASE_URL → fake</span></div>
     <div class="line">  <span class="yellow">- OPENAI_API_KEY → fake</span></div>
@@ -80,11 +80,11 @@
     <div class="line"><span class="red">STRIPE_SECRET=sandbox_c3d4e5f6a7b8_STRIPE_SECRET</span></div>
     <div class="line"></div>
     <div class="line"><span class="dim"># Run commands with real secrets injected as env vars</span></div>
-    <div class="line"><span class="prompt">❯</span> <span class="cmd">keyblind run -- npm test</span></div>
+    <div class="line"><span class="prompt">❯</span> <span class="cmd">keyclasp run -- npm test</span></div>
     <div class="line"><span class="green">✓ tests passed (3 secrets injected)</span></div>
     <div class="line"></div>
     <div class="line"><span class="dim"># Unsandbox to restore real values</span></div>
-    <div class="line"><span class="prompt">❯</span> <span class="cmd">keyblind unsandbox</span></div>
+    <div class="line"><span class="prompt">❯</span> <span class="cmd">keyclasp unsandbox</span></div>
     <div class="line">Restored <span class="hl">3 value(s)</span> in .env:</div>
     <div class="line">  <span class="green">- DATABASE_URL → real</span></div>
     <div class="line">  <span class="green">- OPENAI_API_KEY → real</span></div>
@@ -93,7 +93,7 @@
     <div class="line"><span class="dim"># Works with every AI editor</span></div>
     <div class="line"><span class="hl">Claude Code · Cursor · Copilot · Windsurf · Cline · Zed</span></div>
     <div class="line"></div>
-    <div class="line"><span class="dim">npm install -g keyblind &nbsp;|&nbsp; github.com/AndreaCatalucci/keyblind &nbsp;|&nbsp; MIT</span></div>
+    <div class="line"><span class="dim">npm install -g keyclasp &nbsp;|&nbsp; github.com/AndreaCatalucci/keyclasp &nbsp;|&nbsp; MIT</span></div>
     <div class="line"><span class="prompt">❯</span> <span class="cmd">&nbsp;</span></div>
   </div>
 </div>

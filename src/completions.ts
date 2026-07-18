@@ -11,13 +11,13 @@ const COMMANDS = [
 
 const FLAGS: Record<string, string> = {
   "--project": "Use a project-specific vault",
-  "--version": "Show Keyblind version",
+  "--version": "Show Keyclasp version",
   "--expired": "Check for expired secrets",
 };
 
 export function generateBash(): string {
-  return `# Keyblind bash completion
-_keyblind() {
+  return `# Keyclasp bash completion
+_keyclasp() {
   local cur prev words cword
   _init_completion || return
 
@@ -30,17 +30,17 @@ _keyblind() {
   case "$cmd" in
     get|delete|rotate|set|alias)
       if [[ $cword -eq 2 ]]; then
-        COMPREPLY=($(compgen -W "$(keyblind list 2>/dev/null | sed 's/^  - //')" -- "$cur"))
+        COMPREPLY=($(compgen -W "$(keyclasp list 2>/dev/null | sed 's/^  - //')" -- "$cur"))
       fi
       ;;
     unalias)
       if [[ $cword -eq 2 ]]; then
-        COMPREPLY=($(compgen -W "$(keyblind aliases 2>/dev/null | sed 's/^  - //' | awk '{print $1}')" -- "$cur"))
+        COMPREPLY=($(compgen -W "$(keyclasp aliases 2>/dev/null | sed 's/^  - //' | awk '{print $1}')" -- "$cur"))
       fi
       ;;
     backend)
       if [[ $cword -eq 2 ]]; then
-        COMPREPLY=($(compgen -W "$(keyblind backends 2>/dev/null | grep '✓' | awk '{print $2}')" -- "$cur"))
+        COMPREPLY=($(compgen -W "$(keyclasp backends 2>/dev/null | grep '✓' | awk '{print $2}')" -- "$cur"))
       fi
       ;;
     sandbox|unsandbox|watch)
@@ -53,33 +53,33 @@ _keyblind() {
       ;;
   esac
 }
-complete -F _keyblind keyblind
+complete -F _keyclasp keyclasp
 `;
 }
 
 export function generateZsh(): string {
-  return `#compdef keyblind
+  return `#compdef keyclasp
 
-_keyblind() {
+_keyclasp() {
   local -a commands
   commands=(${COMMANDS.map(c => `'${c}'`).join("\n            ")})
 
   _arguments -C \\
     '--project[Use a project-specific vault]:project name:' \\
-    '--version[Show Keyblind version]' \\
-    '-v[Show Keyblind version]' \\
+    '--version[Show Keyclasp version]' \\
+    '-v[Show Keyclasp version]' \\
     '1:command:(${COMMANDS.join(" ")})' \\
     '*::arg:->args'
 
   case $words[1] in
     get|delete|rotate|set|alias)
-      _arguments '2:secret:($(keyblind list 2>/dev/null | sed "s/  - //"))'
+      _arguments '2:secret:($(keyclasp list 2>/dev/null | sed "s/  - //"))'
       ;;
     unalias)
-      _arguments '2:alias:($(keyblind aliases 2>/dev/null | sed "s/  - //" | awk "{print \\$1}"))'
+      _arguments '2:alias:($(keyclasp aliases 2>/dev/null | sed "s/  - //" | awk "{print \\$1}"))'
       ;;
     backend)
-      _arguments '2:backend:($(keyblind backends 2>/dev/null | grep "✓" | awk "{print \\$2}"))'
+      _arguments '2:backend:($(keyclasp backends 2>/dev/null | grep "✓" | awk "{print \\$2}"))'
       ;;
     sandbox|unsandbox|watch)
       _arguments '*:file:_files'
@@ -90,28 +90,28 @@ _keyblind() {
   esac
 }
 
-_keyblind
+_keyclasp
 `;
 }
 
 export function generateFish(): string {
-  return `# Keyblind fish completion
+  return `# Keyclasp fish completion
 set -l commands ${COMMANDS.join(" ")}
 
-complete -c keyblind -f
-complete -c keyblind -n "not __fish_seen_subcommand_from $commands" -a "$commands"
-complete -c keyblind -s h -l help -d "Show help"
-complete -c keyblind -s v -l version -d "Show Keyblind version"
+complete -c keyclasp -f
+complete -c keyclasp -n "not __fish_seen_subcommand_from $commands" -a "$commands"
+complete -c keyclasp -s h -l help -d "Show help"
+complete -c keyclasp -s v -l version -d "Show Keyclasp version"
 
 # --project flag
-complete -c keyblind -l project -d "Use a project-specific vault" -x
+complete -c keyclasp -l project -d "Use a project-specific vault" -x
 
 # Per-command completions
-complete -c keyblind -n "__fish_seen_subcommand_from get delete rotate set alias" -a "(keyblind list 2>/dev/null | sed 's/  - //')"
-complete -c keyblind -n "__fish_seen_subcommand_from unalias" -a "(keyblind aliases 2>/dev/null | sed 's/  - //' | awk '{print \$1}')"
-complete -c keyblind -n "__fish_seen_subcommand_from backend" -a "(keyblind backends 2>/dev/null | grep '✓' | awk '{print \$2}')"
-complete -c keyblind -n "__fish_seen_subcommand_from check" -a "--expired"
-complete -c keyblind -n "__fish_seen_subcommand_from sandbox unsandbox watch" -F
+complete -c keyclasp -n "__fish_seen_subcommand_from get delete rotate set alias" -a "(keyclasp list 2>/dev/null | sed 's/  - //')"
+complete -c keyclasp -n "__fish_seen_subcommand_from unalias" -a "(keyclasp aliases 2>/dev/null | sed 's/  - //' | awk '{print \$1}')"
+complete -c keyclasp -n "__fish_seen_subcommand_from backend" -a "(keyclasp backends 2>/dev/null | grep '✓' | awk '{print \$2}')"
+complete -c keyclasp -n "__fish_seen_subcommand_from check" -a "--expired"
+complete -c keyclasp -n "__fish_seen_subcommand_from sandbox unsandbox watch" -F
 `;
 }
 
@@ -127,13 +127,13 @@ export function getInstallInstructions(shell: string): string {
   switch (shell) {
     case "zsh":
       return `# Add to ~/.zshrc:
-source <(keyblind completions zsh)`;
+source <(keyclasp completions zsh)`;
     case "bash":
       return `# Add to ~/.bashrc:
-source <(keyblind completions bash)`;
+source <(keyclasp completions bash)`;
     case "fish":
       return `# Save to fish completions:
-keyblind completions fish > ~/.config/fish/completions/keyblind.fish`;
+keyclasp completions fish > ~/.config/fish/completions/keyclasp.fish`;
     default:
       return `Unknown shell: ${shell}`;
   }

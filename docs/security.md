@@ -1,7 +1,7 @@
-# Keyblind Security Design
+# Keyclasp Security Design
 
 > Self-audit of the cryptographic architecture. Covers v0.5.0.
-> For a professional third-party audit, contact security@keyblind.dev.
+> To report a vulnerability privately, open a [GitHub security advisory](https://github.com/AndreaCatalucci/keyclasp/security/advisories/new).
 
 ## Threat Model
 
@@ -15,13 +15,13 @@
 - Kernel-level attacks (rootkits)
 - Physical hardware keyloggers
 - Memory dumping from a running process that has unlocked the vault
-- Supply chain compromise of the `keyblind` npm package itself
+- Supply chain compromise of the `keyclasp` npm package itself
 
 ## Architecture Overview
 
 ```
 ┌──────────────────────────────────────────────────────┐
-│                   KEYBLIND VAULT                      │
+│                   KEYCLASP VAULT                      │
 ├──────────────────────────────────────────────────────┤
 │                                                       │
 │  User Passphrase ──► PBKDF2 (600K iter) ──► KEK      │
@@ -49,7 +49,7 @@ The Key Encryption Key (KEK) is derived from the user's passphrase using:
 
 - **Algorithm**: PBKDF2-HMAC-SHA256
 - **Iterations**: 600,000
-- **Salt**: Stored in vault metadata (`_keyblind_meta`)
+- **Salt**: Stored in vault metadata (`_keyclasp_meta`)
 - **Key length**: 32 bytes (256 bits)
 
 ```ts
@@ -126,15 +126,15 @@ const iv = crypto.randomBytes(12);
 
 ### SQLite Database
 
-- **Location**: `~/.keyblind/vault.db`
+- **Location**: `~/.keyclasp/vault.db`
 - **Permissions**: `0600` (owner read/write only)
-- **Keychain directory**: `~/.keyblind/` permissions `0700`
+- **Keychain directory**: `~/.keyclasp/` permissions `0700`
 
 ### What's Stored in Plaintext
 
 - Secret names (for querying)
 - Alias metadata (alias name and canonical target name)
-- Internal metadata (`_keyblind_meta`, `_expiry:*`)
+- Internal metadata (`_keyclasp_meta`, `_expiry:*`)
 - TOTP URIs
 
 ### What's Encrypted
@@ -154,17 +154,17 @@ Aliases are local-vault metadata pointers only. They do not duplicate encrypted 
 | Vault.db stolen, no passphrase | **LOW** | AES-256-GCM with 600K PBKDF2 iterations. Brute force infeasible |
 | Share link intercepted | **LOW-MED** | Fragment never sent to server. But link can be intercepted via browser history or phishing |
 | Replay of old share links | **LOW** | TTL + expiry enforcement |
-| Injected command prints secrets | **HIGH** | `keyblind run` blocks obvious environment dumps, redacts detected injected secret values from stdout/stderr, terminates the child process, and requires `--allow-unsafe` to disable this guard |
+| Injected command prints secrets | **HIGH** | `keyclasp run` blocks obvious environment dumps, redacts detected injected secret values from stdout/stderr, terminates the child process, and requires `--allow-unsafe` to disable this guard |
 | Memory dump of running process | **MEDIUM** | DEK is in memory while vault is open. Limit the lifetime of trusted processes |
 | Dependency compromise | **MEDIUM** | Keep the dependency set small, review lockfile changes, and install only trusted releases |
 
-`keyblind run` tracks injected values of at least 8 characters for output leak detection. Shorter values are still injected, but they are too ambiguous to scan safely without false positives in ordinary command output.
+`keyclasp run` tracks injected values of at least 8 characters for output leak detection. Shorter values are still injected, but they are too ambiguous to scan safely without false positives in ordinary command output.
 
 ## Operational Recommendations
 
-1. **Never commit `.keyblind/`** to version control
-2. **Use `keyblind sandbox`** before coding agents inspect project configuration
-3. **Use `keyblind run`** instead of printing secrets into the shell
+1. **Never commit `.keyclasp/`** to version control
+2. **Use `keyclasp sandbox`** before coding agents inspect project configuration
+3. **Use `keyclasp run`** instead of printing secrets into the shell
 4. **Run only trusted child processes** with injected credentials
 5. **Rotate passphrases and affected secrets** if you suspect compromise
 6. **Treat remote backends as external trust boundaries** with their own accounts and networks
