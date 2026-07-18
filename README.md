@@ -130,7 +130,9 @@ Keyblind works best when the agent follows three rules:
 2. Sandbox `.env` files before reading or editing them.
 3. Use `keyblind run -- <command>` when a tool needs credentials.
 
-Reusable coding-agent skills and task recipes are planned, but are not currently shipped. They will build on sandboxing and guarded CLI execution rather than giving the model direct access to secret values.
+Keyblind ships a Codex skill at [`skills/keyblind-agent`](skills/keyblind-agent). Ask Codex's `$skill-installer` to install that directory from this repository, then invoke `$keyblind-agent` explicitly or let Codex select it when a command needs credentials. The skill lists secret names, chooses least-privilege `--env` mappings, and runs the target command through Keyblind without reading plaintext values into the agent context.
+
+The npm package includes the skill directory so other distribution tooling can consume the same artifact.
 
 ## Backends
 

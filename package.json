@@ -11,11 +11,13 @@
   },
   "main": "./dist/index.js",
   "files": [
-    "dist"
+    "dist",
+    "skills"
   ],
   "scripts": {
     "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
     "build": "npm run clean --silent && tsc",
+    "postbuild": "node -e \"require('node:fs').chmodSync('dist/cli.js', 0o755)\"",
     "dev": "tsc --watch",
     "start": "node dist/cli.js",
     "prepublishOnly": "npm run build",

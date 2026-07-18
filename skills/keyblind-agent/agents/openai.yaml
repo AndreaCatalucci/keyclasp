@@ -1,0 +1,4 @@
+interface:
+  display_name: "Keyblind for Codex"
+  short_description: "Run commands with secrets without revealing them"
+  default_prompt: "Use $keyblind-agent to run this command with the required secrets."
