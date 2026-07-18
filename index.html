@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Keyblind: Blind AI to Your API Keys</title>
-<meta name="description" content="Encrypted secrets vault with MCP for AI agents. Secrets resolved at runtime, never leaked to LLM conversations.">
+<meta name="description" content="Local encrypted secrets vault that keeps credentials out of files coding agents can read.">
 <style>
   *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
   body {
@@ -131,9 +131,9 @@
   <!-- Hero -->
   <div class="hero">
     <h1>Blind AI to Your <span>API Keys</span></h1>
-    <p>Encrypted secrets vault for AI agents. Secrets are resolved at runtime, never leaked to LLM conversations.</p>
-    <div class="install">npm install -g keyblind && keyblind init && keyblind setup-mcp</div>
-    <div class="note">Three commands. Works from any directory. Zero telemetry.</div>
+    <p>Keep real credentials out of project files, inject them into trusted commands only when needed, and catch accidental output leaks.</p>
+    <div class="install">npm install -g keyblind && keyblind init</div>
+    <div class="note">Local vault. Guarded execution. Zero telemetry.</div>
     <br>
     <a href="https://github.com/AndreaCatalucci/keyblind" class="btn btn-outline">GitHub →</a>
   </div>
@@ -141,7 +141,7 @@
   <!-- How it works -->
   <div class="section">
     <h2>How It Works</h2>
-    <div class="sub">Three commands. Your secrets stay secret.</div>
+    <div class="sub">Store, sandbox, and run. Your secrets stay secret.</div>
     <div class="steps">
       <div class="step">
         <div class="num">1</div>
@@ -152,15 +152,15 @@
       </div>
       <div class="step">
         <div class="num">2</div>
-        <h3>Connect Your AI</h3>
-        <p>One command to configure Claude Code, Cursor, Copilot, Windsurf, Cline, or Zed.</p>
+        <h3>Sandbox the Project</h3>
+        <p>Replace real .env values with deterministic fakes before a coding agent reads the repository.</p>
         <br>
-        <code>keyblind setup-mcp</code>
+        <code>keyblind import .env &amp;&amp; keyblind sandbox .env</code>
       </div>
       <div class="step">
         <div class="num">3</div>
-        <h3>AI Resolves at Runtime</h3>
-        <p>Your AI agent resolves secrets when needed. The values never appear in chat.</p>
+        <h3>Run With Secrets</h3>
+        <p>Inject secrets into a trusted child process and stop detected output leaks.</p>
         <br>
         <code>keyblind sandbox && keyblind run -- npm start</code>
       </div>
@@ -173,7 +173,7 @@
   <!-- More than secrets -->
   <div class="section">
     <h2>More Than a Vault</h2>
-    <div class="sub">26 MCP tools. One CLI. Local-first by default.</div>
+    <div class="sub">One focused CLI. Local-first by default.</div>
     <div class="features">
       <div class="feat">
         <div class="icon">&#128274;</div>
@@ -217,13 +217,13 @@
         <h4 style="color:#58a6ff;margin-bottom:4px;">CLI Reference</h4>
         <p style="color:#8b949e;font-size:13px;">Core commands with examples and flags.</p>
       </a>
-      <a href="https://github.com/AndreaCatalucci/keyblind/blob/main/docs/mcp-integration.md" class="card" style="text-decoration:none;display:block;">
-        <h4 style="color:#58a6ff;margin-bottom:4px;">MCP Integration</h4>
-        <p style="color:#8b949e;font-size:13px;">26 MCP tools with parameter schemas and usage patterns.</p>
+      <a href="https://github.com/AndreaCatalucci/keyblind/blob/main/README.md#using-keyblind-with-coding-agents" class="card" style="text-decoration:none;display:block;">
+        <h4 style="color:#58a6ff;margin-bottom:4px;">Coding Agent Workflow</h4>
+        <p style="color:#8b949e;font-size:13px;">A practical sandbox-and-run workflow for agent sessions.</p>
       </a>
-      <a href="https://github.com/AndreaCatalucci/keyblind/blob/main/docs/editors.md" class="card" style="text-decoration:none;display:block;">
-        <h4 style="color:#58a6ff;margin-bottom:4px;">Editor Setup</h4>
-        <p style="color:#8b949e;font-size:13px;">Per-editor config for Claude Code, Cursor, Copilot, and more.</p>
+      <a href="https://github.com/AndreaCatalucci/keyblind/blob/main/docs/faq.md" class="card" style="text-decoration:none;display:block;">
+        <h4 style="color:#58a6ff;margin-bottom:4px;">FAQ</h4>
+        <p style="color:#8b949e;font-size:13px;">Security boundaries, recovery, backends, and common questions.</p>
       </a>
       <a href="https://github.com/AndreaCatalucci/keyblind/blob/main/docs/security.md" class="card" style="text-decoration:none;display:block;">
         <h4 style="color:#58a6ff;margin-bottom:4px;">Security</h4>
@@ -247,7 +247,7 @@
     <h2 style="text-align:center;margin-bottom:32px">Trusted by Developers</h2>
     <div class="testimonials">
       <div class="card" style="text-align:center">
-        <p style="font-size:15px;color:#c9d1d9;line-height:1.6;font-style:italic">"Finally: an MCP-native secrets manager that actually works across all my editors. The sandbox feature alone saved me from leaking keys to Claude Code twice."</p>
+        <p style="font-size:15px;color:#c9d1d9;line-height:1.6;font-style:italic">"The sandbox feature keeps credentials out of agent context, and guarded commands make the safe path easy to repeat."</p>
         <p style="margin-top:12px;font-size:14px;color:#8b949e">Alex R., Senior Engineer</p>
       </div>
       <div class="card" style="text-align:center">

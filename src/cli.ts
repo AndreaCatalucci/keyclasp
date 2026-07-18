@@ -1,9 +1,7 @@
 #!/usr/bin/env node
-import { initializeVault, getKey, storeSecret, listSecrets, resolveSecret, resolveSecretWithAlias, createAlias, deleteAlias, listAliases, deleteSecret, isInitialized, closeDb, setRequireSession, setRequireBiometricPerSecretAccess, setProjectName, getProjectName, getAuditLog, checkExpired, setExpiry, setClientInfo, checkVaultDecryptability } from "./vault.js";
-import { startServer } from "./server.js";
+import { initializeVault, getKey, storeSecret, listSecrets, resolveSecret, resolveSecretWithAlias, createAlias, deleteAlias, listAliases, deleteSecret, isInitialized, closeDb, setProjectName, getProjectName, getAuditLog, checkExpired, setExpiry, checkVaultDecryptability } from "./vault.js";
 import { sandboxEnvFile, unsandboxEnvFile } from "./sandbox.js";
 import { setBackend, getBackend, listAvailableBackends } from "./backends.js";
-import { authenticateWithBiometric, biometricAvailable, createSession, sessionActive, clearSession } from "./auth.js";
 import { installHook, checkAndReport, getStagedFiles, scanFiles } from "./hook.js";
 import { watchEnvFile } from "./watch.js";
 import { readConfig, mergeConfig, generateSecret, parseEnvFile, formatEnvFile } from "./config.js";
@@ -12,7 +10,6 @@ import { generateBash, generateZsh, generateFish, detectShell, getInstallInstruc
 import { saveHistory, getSecretHistory, rollbackSecret, ensureHistoryTable, getExpiringSoon, createSyncBundle, applySyncBundle, migrateSecrets, rotateLocalSecret } from "./sync.js";
 import { storeTOTP, getTOTP, listTOTP, deleteTOTP, generateTOTPCode, parseOTPAuthURI } from "./totp.js";
 import { createShareLink, receiveShare } from "./share.js";
-import { setupAll } from "./setup-mcp.js";
 import { parseRunArgs, runCommandWithSecrets } from "./run.js";
 import { getDisplayVersion } from "./version.js";
 import fs from "node:fs";
@@ -44,18 +41,12 @@ Usage:
   keyblind aliases             List secret aliases
   keyblind unalias <alias>     Delete a secret alias
   keyblind delete <name>       Delete a secret
-  keyblind start               Start the MCP server (stdio)
-  keyblind start --biometric   Start MCP server with biometric session requirement
-  keyblind start --biometric-every-time
-                              Require biometrics for every secret access
-  keyblind unlock              Authenticate with biometric (cross-platform)
   keyblind run [--allow-unsafe] [--env SOURCE[:TARGET]] <command...>
                               Run a guarded command with secrets as env vars
   keyblind sandbox [.env]      Replace real env values with deterministic fakes
   keyblind unsandbox [.env]    Restore real env values from vault
   keyblind backends            List available secret backends
   keyblind install-hook        Install pre-commit hook to detect secrets
-  keyblind setup-mcp           Configure MCP server for Claude Code & other editors
   keyblind check-secrets       Scan staged files for secrets (used by hook)
   keyblind scan-secrets <file...>  Scan specific files for secrets
   keyblind backend <name>      Switch active secret backend
@@ -104,7 +95,6 @@ Examples:
   keyblind run --env OPENAI_API_KEY:AI_KEY -- npm start
                               # Run with one-off env mapping and leak-guarded output
   keyblind unsandbox           # Restore real .env values
-  keyblind unlock              # Touch ID auth to unlock vault
   `);
 }
 
@@ -198,16 +188,7 @@ async function main(): Promise<void> {
         initializeVault(passphrase);
         getKey(); // Verify key works
         console.log("Keyblind vault created at ~/.keyblind/");
-        console.log("Add this to your Claude Code config (~/.claude/settings.json):");
-        console.log(`
-  {
-    "mcpServers": {
-      "keyblind": {
-        "command": "npx",
-        "args": ["keyblind", "start"]
-      }
-    }
-  }`);
+        console.log("Next: store a secret with `keyblind set <name>`, then use it with `keyblind run`.");
         break;
       }
 
@@ -398,21 +379,6 @@ async function main(): Promise<void> {
         break;
       }
 
-      case "setup-mcp": {
-        const results = setupAll();
-        for (const r of results) {
-          if (r.action === "configured") {
-            console.log(`${r.editor}: MCP server configured successfully.`);
-          } else if (r.action === "already_configured") {
-            console.log(`${r.editor}: Already configured.`);
-          } else {
-            console.error(`${r.editor}: Failed — ${r.error}`);
-          }
-        }
-        console.log("\nRestart Claude Code, then try: 'list my keyblind secrets'");
-        break;
-      }
-
       case "check-secrets": {
         const result = checkAndReport();
         if (result.found > 0) {
@@ -461,8 +427,7 @@ async function main(): Promise<void> {
           console.log("(no audit entries yet)");
         } else {
           for (const e of entries) {
-            const client = e.clientInfo || "cli";
-            console.log(`  ${e.timestamp}  ${(e.action || "").padEnd(8)} ${(e.secretName || "").padEnd(30)} ${client}`);
+            console.log(`  ${e.timestamp}  ${e.action.padEnd(8)} ${e.secretName}`);
           }
         }
         break;
@@ -540,70 +505,6 @@ async function main(): Promise<void> {
           console.log(`  Values:     FAILED (${err?.message ?? "decryptability check failed"})`);
           process.exit(1);
         }
-        break;
-      }
-
-      case "start": {
-        // Auto-initialize vault for Docker/Glama when KEYBLIND_AUTO_INIT is set
-        if (!isInitialized() && process.env.KEYBLIND_AUTO_INIT === "true") {
-          initializeVault("");
-          console.log("Vault auto-initialized for demo/container.");
-        }
-        if (!isInitialized()) {
-          console.error("Keyblind not initialized. Run: keyblind init");
-          process.exit(1);
-        }
-        const startFlags = args.slice(1).filter((arg) => arg.startsWith("--"));
-        const unknownFlags = startFlags.filter((flag) => flag !== "--biometric" && flag !== "--biometric-every-time");
-        if (unknownFlags.length > 0) {
-          console.error(`Unknown start option(s): ${unknownFlags.join(", ")}`);
-          console.error("Supported: keyblind start [--biometric] [--biometric-every-time]");
-          process.exit(1);
-        }
-        const biometric = args.includes("--biometric");
-        const biometricEveryTime = args.includes("--biometric-every-time");
-        if (biometric || biometricEveryTime) {
-          if (!biometricAvailable()) {
-            console.error("Biometric auth is not available on this system.");
-            process.exit(1);
-          }
-        }
-        if (biometric) {
-          if (!sessionActive()) {
-            console.error("Biometric session required. Run 'keyblind unlock' first.");
-            process.exit(1);
-          }
-          setRequireSession(true);
-          console.error("Biometric gate enabled; session expires in 15 minutes.");
-        }
-        if (biometricEveryTime) {
-          setRequireBiometricPerSecretAccess(true);
-          console.error("Biometric gate enabled for every secret access.");
-        }
-        getKey();
-        // MCP stdio transport uses stdout — startup messages MUST go to stderr.
-        console.error("Keyblind MCP server started (stdio transport).");
-        await startServer();
-        break;
-      }
-
-      case "unlock": {
-        if (!isInitialized()) {
-          console.error("Keyblind not initialized. Run: keyblind init");
-          process.exit(1);
-        }
-        if (!biometricAvailable()) {
-          console.error("Touch ID is not available on this system. Only supported on macOS with Touch ID.");
-          process.exit(1);
-        }
-        console.log("🔐 Authenticate with Touch ID to unlock the vault...");
-        const ok = authenticateWithBiometric("Keyblind vault unlock");
-        if (!ok) {
-          console.error("Authentication failed or was cancelled.");
-          process.exit(1);
-        }
-        createSession();
-        console.log("Vault unlocked. Session active for 15 minutes.");
         break;
       }
 

@@ -1,18 +1,30 @@
 import { beforeAll, describe, expect, it } from "vitest";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
 const cliPath = path.join(process.cwd(), "dist", "cli.js");
 const packageVersion = (JSON.parse(fs.readFileSync(path.join(process.cwd(), "package.json"), "utf8")) as { version: string }).version;
 
-function runCli(args: string[]): string {
-  return execFileSync(process.execPath, [cliPath, ...args], {
+function runCliProcess(args: string[]) {
+  return spawnSync(process.execPath, [cliPath, ...args], {
     cwd: process.cwd(),
     encoding: "utf8",
     env: { ...process.env, KEYBLIND_HOME: path.join(process.cwd(), ".not-used-by-version-test") },
     stdio: ["ignore", "pipe", "pipe"],
-  }).trim();
+  });
+}
+
+function runCli(args: string[]): string {
+  const result = runCliProcess(args);
+  if (result.error) throw result.error;
+  if (result.status !== 0) throw new Error(result.stderr);
+  return result.stdout.trim();
+}
+
+function runCliFailure(args: string[]): { status: number | null; stdout: string; stderr: string } {
+  const result = runCliProcess(args);
+  return { status: result.status, stdout: result.stdout, stderr: result.stderr };
 }
 
 describe("CLI version output", () => {
@@ -32,5 +44,24 @@ describe("CLI version output", () => {
     expect(runCli(["--version"])).toBe(version);
     expect(runCli(["-v"])).toBe(version);
     expect(runCli(["--project", "isolated", "--version"])).toBe(version);
+  });
+});
+
+describe("removed CLI surface", () => {
+  it.each(["start", "unlock"])("rejects the removed %s command normally", (command) => {
+    const result = runCliFailure([command]);
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(`Unknown command: ${command}`);
+    expect(result.stderr).not.toContain("deprecated");
+  });
+
+  it("omits removed commands and authentication flags from help", () => {
+    const help = runCli(["help"]);
+
+    expect(help).not.toContain("setup-");
+    expect(help).not.toMatch(/--bio(?:metric)|unlock/);
+    expect(help).toContain("keyblind run");
+    expect(help).toContain("keyblind sandbox");
   });
 });

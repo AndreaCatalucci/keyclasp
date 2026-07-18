@@ -1,6 +1,6 @@
 # Keyblind — Blind AI to Your Keys
 
-> **Encrypted secrets vault with MCP for AI agents. Secrets resolved at runtime, never leaked to LLM conversations.**
+> **Local encrypted secrets vault for coding-agent workflows. Secrets stay out of project files and are injected into trusted commands at runtime.**
 
 > **Local-only project.** PRs MUST target `origin` (AndreaCatalucci/keyblind). Use `gh pr create --repo AndreaCatalucci/keyblind --base main`.
 
@@ -9,7 +9,7 @@
 - **Runtime**: Node.js (TypeScript, ESM)
 - **Encryption**: AES-256-GCM (Node crypto)
 - **Storage**: SQLite (better-sqlite3)
-- **Protocol**: MCP (Model Context Protocol) via stdio
+- **Interface**: Local TypeScript CLI
 - **Backends**: Local vault, 1Password CLI, Bitwarden CLI, env vars, AWS, GCP, Azure
 
 ## Project Structure
@@ -17,15 +17,13 @@
 ```
 src/
 ├── vault.ts        → AES-256-GCM encryption + SQLite store
-├── server.ts       → MCP stdio server
 ├── sandbox.ts      → .env sandbox with deterministic fakes (HMAC-SHA256)
 ├── backends.ts     → Multi-backend abstraction (local, 1Password, Bitwarden, env)
 ├── cli.ts          → CLI entry point (40+ commands)
 ├── index.ts        → Public API exports
 ├── totp.ts         → TOTP/HOTP 2FA code generation (zero deps)
 ├── share.ts        → Encrypted secret sharing via URL fragments
-├── setup-mcp.ts    → Auto-configure MCP for Claude Code (`keyblind setup-mcp`)
-├── auth.ts         → Biometric authentication gate
+├── run.ts          → Guarded child-process execution with secret injection
 ├── sync.ts         → Version history, rollback, sync bundles
 ├── doctor.ts       → Vault health check
 ├── config.ts       → Project configuration (.keyblind)
@@ -48,17 +46,15 @@ npx tsc --watch  # Dev mode
 ```bash
 npm i -g keyblind     # Install
 keyblind init         # Create vault
-keyblind setup-mcp    # Auto-configure Claude Code MCP
-# Restart Claude Code — done
+keyblind set API_KEY - # Store a secret securely
+keyblind run -- npm test # Inject secrets into a trusted command
 ```
-
-`keyblind setup-mcp` runs `claude mcp add --scope user keyblind -- keyblind start` under the hood. Works from any directory.
 
 ## Key Decisions
 
-- **MCP-first, not editor-first.** Works with every AI tool that speaks MCP (Claude Code, Cursor, Copilot, Windsurf, Cline, Zed), not just VS Code.
-- **26 MCP tools** — secrets, TOTP, sharing, sandbox, context, config/backend, lifecycle.
-- **Local-first MCP server** — stdio transport for AI agents; no dashboard REST backend in core.
+- **Process-boundary integration.** Coding agents work with safe project files; trusted commands receive real secrets only at runtime.
+- **CLI-first.** Vault, sandbox, guarded execution, aliases, TOTP, sharing, sync, audit, and backend operations share one local interface.
+- **Local-first core.** No dashboard or network service is required.
 - **Deterministic sandbox fakes** using HMAC-SHA256(project hash + key name) so git diffs stay clean.
 - **Machine-identity-bound key** — encryption key XOR-wrapped with machine fingerprint.
 - **Zero network, zero telemetry** — fully local, no cloud, no accounts.

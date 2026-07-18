@@ -101,8 +101,8 @@ Keyblind v0.2.0 shipped with:
 - Guarded command execution and deterministic `.env` sandboxing
 - 7 secret backends (local, cloud, and password managers)
 - Secret rotation and expiry tracking
-- Team vaults for shared secrets
-- Biometric gate (Touch ID)
+- Encrypted, expiring secret sharing
+- Guarded command execution with output leak detection
 
 The roadmap includes secret scanning across repos, automatic secret rotation, and deeper CI/CD integration.
 

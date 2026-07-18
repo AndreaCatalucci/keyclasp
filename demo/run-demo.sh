@@ -205,32 +205,17 @@ echo '  Share link (expires in 1h, 1 view remaining):'
 echo '  keyblind-share://v1.abc.def...'
 echo ""
 
-echo "${CYAN}# Dead man's switch for team vaults:${NC}"
-prompt; echo "keyblind deadman status"
-sleep 0.3
-echo "  Status: active | Check-in: 3 days ago | Deadline: 4 days"
-
 sleep 2
 
 # ─────────────────────────────────────────────────────
-# SCENE 8: MCP Config (2:05)
+# SCENE 8: Guarded Runtime (2:05)
 # ─────────────────────────────────────────────────────
 clear_section
-echo "${RED}${BOLD}Scene 8: MCP Everywhere${NC}"
+echo "${RED}${BOLD}Scene 8: Secrets Only at Runtime${NC}"
 echo ""
-
-cat << 'JSONEOF'
-{
-  "mcpServers": {
-    "keyblind": {
-      "command": "npx",
-      "args": ["keyblind", "start"]
-    }
-  }
-}
-JSONEOF
+prompt; echo "keyblind run -- npm test"
 echo ""
-echo "${GREEN}  Claude Code · Cursor · Copilot · Windsurf · Cline · Zed${NC}"
+echo "${GREEN}  Secrets injected into the child process · detected leaks are stopped${NC}"
 echo ""
 
 sleep 2
@@ -239,9 +224,9 @@ sleep 2
 # SCENE 9: Outro (2:20)
 # ─────────────────────────────────────────────────────
 clear_section
-echo "${RED}${BOLD}Keyblind v0.6.0 — Blind AI to Your Keys${NC}"
+echo "${RED}${BOLD}Keyblind v0.7.0 — Blind AI to Your Keys${NC}"
 echo ""
-echo "  16 MCP tools · 7 backends · 40+ CLI commands"
+echo "  Local encrypted vault · guarded commands · 7 backends"
 echo ""
 echo "  npm install -g keyblind"
 echo "  github.com/AndreaCatalucci/keyblind"

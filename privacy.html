@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Privacy Policy — Keyblind Browser Extension</title>
+<title>Privacy Policy — Keyblind</title>
 <style>
   body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #0d1117; color: #c9d1d9; line-height: 1.6; max-width: 720px; margin: 0 auto; padding: 48px 24px; }
   h1 { color: #f0f6fc; }
@@ -11,36 +11,25 @@
 </style>
 </head>
 <body>
-<h1>Privacy Policy — Keyblind Browser Extension</h1>
-<p><strong>Last updated:</strong> May 28, 2026</p>
+<h1>Privacy Policy — Keyblind</h1>
+<p><strong>Last updated:</strong> July 18, 2026</p>
 
 <h2>Data Collection</h2>
-<p>The Keyblind browser extension <strong>does not collect, store, transmit, or share any user data</strong> of any kind.</p>
-<ul>
-  <li>No personally identifiable information</li>
-  <li>No health information</li>
-  <li>No financial or payment information</li>
-  <li>No authentication information</li>
-  <li>No personal communications</li>
-  <li>No location data</li>
-  <li>No web browsing history</li>
-  <li>No user activity tracking</li>
-  <li>No website content is ever transmitted off-device</li>
-</ul>
+<p>Keyblind does not collect analytics, telemetry, advertising identifiers, or usage data. The project does not operate an account system or hosted vault service.</p>
 
 <h2>How It Works</h2>
-<p>All detection and interception happens entirely within your browser. The extension scans page content locally to detect API key patterns and intercepts paste events — all processing happens on-device and the results are never sent anywhere.</p>
+<p>The default vault encrypts secrets on your machine. Sandboxing replaces project values with deterministic fakes, and guarded execution injects selected secrets into a child process at runtime. Programs you run can make their own network requests; Keyblind does not control their behavior.</p>
 
 <h2>Local Storage</h2>
-<p>User preferences (enable/disable toggles) are stored in Chrome's local storage (<code>chrome.storage.local</code>) and never leave your device.</p>
+<p>Vault data, encryption material, configuration, history, aliases, and audit metadata are stored locally under the user's Keyblind directory. Project configuration may also be stored in a local <code>.keyblind</code> file.</p>
 
-<h2>Network Requests</h2>
-<p>The only network requests are to <code>localhost:3100</code> (the Keyblind MCP server running on your own machine) to check vault status. No data is sent to external servers.</p>
+<h2>Optional Backends</h2>
+<p>If you configure 1Password, Bitwarden, AWS, GCP, Azure, or another external backend, its command-line tool and service handle data under that provider's terms. The local backend requires no network connection.</p>
 
 <h2>Third Parties</h2>
-<p>No user data is sold, shared, or transferred to any third party. No analytics, no telemetry, no advertising.</p>
+<p>Keyblind does not sell user data or include advertising. Data reaches a third party only when you configure an external backend, share an encrypted link through another service, or run a program that transmits it.</p>
 
 <h2>Contact</h2>
-<p>Keyblind is open source (MIT). For questions: <a href="https://github.com/aarifmms/keyblind/issues">github.com/aarifmms/keyblind/issues</a></p>
+<p>Keyblind is open source under the MIT license. For questions, use <a href="https://github.com/AndreaCatalucci/keyblind/issues">github.com/AndreaCatalucci/keyblind/issues</a>.</p>
 </body>
 </html>

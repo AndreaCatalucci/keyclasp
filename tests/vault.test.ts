@@ -25,9 +25,9 @@ import {
   closeDb,
   clearKey,
   countSecretsByPrefix,
+  getDb,
+  getAuditLog,
 } from "../src/vault.js";
-import { setBackend } from "../src/backends.js";
-import { createServer } from "../src/server.js";
 import { getSecretHistory, saveHistory } from "../src/sync.js";
 
 beforeAll(() => {
@@ -199,31 +199,30 @@ describe("vault CRUD", () => {
     expect(history[0].value).toBe("previous-external-value");
   });
 
-  it("rotates secrets through the configured backend", async () => {
-    const secretName = `KEYBLIND_ENV_ROTATE_${crypto.randomUUID()}`;
-    process.env[secretName] = "from-env-backend";
-    setBackend("env");
-    try {
-      const server = createServer() as any;
-      const result = await server._registeredTools.rotate_secret.handler({
-        name: secretName,
-        value: "new-value",
-      });
-
-      expect(result.isError).toBe(true);
-      expect(JSON.parse(result.content[0].text).error).toContain("Env backend is read-only");
-      expect(getSecretHistory(secretName)).toHaveLength(0);
-    } finally {
-      setBackend("local");
-      delete process.env[secretName];
-    }
-  });
-
   it("deletes a secret", () => {
     storeSecret("DELETE_TEST", "x");
     expect(deleteSecret("DELETE_TEST")).toBe(true);
     expect(resolveSecret("DELETE_TEST")).toBeNull();
     expect(deleteSecret("DELETE_TEST")).toBe(false);
+  });
+});
+
+describe("audit schema", () => {
+  it("omits client metadata in new vaults and reads legacy tables that contain it", () => {
+    const db = getDb();
+    const columns = getDb().prepare("PRAGMA table_info(audit_log)").all() as { name: string }[];
+    expect(columns.map((column) => column.name)).not.toContain("client_info");
+
+    db.exec("ALTER TABLE audit_log ADD COLUMN client_info TEXT");
+    db.prepare("INSERT INTO audit_log (secret_name, action, client_info) VALUES (?, ?, ?)")
+      .run("LEGACY_AUDIT_SECRET", "resolve", "legacy-client");
+
+    const entry = getAuditLog(1)[0];
+    expect(entry).toMatchObject({
+      secretName: "LEGACY_AUDIT_SECRET",
+      action: "resolve",
+    });
+    expect(entry).not.toHaveProperty("clientInfo");
   });
 });
 

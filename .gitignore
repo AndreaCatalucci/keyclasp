@@ -3,7 +3,6 @@ dist
 *.tsbuildinfo
 .git
 .DS_Store
-.mcp.json
 .vercel
 .env*.local
 .next

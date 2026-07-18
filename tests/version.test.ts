@@ -89,11 +89,4 @@ describe("version metadata", () => {
     expect(packageLock.version).toBe(packageJson.version);
     expect(packageLock.packages[""].version).toBe(packageJson.version);
   });
-
-  it("does not hardcode package version in MCP server metadata", () => {
-    const packageJson = JSON.parse(fs.readFileSync(path.join(process.cwd(), "package.json"), "utf8")) as { version: string };
-    const serverSource = fs.readFileSync(path.join(process.cwd(), "src", "server.ts"), "utf8");
-
-    expect(serverSource).not.toContain(`version: "${packageJson.version}"`);
-  });
 });

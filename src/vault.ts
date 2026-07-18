@@ -4,7 +4,6 @@ import path from "node:path";
 import os from "node:os";
 import fs from "node:fs";
 import { execFileSync } from "node:child_process";
-import { authenticateWithBiometric, sessionActive } from "./auth.js";
 
 const ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 12;
@@ -366,29 +365,7 @@ let _key: Buffer | null = null;
 let _keyCachePath: string | null = null;
 let _keyCacheStat: { mtimeMs: number; size: number } | null = null;
 let _keyValidationStamp: KeyValidationStamp | null = null;
-let _requireSession = false;
-let _requireBiometricPerSecretAccess = false;
-
-export function setRequireSession(requireSession: boolean): void {
-  _requireSession = requireSession;
-}
-
-export function setRequireBiometricPerSecretAccess(requireBiometric: boolean): void {
-  _requireBiometricPerSecretAccess = requireBiometric;
-}
-
-export function requireSecretAccess(reason: string): void {
-  if (!_requireBiometricPerSecretAccess) return;
-  if (!authenticateWithBiometric(reason)) {
-    throw new Error("Biometric authentication required to access secret.");
-  }
-}
-
 export function getKey(): Buffer {
-  if (_requireSession && !sessionActive()) {
-    throw new Error("Biometric session expired or not started. Run: keyblind unlock");
-  }
-
   const keyDir = getVaultDir();
   if (!fs.existsSync(keyDir)) {
     throw new Error("Keyblind vault not initialized. Run: keyblind init");
@@ -483,7 +460,6 @@ export function getDb(): Database.Database {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       secret_name TEXT NOT NULL,
       action TEXT NOT NULL CHECK(action IN ('resolve','store','delete')),
-      client_info TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )
   `);
@@ -542,7 +518,6 @@ export function resolveSecret(name: string): string | null {
     | undefined;
 
   if (!row) return null;
-  requireSecretAccess(`Access Keyblind secret "${name}"`);
   auditLog(name, "resolve");
   return decrypt(row.encrypted_value, row.iv, row.auth_tag, key);
 }
@@ -694,26 +669,17 @@ function isReservedAliasName(name: string): boolean {
 
 // --- Audit Log ---
 
-let _clientInfo: string | null = null;
-
-export function setClientInfo(info: string | null): void {
-  _clientInfo = info;
-}
-
 function auditLog(secretName: string, action: "resolve" | "store" | "delete"): void {
   const db = getDb();
-  db.prepare("INSERT INTO audit_log (secret_name, action, client_info) VALUES (?, ?, ?)").run(
-    secretName, action, _clientInfo,
-  );
+  db.prepare("INSERT INTO audit_log (secret_name, action) VALUES (?, ?)").run(secretName, action);
 }
 
-export function getAuditLog(limit: number = 50): { secretName: string; action: string; clientInfo: string | null; timestamp: string }[] {
+export function getAuditLog(limit: number = 50): { secretName: string; action: string; timestamp: string }[] {
   const db = getDb();
-  const rows = db.prepare("SELECT secret_name, action, client_info, created_at FROM audit_log ORDER BY id DESC LIMIT ?").all(limit) as { secret_name: string; action: string; client_info: string | null; created_at: string }[];
+  const rows = db.prepare("SELECT secret_name, action, created_at FROM audit_log ORDER BY id DESC LIMIT ?").all(limit) as { secret_name: string; action: string; created_at: string }[];
   return rows.map((r) => ({
     secretName: r.secret_name,
     action: r.action,
-    clientInfo: r.client_info,
     timestamp: r.created_at,
   }));
 }

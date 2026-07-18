@@ -1,8 +1,6 @@
-export { initializeVault, storeSecret, resolveSecret, listSecrets, deleteSecret, isInitialized, getKey, closeDb, setRequireSession, setProjectName, getProjectName, getAuditLog, checkExpired, setExpiry, setClientInfo, countSecretsByPrefix, checkVaultDecryptability, type DecryptabilityCheck } from "./vault.js";
-export { createServer, startServer } from "./server.js";
+export { initializeVault, storeSecret, resolveSecret, listSecrets, deleteSecret, isInitialized, getKey, closeDb, setProjectName, getProjectName, getAuditLog, checkExpired, setExpiry, countSecretsByPrefix, checkVaultDecryptability, type DecryptabilityCheck } from "./vault.js";
 export { sandboxEnvFile, unsandboxEnvFile, getEnvBackups } from "./sandbox.js";
 export { setBackend, getBackend, listAvailableBackends, type SecretBackend } from "./backends.js";
-export { authenticateWithBiometric, biometricAvailable, createSession, sessionActive, clearSession } from "./auth.js";
 export { watchEnvFile } from "./watch.js";
 export { readConfig, writeConfig, mergeConfig, generateSecret, parseEnvFile, formatEnvFile, type ProjectConfig } from "./config.js";
 export { runDoctor } from "./doctor.js";
@@ -10,4 +8,3 @@ export { generateBash, generateZsh, generateFish, detectShell, getInstallInstruc
 export { ensureHistoryTable, saveHistory, rotateLocalSecret, getSecretHistory, rollbackSecret, getExpiringSoon, createSyncBundle, applySyncBundle, migrateSecrets, type SecretVersion, type ExpiryWarning } from "./sync.js";
 export { storeTOTP, getTOTP, listTOTP, deleteTOTP, generateTOTPCode, generateTOTP, generateHOTP, parseOTPAuthURI, timeRemaining, type TOTPConfig } from "./totp.js";
 export { createShareLink, receiveShare, parseTTL, type SharePayload } from "./share.js";
-export { setupAll, type SetupResult } from "./setup-mcp.js";

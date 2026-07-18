@@ -20,8 +20,8 @@ It's a local encrypted vault that replaces project secrets with deterministic fa
 - Works with every AI editor (Claude Code, Cursor, Copilot, Windsurf, Cline, Zed)
 - 7 secret backends (local AES-256-GCM, 1Password, Bitwarden, AWS/GCP/Azure)
 - Zero network, zero telemetry, zero accounts
-- Biometric gate (Touch ID)
-- Team vaults for shared secrets
+- Guarded command execution with output leak detection
+- Encrypted, expiring secret sharing
 
 Open source, MIT licensed. No cloud. No accounts. Secrets stay on your machine.
 
