@@ -11,17 +11,25 @@ const AUTH_TAG_LENGTH = 16;
 const KEY_LENGTH = 32;
 const PBKDF2_ITERATIONS = 600_000;
 const SALT_LENGTH = 32;
-const KEY_FILE_MAGIC = Buffer.from("keyblind:v2\n", "utf8");
-const KEY_FILE_CORRUPT_ERROR = "Keyblind key file is corrupted or incomplete.";
-const KEY_VAULT_MISMATCH_ERROR = "Keyblind key file does not unlock this vault database. Restore the matching .keyblind.key before reading or writing secrets.";
+const KEY_FILE_MAGIC = Buffer.from("keyclasp:v2\n", "utf8");
+const LEGACY_KEY_FILE_MAGIC = Buffer.from("keyblind:v2\n", "utf8");
+const KEY_FILE_CORRUPT_ERROR = "Keyclasp key file is corrupted or incomplete.";
+const KEY_VAULT_MISMATCH_ERROR = "Keyclasp key file does not unlock this vault database. Restore the matching .keyclasp.key before reading or writing secrets.";
+const VAULT_HOME_CONFLICT_ERROR = "Both ~/.keyclasp and ~/.keyblind contain vault data. Set KEYCLASP_HOME explicitly to choose one before continuing.";
 const REMOVED_INTERNAL_SECRET_NAMES = new Set([
+  "_keyclasp_sso:config",
+  "_keyclasp_sso:token",
+  "_keyclasp_deadman:config",
+  "_keyclasp_deadman:last_checkin",
+  "__keyclasp_team_check",
+  // Existing Keyblind vaults may still contain these retired records.
   "_keyblind_sso:config",
   "_keyblind_sso:token",
   "_keyblind_deadman:config",
   "_keyblind_deadman:last_checkin",
   "__keyblind_team_check",
 ]);
-const RESERVED_ALIAS_PREFIXES = ["__keyblind", "__expiry:", "_totp", "_keyblind"];
+const RESERVED_ALIAS_PREFIXES = ["__keyclasp", "__keyblind", "__expiry:", "_totp", "_keyclasp", "_keyblind"];
 
 export interface SecretAlias {
   alias: string;
@@ -55,11 +63,13 @@ type KeyValidationStamp = {
 
 let _projectName: string | null = null;
 let _machineIdentityForTests: { stable?: Buffer; legacy?: Buffer } | null = null;
+let _vaultHomeCache: { signature: string; path: string } | null = null;
+let _keyPathCache: { vaultDir: string; path: string } | null = null;
 
 export function setProjectName(name: string | null): void {
   _projectName = name;
   // Clear caches so they reload from the new project directory
-  _key = null;
+  clearKey();
   closeDb();
 }
 
@@ -68,13 +78,57 @@ export function getProjectName(): string | null {
 }
 
 function getVaultDir(): string {
-  const base = process.env.KEYBLIND_HOME
-    ? path.resolve(process.env.KEYBLIND_HOME)
-    : path.join(os.homedir(), ".keyblind");
+  const base = resolveVaultHome();
   if (_projectName) {
     return path.join(base, "projects", _projectName);
   }
   return base;
+}
+
+function resolveVaultHome(): string {
+  const signature = `${process.env.KEYCLASP_HOME ?? ""}\0${process.env.KEYBLIND_HOME ?? ""}`;
+  if (_vaultHomeCache?.signature === signature) return _vaultHomeCache.path;
+
+  let resolved: string;
+  if (process.env.KEYCLASP_HOME) {
+    resolved = path.resolve(process.env.KEYCLASP_HOME);
+  } else if (process.env.KEYBLIND_HOME) {
+    resolved = path.resolve(process.env.KEYBLIND_HOME);
+  } else {
+    const preferredHome = path.join(os.homedir(), ".keyclasp");
+    const legacyHome = path.join(os.homedir(), ".keyblind");
+    const preferredHasVault = hasCompleteVaultState(preferredHome);
+    const legacyHasVault = hasCompleteVaultState(legacyHome);
+    if (preferredHasVault && legacyHasVault) throw new Error(VAULT_HOME_CONFLICT_ERROR);
+    resolved = legacyHasVault ? legacyHome : preferredHome;
+  }
+
+  _vaultHomeCache = { signature, path: resolved };
+  return resolved;
+}
+
+function hasCompleteVaultState(home: string): boolean {
+  if (hasCompleteVaultAt(home)) return true;
+
+  const projectsDir = path.join(home, "projects");
+  try {
+    return fs.readdirSync(projectsDir, { withFileTypes: true }).some((entry) =>
+      entry.isDirectory() && hasCompleteVaultAt(path.join(projectsDir, entry.name))
+    );
+  } catch (err: any) {
+    if (err?.code === "ENOENT" || err?.code === "ENOTDIR") return false;
+    throw err;
+  }
+}
+
+function hasCompleteVaultAt(vaultDir: string): boolean {
+  if (!fs.existsSync(path.join(vaultDir, "vault.db"))) return false;
+  return fs.existsSync(path.join(vaultDir, ".keyclasp.key")) ||
+    fs.existsSync(path.join(vaultDir, ".keyblind.key"));
+}
+
+export function getVaultLocation(): string {
+  return getVaultDir();
 }
 
 function getVaultPath(): string {
@@ -82,7 +136,14 @@ function getVaultPath(): string {
 }
 
 function getKeyPath(): string {
-  return path.join(getVaultDir(), ".keyblind.key");
+  const vaultDir = getVaultDir();
+  if (_keyPathCache?.vaultDir === vaultDir) return _keyPathCache.path;
+
+  const preferredPath = path.join(vaultDir, ".keyclasp.key");
+  const legacyPath = path.join(vaultDir, ".keyblind.key");
+  const resolved = !fs.existsSync(preferredPath) && fs.existsSync(legacyPath) ? legacyPath : preferredPath;
+  _keyPathCache = { vaultDir, path: resolved };
+  return resolved;
 }
 
 function deriveLegacyMachineIdentity(): Buffer {
@@ -175,9 +236,9 @@ function deriveKey(salt: Buffer, passphrase: string): Buffer {
   return crypto.pbkdf2Sync(passphrase, salt, PBKDF2_ITERATIONS, KEY_LENGTH, "sha256");
 }
 
-function deriveWrappingKey(salt: Buffer, machineIdentity: Buffer): Buffer {
+function deriveWrappingKey(salt: Buffer, machineIdentity: Buffer, magic: Buffer = KEY_FILE_MAGIC): Buffer {
   return crypto.createHash("sha256")
-    .update(KEY_FILE_MAGIC)
+    .update(magic)
     .update(salt)
     .update(machineIdentity)
     .digest();
@@ -192,15 +253,18 @@ function xorWithKey(key: Buffer, wrappingKey: Buffer): Buffer {
 }
 
 function loadKeyFile(keyData: Buffer, keyPath: string): Buffer {
-  if (keyData.subarray(0, KEY_FILE_MAGIC.length).equals(KEY_FILE_MAGIC)) {
-    const expectedLength = KEY_FILE_MAGIC.length + SALT_LENGTH + KEY_LENGTH;
+  const magic = [KEY_FILE_MAGIC, LEGACY_KEY_FILE_MAGIC].find((candidate) =>
+    keyData.subarray(0, candidate.length).equals(candidate)
+  );
+  if (magic) {
+    const expectedLength = magic.length + SALT_LENGTH + KEY_LENGTH;
     if (keyData.length !== expectedLength) {
       throw new Error(KEY_FILE_CORRUPT_ERROR);
     }
 
-    const salt = keyData.subarray(KEY_FILE_MAGIC.length, KEY_FILE_MAGIC.length + SALT_LENGTH);
-    const wrappedKey = keyData.subarray(KEY_FILE_MAGIC.length + SALT_LENGTH);
-    return unwrapWithAnyStableIdentity(salt, wrappedKey);
+    const salt = keyData.subarray(magic.length, magic.length + SALT_LENGTH);
+    const wrappedKey = keyData.subarray(magic.length + SALT_LENGTH);
+    return unwrapWithAnyStableIdentity(salt, wrappedKey, magic);
   }
 
   if (keyData.length !== SALT_LENGTH + KEY_LENGTH) {
@@ -212,14 +276,18 @@ function loadKeyFile(keyData: Buffer, keyPath: string): Buffer {
   const legacyIdentity = _machineIdentityForTests?.legacy ?? deriveLegacyMachineIdentity();
   const key = xorWithKey(wrappedKey, legacyIdentity);
   assertKeyUnlocksVault(key);
-  writeKeyFile(keyPath, salt, key);
+  const upgradedKeyPath = path.basename(keyPath) === ".keyblind.key"
+    ? path.join(path.dirname(keyPath), ".keyclasp.key")
+    : keyPath;
+  writeKeyFile(upgradedKeyPath, salt, key);
+  _keyPathCache = null;
   return key;
 }
 
-function unwrapWithAnyStableIdentity(salt: Buffer, wrappedKey: Buffer): Buffer {
+function unwrapWithAnyStableIdentity(salt: Buffer, wrappedKey: Buffer, magic: Buffer): Buffer {
   const identities = deriveStableMachineIdentities();
   for (const identity of identities) {
-    const key = xorWithKey(wrappedKey, deriveWrappingKey(salt, identity));
+    const key = xorWithKey(wrappedKey, deriveWrappingKey(salt, identity, magic));
     if (canDecryptVaultRows(key)) return key;
   }
 
@@ -368,12 +436,12 @@ let _keyValidationStamp: KeyValidationStamp | null = null;
 export function getKey(): Buffer {
   const keyDir = getVaultDir();
   if (!fs.existsSync(keyDir)) {
-    throw new Error("Keyblind vault not initialized. Run: keyblind init");
+    throw new Error("Keyclasp vault not initialized. Run: keyclasp init");
   }
 
   const keyPath = getKeyPath();
   if (!fs.existsSync(keyPath)) {
-    throw new Error("Keyblind key not found. Run: keyblind init");
+    throw new Error("Keyclasp key not found. Run: keyclasp init");
   }
 
   const keyStat = fs.statSync(keyPath);
@@ -388,9 +456,10 @@ export function getKey(): Buffer {
 
   const keyData = fs.readFileSync(keyPath);
   const loaded = loadKeyFile(keyData, keyPath);
-  const refreshedStat = fs.statSync(keyPath);
+  const refreshedKeyPath = getKeyPath();
+  const refreshedStat = fs.statSync(refreshedKeyPath);
   _key = loaded;
-  _keyCachePath = keyPath;
+  _keyCachePath = refreshedKeyPath;
   _keyCacheStat = { mtimeMs: refreshedStat.mtimeMs, size: refreshedStat.size };
   rememberKeyValidation();
   return _key;
@@ -403,11 +472,11 @@ export function initializeVault(passphrase: string): void {
   }
 
   if (fs.existsSync(getKeyPath())) {
-    throw new Error("Keyblind is already initialized. To reset, delete ~/.keyblind/");
+    throw new Error("Keyclasp is already initialized. To reset, delete the active vault directory.");
   }
 
   if (fs.existsSync(getVaultPath())) {
-    throw new Error("Keyblind vault database exists without a key file. Restore the matching .keyblind.key or remove the vault directory before reinitializing.");
+    throw new Error("Keyclasp vault database exists without a key file. Restore the matching .keyclasp.key or remove the vault directory before reinitializing.");
   }
 
   const salt = crypto.randomBytes(SALT_LENGTH);
@@ -614,11 +683,20 @@ export function countSecretsByPrefix(prefix: string): number {
   return row.count;
 }
 
+export function listSecretNamesByPrefixes(prefixes: readonly string[]): string[] {
+  if (prefixes.length === 0) return [];
+  const db = getDb();
+  const ranges = prefixes.map((prefix) => [prefix, `${prefix.slice(0, -1)}${String.fromCharCode(prefix.charCodeAt(prefix.length - 1) + 1)}`]);
+  const where = ranges.map(() => "(name >= ? AND name < ?)").join(" OR ");
+  const rows = db.prepare(`SELECT name FROM secrets WHERE ${where} ORDER BY name`).all(...ranges.flat()) as { name: string }[];
+  return rows.map((row) => row.name);
+}
+
 export function deleteSecret(name: string): boolean {
   const db = getDb();
   auditLog(name, "delete");
   db.prepare("DELETE FROM secret_aliases WHERE target_name = ?").run(name);
-  const result = db.prepare("DELETE FROM secrets WHERE name = ? AND name NOT LIKE '@_@_expiry:%' ESCAPE '@' AND name NOT LIKE '@_@_keyblind%' ESCAPE '@'").run(name);
+  const result = db.prepare("DELETE FROM secrets WHERE name = ? AND name NOT LIKE '@_@_expiry:%' ESCAPE '@' AND name NOT LIKE '@_@_keyclasp%' ESCAPE '@' AND name NOT LIKE '@_@_keyblind%' ESCAPE '@'").run(name);
   // Also delete any expiry entry
   db.prepare("DELETE FROM secrets WHERE name = ?").run(`__expiry:${name}`);
   return result.changes > 0;
@@ -690,8 +768,7 @@ export function setExpiry(name: string, expiresAt: string): boolean {
   const db = getDb();
   const row = db.prepare("SELECT name FROM secrets WHERE name = ?").get(name) as { name: string } | undefined;
   if (!row) return false;
-  // Store expiry in a __keyblind_meta style - using a separate metadata approach
-  // For now, we store expiry as a special prefixed secret
+  // Remove metadata written by early Keyblind versions before storing the current expiry row.
   db.prepare("DELETE FROM secrets WHERE name = ?").run(`__keyblind_expiry:${name}`);
   // We'll use a simpler approach: store expiry as a separate row in a metadata approach
   // Actually, let's store it directly in the audit or use a simple approach
@@ -744,6 +821,8 @@ export function clearKey(): void {
   _keyCachePath = null;
   _keyCacheStat = null;
   _keyValidationStamp = null;
+  _vaultHomeCache = null;
+  _keyPathCache = null;
 }
 
 export function setMachineIdentityForTests(identity: { stable?: Buffer; legacy?: Buffer } | null): void {

@@ -1,9 +1,9 @@
-# Keyblind — Project Context
+# Keyclasp — Project Context
 
 ## Fork Provenance
 
 - **Upstream**: https://github.com/aarifmms/keyblind
-- **Fork**: https://github.com/AndreaCatalucci/keyblind
+- **Fork**: https://github.com/AndreaCatalucci/keyclasp
 - **License**: MIT — original copyright preserved in `LICENSE`
 - **Upstream remote**: `upstream` → `https://github.com/aarifmms/keyblind.git`
 

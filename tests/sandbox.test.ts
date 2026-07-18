@@ -17,51 +17,51 @@ function generateFakeValue(keyName: string, originalValue: string): string {
     .slice(0, 16);
 
   if (originalValue.startsWith("sk-") || originalValue.startsWith("pk-")) {
-    return `sk_keyblind_sandbox_${hmac}`;
+    return `sk_keyclasp_sandbox_${hmac}`;
   }
   if (originalValue.startsWith("ghp_") || originalValue.startsWith("gho_")) {
-    return `ghp_keyblind_sandbox_${hmac}`;
+    return `ghp_keyclasp_sandbox_${hmac}`;
   }
   if (originalValue.includes("://")) {
     try {
       const url = new URL(originalValue);
-      url.username = "keyblind";
+      url.username = "keyclasp";
       url.password = "sandbox";
       url.hostname = "localhost";
       if (url.port) url.port = "5432";
-      url.pathname = "/keyblind_db";
+      url.pathname = "/keyclasp_db";
       return url.toString();
     } catch {
       // fall through
     }
   }
   if (originalValue.length > 20) {
-    return `KEYBLIND_SANDBOX_${hmac}`;
+    return `KEYCLASP_SANDBOX_${hmac}`;
   }
-  return `KEYBLIND_SANDBOX_${hmac}`;
+  return `KEYCLASP_SANDBOX_${hmac}`;
 }
 
 describe("generateFakeValue", () => {
   it("replaces OpenAI-style keys with deterministic fake", () => {
     const fake = generateFakeValue("OPENAI_API_KEY", "sk-proj-abc123xyz");
-    expect(fake).toMatch(/^sk_keyblind_sandbox_[a-f0-9]{16}$/);
+    expect(fake).toMatch(/^sk_keyclasp_sandbox_[a-f0-9]{16}$/);
   });
 
   it("replaces GitHub-style tokens with deterministic fake", () => {
     const fake = generateFakeValue("GITHUB_TOKEN", "ghp_abcdef123456");
-    expect(fake).toMatch(/^ghp_keyblind_sandbox_[a-f0-9]{16}$/);
+    expect(fake).toMatch(/^ghp_keyclasp_sandbox_[a-f0-9]{16}$/);
   });
 
   it("replaces URLs with localhost equivalents", () => {
     const fake = generateFakeValue("DATABASE_URL", "postgres://user:pass@db.example.com:5432/mydb");
     expect(fake).toContain("localhost");
-    expect(fake).toContain("keyblind");
+    expect(fake).toContain("keyclasp");
     expect(fake).toContain("sandbox");
   });
 
-  it("replaces long values with KEYBLIND_SANDBOX prefix", () => {
+  it("replaces long values with KEYCLASP_SANDBOX prefix", () => {
     const fake = generateFakeValue("JWT_SECRET", "a-very-long-jwt-secret-that-is-more-than-20-chars");
-    expect(fake).toMatch(/^KEYBLIND_SANDBOX_[a-f0-9]{16}$/);
+    expect(fake).toMatch(/^KEYCLASP_SANDBOX_[a-f0-9]{16}$/);
   });
 
   it("is deterministic — same input produces same output", () => {

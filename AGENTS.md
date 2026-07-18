@@ -1,8 +1,8 @@
-# Keyblind — Blind AI to Your Keys
+# Keyclasp — Runtime Secrets for Coding Agents
 
 > **Local encrypted secrets vault for coding-agent workflows. Secrets stay out of project files and are injected into trusted commands at runtime.**
 
-> **Local-only project.** PRs MUST target `origin` (AndreaCatalucci/keyblind). Use `gh pr create --repo AndreaCatalucci/keyblind --base main`.
+> **Local-only project.** PRs MUST target `origin` (AndreaCatalucci/keyclasp). Use `gh pr create --repo AndreaCatalucci/keyclasp --base main`.
 
 ## Tech Stack
 
@@ -26,7 +26,7 @@ src/
 ├── run.ts          → Guarded child-process execution with secret injection
 ├── sync.ts         → Version history, rollback, sync bundles
 ├── doctor.ts       → Vault health check
-├── config.ts       → Project configuration (.keyblind)
+├── config.ts       → Project configuration (.keyclasp)
 ├── completions.ts  → Shell completions (bash, zsh, fish)
 ├── hook.ts         → Pre-commit hook for secret detection
 └── watch.ts        → Watch .env and auto-sandbox
@@ -44,10 +44,10 @@ npx tsc --watch  # Dev mode
 ## New User Flow
 
 ```bash
-npm i -g keyblind     # Install
-keyblind init         # Create vault
-keyblind set API_KEY - # Store a secret securely
-keyblind run -- npm test # Inject secrets into a trusted command
+npm i -g keyclasp     # Install
+keyclasp init         # Create vault
+keyclasp set API_KEY - # Store a secret securely
+keyclasp run -- npm test # Inject secrets into a trusted command
 ```
 
 ## Key Decisions

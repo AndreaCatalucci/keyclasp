@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { initializeVault, getKey, storeSecret, listSecrets, resolveSecret, resolveSecretWithAlias, createAlias, deleteAlias, listAliases, deleteSecret, isInitialized, closeDb, setProjectName, getProjectName, getAuditLog, checkExpired, setExpiry, checkVaultDecryptability } from "./vault.js";
+import { initializeVault, getKey, getVaultLocation, storeSecret, listSecrets, resolveSecret, resolveSecretWithAlias, createAlias, deleteAlias, listAliases, deleteSecret, isInitialized, closeDb, setProjectName, getProjectName, getAuditLog, checkExpired, setExpiry, checkVaultDecryptability } from "./vault.js";
 import { sandboxEnvFile, unsandboxEnvFile } from "./sandbox.js";
 import { setBackend, getBackend, listAvailableBackends } from "./backends.js";
 import { installHook, checkAndReport, getStagedFiles, scanFiles } from "./hook.js";
@@ -29,72 +29,72 @@ async function readPassphrase(prompt: string): Promise<string> {
 
 function printHelp(): void {
   console.log(`
-🔑 Keyblind — Blind AI to your keys
+🔑 Keyclasp — Runtime secrets for coding agents
 
 Usage:
-  keyblind init                Initialize the encrypted vault
-  keyblind set <name>          Store a secret (value read from stdin)
-  keyblind set <name> -        Store a secret (prompts securely)
-  keyblind get <name>          Resolve and print a secret value
-  keyblind list                List all stored secret names
-  keyblind alias <target> <alias>  Create an alias that points to a stored secret
-  keyblind aliases             List secret aliases
-  keyblind unalias <alias>     Delete a secret alias
-  keyblind delete <name>       Delete a secret
-  keyblind run [--allow-unsafe] [--env SOURCE[:TARGET]] <command...>
+  keyclasp init                Initialize the encrypted vault
+  keyclasp set <name>          Store a secret (value read from stdin)
+  keyclasp set <name> -        Store a secret (prompts securely)
+  keyclasp get <name>          Resolve and print a secret value
+  keyclasp list                List all stored secret names
+  keyclasp alias <target> <alias>  Create an alias that points to a stored secret
+  keyclasp aliases             List secret aliases
+  keyclasp unalias <alias>     Delete a secret alias
+  keyclasp delete <name>       Delete a secret
+  keyclasp run [--allow-unsafe] [--env SOURCE[:TARGET]] <command...>
                               Run a guarded command with secrets as env vars
-  keyblind sandbox [.env]      Replace real env values with deterministic fakes
-  keyblind unsandbox [.env]    Restore real env values from vault
-  keyblind backends            List available secret backends
-  keyblind install-hook        Install pre-commit hook to detect secrets
-  keyblind check-secrets       Scan staged files for secrets (used by hook)
-  keyblind scan-secrets <file...>  Scan specific files for secrets
-  keyblind backend <name>      Switch active secret backend
-  keyblind audit               Show secret resolution audit log
-  keyblind check --expired     List secrets past their expiry date
-  keyblind rotate <name>       Update a secret (prompts for new value)
-  keyblind watch [.env]        Watch .env and auto-sandbox on change
-  keyblind status              Show vault status
-  keyblind generate <name>     Generate a strong random secret
-  keyblind generate <name> --len 64    Generate with custom length
-  keyblind generate <name> --no-symbols   Alphanumeric only
-  keyblind import [.env]        Bulk import secrets from a .env file
-  keyblind export               Export all secrets (use --json for raw JSON)
-  keyblind export --env         Export as .env format
-  keyblind config               Show project config (.keyblind)
-  keyblind config <key> <val>   Set a config option (backend, projectName, expiryDays, autoSandbox)
-  keyblind doctor               Run vault health and security check
-  keyblind completions [bash|zsh|fish]  Generate shell completion script
-  keyblind history <name>    Show version history for a secret
-  keyblind rollback <name>   Restore previous version of a secret
-  keyblind expiring          List secrets expiring within 30 days
-  keyblind sync export       Create encrypted sync bundle
-  keyblind sync import <file> Apply a sync bundle from another machine
-  keyblind migrate <from> <to> Migrate secrets between backends
-  keyblind totp set <name>   Store a TOTP 2FA config (from otpauth:// URI)
-  keyblind totp code <name>  Generate current TOTP code with countdown
-  keyblind totp list          List all TOTP configurations
-  keyblind totp delete <name> Delete a TOTP config
-  keyblind share <name>       Create encrypted expiring share link
-  keyblind share <name> --ttl 7d --max-views 3   Custom TTL and view limit
-  keyblind receive <url>      Receive and store a shared secret
-  keyblind version            Show Keyblind version
-  keyblind help                Show this help
+  keyclasp sandbox [.env]      Replace real env values with deterministic fakes
+  keyclasp unsandbox [.env]    Restore real env values from vault
+  keyclasp backends            List available secret backends
+  keyclasp install-hook        Install pre-commit hook to detect secrets
+  keyclasp check-secrets       Scan staged files for secrets (used by hook)
+  keyclasp scan-secrets <file...>  Scan specific files for secrets
+  keyclasp backend <name>      Switch active secret backend
+  keyclasp audit               Show secret resolution audit log
+  keyclasp check --expired     List secrets past their expiry date
+  keyclasp rotate <name>       Update a secret (prompts for new value)
+  keyclasp watch [.env]        Watch .env and auto-sandbox on change
+  keyclasp status              Show vault status
+  keyclasp generate <name>     Generate a strong random secret
+  keyclasp generate <name> --len 64    Generate with custom length
+  keyclasp generate <name> --no-symbols   Alphanumeric only
+  keyclasp import [.env]        Bulk import secrets from a .env file
+  keyclasp export               Export all secrets (use --json for raw JSON)
+  keyclasp export --env         Export as .env format
+  keyclasp config               Show project config (.keyclasp)
+  keyclasp config <key> <val>   Set a config option (backend, projectName, expiryDays, autoSandbox)
+  keyclasp doctor               Run vault health and security check
+  keyclasp completions [bash|zsh|fish]  Generate shell completion script
+  keyclasp history <name>    Show version history for a secret
+  keyclasp rollback <name>   Restore previous version of a secret
+  keyclasp expiring          List secrets expiring within 30 days
+  keyclasp sync export       Create encrypted sync bundle
+  keyclasp sync import <file> Apply a sync bundle from another machine
+  keyclasp migrate <from> <to> Migrate secrets between backends
+  keyclasp totp set <name>   Store a TOTP 2FA config (from otpauth:// URI)
+  keyclasp totp code <name>  Generate current TOTP code with countdown
+  keyclasp totp list          List all TOTP configurations
+  keyclasp totp delete <name> Delete a TOTP config
+  keyclasp share <name>       Create encrypted expiring share link
+  keyclasp share <name> --ttl 7d --max-views 3   Custom TTL and view limit
+  keyclasp receive <url>      Receive and store a shared secret
+  keyclasp version            Show Keyclasp version
+  keyclasp help                Show this help
 
 Global flags:
-  --version, -v               Show Keyblind version
+  --version, -v               Show Keyclasp version
   --project <name>            Use a project-specific vault (isolated per project)
 
 Examples:
-  keyblind init
-  echo "sk-abc123" | keyblind set OPENAI_API_KEY
-  keyblind set DATABASE_URL -
-  keyblind list
-  keyblind alias OPENAI_API_KEY AI_KEY
-  keyblind sandbox             # Fake your .env, backup real values to vault
-  keyblind run --env OPENAI_API_KEY:AI_KEY -- npm start
+  keyclasp init
+  echo "sk-abc123" | keyclasp set OPENAI_API_KEY
+  keyclasp set DATABASE_URL -
+  keyclasp list
+  keyclasp alias OPENAI_API_KEY AI_KEY
+  keyclasp sandbox             # Fake your .env, backup real values to vault
+  keyclasp run --env OPENAI_API_KEY:AI_KEY -- npm start
                               # Run with one-off env mapping and leak-guarded output
-  keyblind unsandbox           # Restore real .env values
+  keyclasp unsandbox           # Restore real .env values
   `);
 }
 
@@ -180,26 +180,26 @@ async function main(): Promise<void> {
     switch (command) {
       case "init": {
         if (isInitialized()) {
-          console.log(`Keyblind is already initialized${projectLabel}. To reset, delete ~/.keyblind/${getProjectName() ? `projects/${getProjectName()}/` : ""}`);
+          console.log(`Keyclasp is already initialized${projectLabel}. To reset, delete ${getVaultLocation()}`);
           return;
         }
-        console.log(`🔑 Initializing Keyblind vault${projectLabel}...`);
+        console.log(`🔑 Initializing Keyclasp vault${projectLabel}...`);
         const passphrase = await readPassphrase("Enter vault passphrase (or empty for machine-only key): ");
         initializeVault(passphrase);
         getKey(); // Verify key works
-        console.log("Keyblind vault created at ~/.keyblind/");
-        console.log("Next: store a secret with `keyblind set <name>`, then use it with `keyblind run`.");
+        console.log(`Keyclasp vault created at ${getVaultLocation()}`);
+        console.log("Next: store a secret with `keyclasp set <name>`, then use it with `keyclasp run`.");
         break;
       }
 
       case "set": {
         if (!isInitialized()) {
-          console.error("Keyblind not initialized. Run: keyblind init");
+          console.error("Keyclasp not initialized. Run: keyclasp init");
           process.exit(1);
         }
         const name = args[1];
         if (!name) {
-          console.error("Usage: keyblind set <name>  OR  echo <value> | keyblind set <name>");
+          console.error("Usage: keyclasp set <name>  OR  echo <value> | keyclasp set <name>");
           process.exit(1);
         }
 
@@ -229,12 +229,12 @@ async function main(): Promise<void> {
 
       case "get": {
         if (!isInitialized()) {
-          console.error("Keyblind not initialized. Run: keyblind init");
+          console.error("Keyclasp not initialized. Run: keyclasp init");
           process.exit(1);
         }
         const secretName = args[1];
         if (!secretName) {
-          console.error("Usage: keyblind get <name>");
+          console.error("Usage: keyclasp get <name>");
           process.exit(1);
         }
         const val = resolveSecretWithAlias(secretName).value;
@@ -248,7 +248,7 @@ async function main(): Promise<void> {
 
       case "list": {
         if (!isInitialized()) {
-          console.error("Keyblind not initialized. Run: keyblind init");
+          console.error("Keyclasp not initialized. Run: keyclasp init");
           process.exit(1);
         }
         const names = listSecrets();
@@ -262,13 +262,13 @@ async function main(): Promise<void> {
 
       case "alias": {
         if (!isInitialized()) {
-          console.error("Keyblind not initialized. Run: keyblind init");
+          console.error("Keyclasp not initialized. Run: keyclasp init");
           process.exit(1);
         }
         const target = args[1];
         const alias = args[2];
         if (!target || !alias) {
-          console.error("Usage: keyblind alias <target> <alias>");
+          console.error("Usage: keyclasp alias <target> <alias>");
           process.exit(1);
         }
         createAlias(alias, target);
@@ -278,7 +278,7 @@ async function main(): Promise<void> {
 
       case "aliases": {
         if (!isInitialized()) {
-          console.error("Keyblind not initialized. Run: keyblind init");
+          console.error("Keyclasp not initialized. Run: keyclasp init");
           process.exit(1);
         }
         const aliases = listAliases();
@@ -292,12 +292,12 @@ async function main(): Promise<void> {
 
       case "unalias": {
         if (!isInitialized()) {
-          console.error("Keyblind not initialized. Run: keyblind init");
+          console.error("Keyclasp not initialized. Run: keyclasp init");
           process.exit(1);
         }
         const alias = args[1];
         if (!alias) {
-          console.error("Usage: keyblind unalias <alias>");
+          console.error("Usage: keyclasp unalias <alias>");
           process.exit(1);
         }
         const deleted = deleteAlias(alias);
@@ -307,12 +307,12 @@ async function main(): Promise<void> {
 
       case "delete": {
         if (!isInitialized()) {
-          console.error("Keyblind not initialized. Run: keyblind init");
+          console.error("Keyclasp not initialized. Run: keyclasp init");
           process.exit(1);
         }
         const delName = args[1];
         if (!delName) {
-          console.error("Usage: keyblind delete <name>");
+          console.error("Usage: keyclasp delete <name>");
           process.exit(1);
         }
         const deleted = deleteSecret(delName);
@@ -322,7 +322,7 @@ async function main(): Promise<void> {
 
       case "sandbox": {
         if (!isInitialized()) {
-          console.error("Keyblind not initialized. Run: keyblind init");
+          console.error("Keyclasp not initialized. Run: keyclasp init");
           process.exit(1);
         }
         const envFile = args[1];
@@ -336,7 +336,7 @@ async function main(): Promise<void> {
 
       case "watch": {
         if (!isInitialized()) {
-          console.error("Keyblind not initialized. Run: keyblind init");
+          console.error("Keyclasp not initialized. Run: keyclasp init");
           process.exit(1);
         }
         watchEnvFile(args[1]);
@@ -345,7 +345,7 @@ async function main(): Promise<void> {
 
       case "unsandbox": {
         if (!isInitialized()) {
-          console.error("Keyblind not initialized. Run: keyblind init");
+          console.error("Keyclasp not initialized. Run: keyclasp init");
           process.exit(1);
         }
         const envFile = args[1];
@@ -391,7 +391,7 @@ async function main(): Promise<void> {
       case "scan-secrets": {
         const files = args.slice(1);
         if (files.length === 0) {
-          console.error("Usage: keyblind scan-secrets <file...>");
+          console.error("Usage: keyclasp scan-secrets <file...>");
           process.exit(1);
         }
         const findings = scanFiles(files);
@@ -408,7 +408,7 @@ async function main(): Promise<void> {
       case "backend": {
         const backendName = args[1];
         if (!backendName) {
-          console.error("Usage: keyblind backend <name>");
+          console.error("Usage: keyclasp backend <name>");
           console.error("Available:", listAvailableBackends().filter(b => b.available).map(b => b.name).join(", "));
           process.exit(1);
         }
@@ -419,7 +419,7 @@ async function main(): Promise<void> {
 
       case "audit": {
         if (!isInitialized()) {
-          console.error("Keyblind not initialized. Run: keyblind init");
+          console.error("Keyclasp not initialized. Run: keyclasp init");
           process.exit(1);
         }
         const entries = getAuditLog(50);
@@ -435,7 +435,7 @@ async function main(): Promise<void> {
 
       case "check": {
         if (!isInitialized()) {
-          console.error("Keyblind not initialized. Run: keyblind init");
+          console.error("Keyclasp not initialized. Run: keyclasp init");
           process.exit(1);
         }
         if (args[1] === "--expired") {
@@ -449,7 +449,7 @@ async function main(): Promise<void> {
             }
           }
         } else {
-          console.error("Usage: keyblind check --expired");
+          console.error("Usage: keyclasp check --expired");
           process.exit(1);
         }
         break;
@@ -457,12 +457,12 @@ async function main(): Promise<void> {
 
       case "rotate": {
         if (!isInitialized()) {
-          console.error("Keyblind not initialized. Run: keyblind init");
+          console.error("Keyclasp not initialized. Run: keyclasp init");
           process.exit(1);
         }
         const rotateName = args[1];
         if (!rotateName) {
-          console.error("Usage: keyblind rotate <name>");
+          console.error("Usage: keyclasp rotate <name>");
           process.exit(1);
         }
         const newValue = await readPassphrase(`Enter new value for ${rotateName}: `);
@@ -480,15 +480,15 @@ async function main(): Promise<void> {
 
       case "status": {
         if (!isInitialized()) {
-          console.log("Keyblind: not initialized");
-          console.log("Run 'keyblind init' to get started.");
+          console.log("Keyclasp: not initialized");
+          console.log("Run 'keyclasp init' to get started.");
           process.exit(1);
         }
         const names = listSecrets();
-        console.log("Keyblind Status");
+        console.log("Keyclasp Status");
         console.log("───────────────");
         console.log(`  Secrets:    ${names.length}`);
-        console.log(`  Vault:      ~/.keyblind/`);
+        console.log(`  Vault:      ${getVaultLocation()}`);
         const backend = getBackend();
         console.log(`  Backend:    ${backend.name}`);
         try {
@@ -510,12 +510,12 @@ async function main(): Promise<void> {
 
       case "run": {
         if (!isInitialized()) {
-          console.error("Keyblind not initialized. Run: keyblind init");
+          console.error("Keyclasp not initialized. Run: keyclasp init");
           process.exit(1);
         }
         const cmdArgs = args.slice(1);
         if (parseRunArgs(cmdArgs).commandArgs.length === 0) {
-          console.error("Usage: keyblind run [--allow-unsafe] [--env SOURCE[:TARGET]] <command...>");
+          console.error("Usage: keyclasp run [--allow-unsafe] [--env SOURCE[:TARGET]] <command...>");
           process.exit(1);
         }
 
@@ -533,12 +533,12 @@ async function main(): Promise<void> {
 
       case "generate": {
         if (!isInitialized()) {
-          console.error("Keyblind not initialized. Run: keyblind init");
+          console.error("Keyclasp not initialized. Run: keyclasp init");
           process.exit(1);
         }
         const genName = args[1];
         if (!genName) {
-          console.error("Usage: keyblind generate <name> [--len 32] [--no-symbols]");
+          console.error("Usage: keyclasp generate <name> [--len 32] [--no-symbols]");
           process.exit(1);
         }
         const lenIdx = args.indexOf("--len");
@@ -552,7 +552,7 @@ async function main(): Promise<void> {
 
       case "import": {
         if (!isInitialized()) {
-          console.error("Keyblind not initialized. Run: keyblind init");
+          console.error("Keyclasp not initialized. Run: keyclasp init");
           process.exit(1);
         }
         const importFile = args[1] || ".env";
@@ -581,7 +581,7 @@ async function main(): Promise<void> {
 
       case "export": {
         if (!isInitialized()) {
-          console.error("Keyblind not initialized. Run: keyblind init");
+          console.error("Keyclasp not initialized. Run: keyclasp init");
           process.exit(1);
         }
         const names = listSecrets();
@@ -616,7 +616,7 @@ async function main(): Promise<void> {
           // Show current config
           const cfg = readConfig();
           if (cfg) {
-            console.log("Project config (.keyblind):");
+            console.log("Project config (.keyclasp):");
             const validKeys: (keyof typeof cfg)[] = ["projectName", "backend", "expiryDays", "autoSandbox", "watchPath"];
             for (const key of validKeys) {
               if (cfg[key] !== undefined) {
@@ -625,8 +625,8 @@ async function main(): Promise<void> {
             }
           } else {
             console.log("No project config found. Create one with:");
-            console.log("  keyblind config backend local");
-            console.log("  keyblind config expiryDays 90");
+            console.log("  keyclasp config backend local");
+            console.log("  keyclasp config expiryDays 90");
           }
           break;
         }
@@ -677,7 +677,7 @@ async function main(): Promise<void> {
       case "completions": {
         const shell = args[1] || detectShell();
         if (!shell) {
-          console.error("Could not detect shell. Specify: keyblind completions <bash|zsh|fish>");
+          console.error("Could not detect shell. Specify: keyclasp completions <bash|zsh|fish>");
           process.exit(1);
         }
         switch (shell) {
@@ -700,12 +700,12 @@ async function main(): Promise<void> {
 
       case "history": {
         if (!isInitialized()) {
-          console.error("Keyblind not initialized. Run: keyblind init");
+          console.error("Keyclasp not initialized. Run: keyclasp init");
           process.exit(1);
         }
         const histName = args[1];
         if (!histName) {
-          console.error("Usage: keyblind history <name>");
+          console.error("Usage: keyclasp history <name>");
           process.exit(1);
         }
         const versions = getSecretHistory(histName);
@@ -721,12 +721,12 @@ async function main(): Promise<void> {
 
       case "rollback": {
         if (!isInitialized()) {
-          console.error("Keyblind not initialized. Run: keyblind init");
+          console.error("Keyclasp not initialized. Run: keyclasp init");
           process.exit(1);
         }
         const rbName = args[1];
         if (!rbName) {
-          console.error("Usage: keyblind rollback <name> [version]");
+          console.error("Usage: keyclasp rollback <name> [version]");
           process.exit(1);
         }
         const rbVersion = args[2] ? parseInt(args[2], 10) : undefined;
@@ -742,7 +742,7 @@ async function main(): Promise<void> {
 
       case "expiring": {
         if (!isInitialized()) {
-          console.error("Keyblind not initialized. Run: keyblind init");
+          console.error("Keyclasp not initialized. Run: keyclasp init");
           process.exit(1);
         }
         const daysThreshold = parseInt(args[1], 10) || 30;
@@ -762,7 +762,7 @@ async function main(): Promise<void> {
       case "sync": {
         const syncSub = args[1];
         if (!syncSub) {
-          console.error("Usage: keyblind sync <export|import>");
+          console.error("Usage: keyclasp sync <export|import>");
           process.exit(1);
         }
         if (syncSub === "export") {
@@ -797,13 +797,13 @@ async function main(): Promise<void> {
 
       case "migrate": {
         if (!isInitialized()) {
-          console.error("Keyblind not initialized. Run: keyblind init");
+          console.error("Keyclasp not initialized. Run: keyclasp init");
           process.exit(1);
         }
         const from = args[1];
         const to = args[2];
         if (!from || !to) {
-          console.error("Usage: keyblind migrate <from-backend> <to-backend>");
+          console.error("Usage: keyclasp migrate <from-backend> <to-backend>");
           console.error("Available:", listAvailableBackends().filter(b => b.available).map(b => b.name).join(", "));
           process.exit(1);
         }
@@ -822,12 +822,12 @@ async function main(): Promise<void> {
 
       case "totp": {
         if (!isInitialized()) {
-          console.error("Keyblind not initialized. Run: keyblind init");
+          console.error("Keyclasp not initialized. Run: keyclasp init");
           process.exit(1);
         }
         const totpSub = args[1];
         if (!totpSub) {
-          console.error("Usage: keyblind totp <set|code|list|delete|qr>");
+          console.error("Usage: keyclasp totp <set|code|list|delete|qr>");
           process.exit(1);
         }
 
@@ -835,7 +835,7 @@ async function main(): Promise<void> {
           case "set": {
             const totpName = args[2];
             if (!totpName) {
-              console.error("Usage: keyblind totp set <name> [otpauth-uri]");
+              console.error("Usage: keyclasp totp set <name> [otpauth-uri]");
               process.exit(1);
             }
             let uri = args[3];
@@ -866,7 +866,7 @@ async function main(): Promise<void> {
           case "code": {
             const codeName = args[2];
             if (!codeName) {
-              console.error("Usage: keyblind totp code <name>");
+              console.error("Usage: keyclasp totp code <name>");
               process.exit(1);
             }
             const result = generateTOTPCode(codeName);
@@ -892,7 +892,7 @@ async function main(): Promise<void> {
           case "delete": {
             const delName = args[2];
             if (!delName) {
-              console.error("Usage: keyblind totp delete <name>");
+              console.error("Usage: keyclasp totp delete <name>");
               process.exit(1);
             }
             const deleted = deleteTOTP(delName);
@@ -902,7 +902,7 @@ async function main(): Promise<void> {
           case "qr": {
             const qrName = args[2];
             if (!qrName) {
-              console.error("Usage: keyblind totp qr <name>");
+              console.error("Usage: keyclasp totp qr <name>");
               process.exit(1);
             }
             const cfg = getTOTP(qrName);
@@ -911,11 +911,11 @@ async function main(): Promise<void> {
               process.exit(1);
             }
             console.log(cfg.uri);
-            console.log("Scan this URI with your authenticator app, or use: keyblind totp code " + qrName);
+            console.log("Scan this URI with your authenticator app, or use: keyclasp totp code " + qrName);
             break;
           }
           default:
-            console.error("Usage: keyblind totp <set|code|list|delete|qr>");
+            console.error("Usage: keyclasp totp <set|code|list|delete|qr>");
             process.exit(1);
         }
         break;
@@ -923,12 +923,12 @@ async function main(): Promise<void> {
 
       case "share": {
         if (!isInitialized()) {
-          console.error("Keyblind not initialized. Run: keyblind init");
+          console.error("Keyclasp not initialized. Run: keyclasp init");
           process.exit(1);
         }
         const shareName = args[1];
         if (!shareName) {
-          console.error("Usage: keyblind share <name> [--ttl 24h] [--max-views 1]");
+          console.error("Usage: keyclasp share <name> [--ttl 24h] [--max-views 1]");
           process.exit(1);
         }
         const ttlIdx = args.indexOf("--ttl");
@@ -940,7 +940,7 @@ async function main(): Promise<void> {
           console.log(`Share link for "${shareName}" (expires in ${ttl}, ${maxViews} view(s)):`);
           console.log(url);
           console.log("\nThe secret is encrypted into the URL fragment — never sent to any server.");
-          console.log("Share this link. Recipient runs: keyblind receive <url>");
+          console.log("Share this link. Recipient runs: keyclasp receive <url>");
         } catch (err: any) {
           console.error(`Share failed: ${err.message}`);
           process.exit(1);
@@ -950,7 +950,7 @@ async function main(): Promise<void> {
 
       case "receive": {
         if (!isInitialized()) {
-          console.error("Keyblind not initialized. Run: keyblind init");
+          console.error("Keyclasp not initialized. Run: keyclasp init");
           process.exit(1);
         }
         let fragment = args[1];

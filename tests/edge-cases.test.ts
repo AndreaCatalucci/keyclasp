@@ -3,10 +3,10 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 
-const tmpDir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "keyblind-edge-")));
-const vaultDir = path.join(tmpDir, ".keyblind");
-const previousKeyblindHome = process.env.KEYBLIND_HOME;
-process.env.KEYBLIND_HOME = vaultDir;
+const tmpDir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "keyclasp-edge-")));
+const vaultDir = path.join(tmpDir, ".keyclasp");
+const previousKeyclaspHome = process.env.KEYCLASP_HOME;
+process.env.KEYCLASP_HOME = vaultDir;
 
 import {
   initializeVault,
@@ -26,10 +26,10 @@ beforeAll(() => {
 
 afterAll(() => {
   closeDb();
-  if (previousKeyblindHome === undefined) {
-    delete process.env.KEYBLIND_HOME;
+  if (previousKeyclaspHome === undefined) {
+    delete process.env.KEYCLASP_HOME;
   } else {
-    process.env.KEYBLIND_HOME = previousKeyblindHome;
+    process.env.KEYCLASP_HOME = previousKeyclaspHome;
   }
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });

@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Keyblind: Blind AI to Your API Keys</title>
-<meta name="description" content="Local encrypted secrets vault that keeps credentials out of files coding agents can read.">
+<title>Keyclasp: Keep API Keys Out of Agent Context</title>
+<meta name="description" content="Keyclasp keeps API keys out of coding-agent context and injects secrets only into trusted commands at runtime.">
 <style>
   *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
   body {
@@ -122,7 +122,7 @@
 
   <!-- Nav -->
   <nav style="display:flex;justify-content:space-between;align-items:center;padding:16px 0;border-bottom:1px solid #21262d;">
-    <a href="/" style="display:flex;align-items:center;gap:8px;text-decoration:none;color:#58a6ff;font-weight:600;font-size:16px;">Keyblind</a>
+    <a href="/" style="display:flex;align-items:center;gap:8px;text-decoration:none;color:#58a6ff;font-weight:600;font-size:16px;">Keyclasp</a>
     <div style="display:flex;gap:16px;align-items:center;">
       <a href="#docs" style="color:#8b949e;text-decoration:none;font-size:14px;">Docs</a>
     </div>
@@ -130,12 +130,12 @@
 
   <!-- Hero -->
   <div class="hero">
-    <h1>Blind AI to Your <span>API Keys</span></h1>
+    <h1>Runtime Secrets for <span>Coding Agents</span></h1>
     <p>Keep real credentials out of project files, inject them into trusted commands only when needed, and catch accidental output leaks.</p>
-    <div class="install">npm install -g keyblind && keyblind init</div>
+    <div class="install">npm install -g keyclasp && keyclasp init</div>
     <div class="note">Local vault. Guarded execution. Zero telemetry.</div>
     <br>
-    <a href="https://github.com/AndreaCatalucci/keyblind" class="btn btn-outline">GitHub →</a>
+    <a href="https://github.com/AndreaCatalucci/keyclasp" class="btn btn-outline">GitHub →</a>
   </div>
 
   <!-- How it works -->
@@ -148,21 +148,21 @@
         <h3>Store Your Secrets</h3>
         <p>Encrypt API keys, tokens, and passwords into a local AES-256-GCM vault.</p>
         <br>
-        <code>echo "sk-abc123" | keyblind set OPENAI_API_KEY</code>
+        <code>echo "sk-abc123" | keyclasp set OPENAI_API_KEY</code>
       </div>
       <div class="step">
         <div class="num">2</div>
         <h3>Sandbox the Project</h3>
         <p>Replace real .env values with deterministic fakes before a coding agent reads the repository.</p>
         <br>
-        <code>keyblind import .env &amp;&amp; keyblind sandbox .env</code>
+        <code>keyclasp import .env &amp;&amp; keyclasp sandbox .env</code>
       </div>
       <div class="step">
         <div class="num">3</div>
         <h3>Run With Secrets</h3>
         <p>Inject secrets into a trusted child process and stop detected output leaks.</p>
         <br>
-        <code>keyblind sandbox && keyblind run -- npm start</code>
+        <code>keyclasp sandbox && keyclasp run -- npm start</code>
       </div>
     </div>
     <div class="logos">
@@ -209,31 +209,31 @@
     <h2>Documentation</h2>
     <div class="sub">Everything you need to get started and go deep.</div>
     <div style="display:grid;grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap:16px;">
-      <a href="https://github.com/AndreaCatalucci/keyblind/blob/main/docs/getting-started.md" class="card" style="text-decoration:none;display:block;">
+      <a href="https://github.com/AndreaCatalucci/keyclasp/blob/main/docs/getting-started.md" class="card" style="text-decoration:none;display:block;">
         <h4 style="color:#58a6ff;margin-bottom:4px;">Getting Started</h4>
         <p style="color:#8b949e;font-size:13px;">Install, init, first secret, sandbox walkthrough.</p>
       </a>
-      <a href="https://github.com/AndreaCatalucci/keyblind/blob/main/docs/commands.md" class="card" style="text-decoration:none;display:block;">
+      <a href="https://github.com/AndreaCatalucci/keyclasp/blob/main/docs/commands.md" class="card" style="text-decoration:none;display:block;">
         <h4 style="color:#58a6ff;margin-bottom:4px;">CLI Reference</h4>
         <p style="color:#8b949e;font-size:13px;">Core commands with examples and flags.</p>
       </a>
-      <a href="https://github.com/AndreaCatalucci/keyblind/blob/main/README.md#using-keyblind-with-coding-agents" class="card" style="text-decoration:none;display:block;">
+      <a href="https://github.com/AndreaCatalucci/keyclasp/blob/main/README.md#using-keyclasp-with-coding-agents" class="card" style="text-decoration:none;display:block;">
         <h4 style="color:#58a6ff;margin-bottom:4px;">Coding Agent Workflow</h4>
         <p style="color:#8b949e;font-size:13px;">A practical sandbox-and-run workflow for agent sessions.</p>
       </a>
-      <a href="https://github.com/AndreaCatalucci/keyblind/blob/main/docs/faq.md" class="card" style="text-decoration:none;display:block;">
+      <a href="https://github.com/AndreaCatalucci/keyclasp/blob/main/docs/faq.md" class="card" style="text-decoration:none;display:block;">
         <h4 style="color:#58a6ff;margin-bottom:4px;">FAQ</h4>
         <p style="color:#8b949e;font-size:13px;">Security boundaries, recovery, backends, and common questions.</p>
       </a>
-      <a href="https://github.com/AndreaCatalucci/keyblind/blob/main/docs/security.md" class="card" style="text-decoration:none;display:block;">
+      <a href="https://github.com/AndreaCatalucci/keyclasp/blob/main/docs/security.md" class="card" style="text-decoration:none;display:block;">
         <h4 style="color:#58a6ff;margin-bottom:4px;">Security</h4>
         <p style="color:#8b949e;font-size:13px;">Threat model, cryptographic architecture, attack surface analysis.</p>
       </a>
-      <a href="https://github.com/AndreaCatalucci/keyblind/blob/main/docs/recipes.md" class="card" style="text-decoration:none;display:block;">
+      <a href="https://github.com/AndreaCatalucci/keyclasp/blob/main/docs/recipes.md" class="card" style="text-decoration:none;display:block;">
         <h4 style="color:#58a6ff;margin-bottom:4px;">Recipes</h4>
         <p style="color:#8b949e;font-size:13px;">CI/CD, Docker, pre-commit, sharing, TOTP, multi-machine sync.</p>
       </a>
-      <a href="https://github.com/AndreaCatalucci/keyblind/blob/main/docs/faq.md" class="card" style="text-decoration:none;display:block;">
+      <a href="https://github.com/AndreaCatalucci/keyclasp/blob/main/docs/faq.md" class="card" style="text-decoration:none;display:block;">
         <h4 style="color:#58a6ff;margin-bottom:4px;">FAQ</h4>
         <p style="color:#8b949e;font-size:13px;">Common questions about setup, security, and local operation.</p>
       </a>
@@ -251,7 +251,7 @@
         <p style="margin-top:12px;font-size:14px;color:#8b949e">Alex R., Senior Engineer</p>
       </div>
       <div class="card" style="text-align:center">
-        <p style="font-size:15px;color:#c9d1d9;line-height:1.6;font-style:italic">"We run Keyblind in CI to sandbox .env files before AI code review. Clean diffs, real secrets never exposed. It's part of our standard dev setup now."</p>
+        <p style="font-size:15px;color:#c9d1d9;line-height:1.6;font-style:italic">"We run Keyclasp in CI to sandbox .env files before AI code review. Clean diffs, real secrets never exposed. It's part of our standard dev setup now."</p>
         <p style="margin-top:12px;font-size:14px;color:#8b949e">Jordan M., DevOps Lead</p>
       </div>
     </div>
@@ -262,9 +262,9 @@
 <footer>
   <div class="container">
     <div class="links">
-      <a href="https://github.com/AndreaCatalucci/keyblind">GitHub</a>
-      <a href="https://www.npmjs.com/package/keyblind">npm</a>
-      <a href="https://github.com/AndreaCatalucci/keyblind/tree/main/docs">Docs</a>
+      <a href="https://github.com/AndreaCatalucci/keyclasp">GitHub</a>
+      <a href="https://www.npmjs.com/package/keyclasp">npm</a>
+      <a href="https://github.com/AndreaCatalucci/keyclasp/tree/main/docs">Docs</a>
       <a href="/privacy.html">Privacy</a>
     </div>
     <p>MIT Licensed &middot; Zero network &middot; Zero telemetry &middot; Built for AI agents</p>

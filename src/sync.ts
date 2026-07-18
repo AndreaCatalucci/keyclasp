@@ -129,7 +129,7 @@ export function getExpiringSoon(daysThreshold: number = 30): ExpiryWarning[] {
 
 // --- Encrypted Sync ---
 
-const SYNC_FILE = ".keyblind-sync.json";
+const SYNC_FILE = ".keyclasp-sync.json";
 
 function encryptSyncPayload(data: Buffer, key: Buffer): { encrypted: Buffer; iv: Buffer; authTag: Buffer } {
   const iv = crypto.randomBytes(12);
@@ -171,7 +171,7 @@ export function createSyncBundle(): string {
   const { encrypted, iv, authTag } = encryptSyncPayload(Buffer.from(payload), syncKey);
 
   return JSON.stringify({
-    format: "keyblind-sync-v1",
+    format: "keyclasp-sync-v1",
     iv: iv.toString("base64"),
     authTag: authTag.toString("base64"),
     data: encrypted.toString("base64"),
@@ -189,7 +189,7 @@ export function applySyncBundle(bundleJson: string): { imported: number; skipped
     throw new Error("Invalid sync bundle: not valid JSON");
   }
 
-  if (bundle.format !== "keyblind-sync-v1") {
+  if (bundle.format !== "keyclasp-sync-v1" && bundle.format !== "keyblind-sync-v1") {
     throw new Error("Invalid sync bundle: unknown format");
   }
 

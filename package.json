@@ -1,18 +1,19 @@
 {
-  "name": "keyblind",
+  "name": "keyclasp",
   "version": "0.7.0",
-  "description": "Local encrypted secrets vault with safe command injection for coding agents",
+  "description": "Runtime secrets for coding agents — keep API keys out of agent context and inject them only into trusted commands",
   "engines": {
     "node": ">=24"
   },
   "type": "module",
   "bin": {
-    "keyblind": "dist/cli.js"
+    "keyclasp": "dist/cli.js"
   },
   "main": "./dist/index.js",
   "files": [
     "dist",
-    "skills"
+    "skills",
+    "NOTICE"
   ],
   "scripts": {
     "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
@@ -26,6 +27,10 @@
   },
   "keywords": [
     "secrets",
+    "coding-agent",
+    "runtime-secrets",
+    "secret-injection",
+    "environment-variables",
     "vault",
     "encryption",
     "ai-agent",
@@ -34,9 +39,16 @@
     "cli"
   ],
   "license": "MIT",
-  "author": "Keyblind",
+  "author": "Andrea Catalucci",
+  "contributors": [
+    "Mohammed Aarif Shaikh (original Keyblind project)"
+  ],
   "repository": {
-    "url": "git+https://github.com/AndreaCatalucci/keyblind.git"
+    "url": "git+https://github.com/AndreaCatalucci/keyclasp.git"
+  },
+  "homepage": "https://github.com/AndreaCatalucci/keyclasp#readme",
+  "bugs": {
+    "url": "https://github.com/AndreaCatalucci/keyclasp/issues"
   },
   "dependencies": {
     "better-sqlite3": "^12.11.1"

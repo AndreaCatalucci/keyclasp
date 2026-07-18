@@ -1,19 +1,19 @@
 import { describe, expect, it } from "vitest";
-import * as keyblind from "../src/index.js";
+import * as keyclasp from "../src/index.js";
 
 describe("public API", () => {
   it("keeps the supported CLI-first library surface", () => {
-    expect(keyblind).toHaveProperty("initializeVault");
-    expect(keyblind).toHaveProperty("sandboxEnvFile");
-    expect(keyblind).toHaveProperty("runDoctor");
-    expect(keyblind).toHaveProperty("createShareLink");
+    expect(keyclasp).toHaveProperty("initializeVault");
+    expect(keyclasp).toHaveProperty("sandboxEnvFile");
+    expect(keyclasp).toHaveProperty("runDoctor");
+    expect(keyclasp).toHaveProperty("createShareLink");
   });
 
   it("omits removed server, setup, and authentication exports", () => {
-    expect(keyblind).not.toHaveProperty("createServer");
-    expect(keyblind).not.toHaveProperty("startServer");
-    expect(keyblind).not.toHaveProperty("setupAll");
-    expect(keyblind).not.toHaveProperty("setRequireSession");
-    expect(keyblind).not.toHaveProperty("setClientInfo");
+    expect(keyclasp).not.toHaveProperty("createServer");
+    expect(keyclasp).not.toHaveProperty("startServer");
+    expect(keyclasp).not.toHaveProperty("setupAll");
+    expect(keyclasp).not.toHaveProperty("setRequireSession");
+    expect(keyclasp).not.toHaveProperty("setClientInfo");
   });
 });

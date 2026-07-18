@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Keyblind Demo — self-running terminal script
+# Keyclasp Demo — self-running terminal script
 # Usage: bash demo/run-demo.sh
 # Record this terminal window with OBS/Screen Studio
 
@@ -56,18 +56,18 @@ clear_section
 echo "${RED}${BOLD}Scene 2: Install & Init${NC}"
 echo ""
 
-prompt; echo "npm install -g keyblind"
+prompt; echo "npm install -g keyclasp"
 sleep 0.8
 echo ""
 echo "added 47 packages in 2.3s"
 echo ""
 
-prompt; echo "keyblind init"
+prompt; echo "keyclasp init"
 sleep 0.5
 printf "Enter vault passphrase (or empty for machine-only key): "
 sleep 1
 echo ""
-echo "🔑 Keyblind vault created at ~/.keyblind/"
+echo "🔑 Keyclasp vault created at ~/.keyclasp/"
 echo ""
 
 sleep 1.5
@@ -79,12 +79,12 @@ clear_section
 echo "${RED}${BOLD}Scene 3: Store Secrets${NC}"
 echo ""
 
-prompt; echo 'echo "sk-proj-abc123xyz890" | keyblind set OPENAI_API_KEY'
+prompt; echo 'echo "sk-proj-abc123xyz890" | keyclasp set OPENAI_API_KEY'
 sleep 0.5
 echo 'Stored "OPENAI_API_KEY"'
 echo ""
 
-prompt; echo "keyblind set DATABASE_URL -"
+prompt; echo "keyclasp set DATABASE_URL -"
 sleep 0.5
 printf "Enter value for DATABASE_URL: "
 sleep 1
@@ -92,7 +92,7 @@ echo "********"
 echo 'Stored "DATABASE_URL"'
 echo ""
 
-prompt; echo "keyblind set STRIPE_SECRET -"
+prompt; echo "keyclasp set STRIPE_SECRET -"
 sleep 0.5
 printf "Enter value for STRIPE_SECRET: "
 sleep 0.8
@@ -100,7 +100,7 @@ echo "********"
 echo 'Stored "STRIPE_SECRET"'
 echo ""
 
-prompt; echo "keyblind list"
+prompt; echo "keyclasp list"
 sleep 0.3
 echo "  - DATABASE_URL"
 echo "  - OPENAI_API_KEY"
@@ -124,7 +124,7 @@ cat demo/.env.real
 echo '---'
 echo ""
 
-prompt; echo "keyblind sandbox"
+prompt; echo "keyclasp sandbox"
 sleep 0.5
 echo "Sandboxed 3 value(s) in .env:"
 echo "  - DATABASE_URL → fake (real value backed up to vault)"
@@ -156,7 +156,7 @@ echo '---'
 echo ""
 
 echo "${CYAN}# But you can still run with real secrets:${NC}"
-prompt; echo "keyblind run -- npm test"
+prompt; echo "keyclasp run -- npm test"
 sleep 0.5
 echo "  ✓ tests pass (3 secrets injected as env vars)"
 echo ""
@@ -170,7 +170,7 @@ clear_section
 echo "${RED}${BOLD}Scene 6: Unsandbox & Restore${NC}"
 echo ""
 
-prompt; echo "keyblind unsandbox"
+prompt; echo "keyclasp unsandbox"
 sleep 0.5
 echo "Restored 3 value(s) in .env:"
 echo "  - DATABASE_URL → real"
@@ -193,16 +193,16 @@ echo "${RED}${BOLD}Scene 7: TOTP Codes & Secret Sharing${NC}"
 echo ""
 
 echo "${CYAN}# Built-in 2FA code generation (zero deps):${NC}"
-prompt; echo "keyblind totp code github"
+prompt; echo "keyclasp totp code github"
 sleep 0.5
 echo "  003486  (rotates in 22s)"
 echo ""
 
 echo "${CYAN}# Encrypted secret sharing (AES-256-GCM URL fragment):${NC}"
-prompt; echo "keyblind share DATABASE_URL --ttl 1h --max-views 1"
+prompt; echo "keyclasp share DATABASE_URL --ttl 1h --max-views 1"
 sleep 0.5
 echo '  Share link (expires in 1h, 1 view remaining):'
-echo '  keyblind-share://v1.abc.def...'
+echo '  keyclasp-share://v1.abc.def...'
 echo ""
 
 sleep 2
@@ -213,7 +213,7 @@ sleep 2
 clear_section
 echo "${RED}${BOLD}Scene 8: Secrets Only at Runtime${NC}"
 echo ""
-prompt; echo "keyblind run -- npm test"
+prompt; echo "keyclasp run -- npm test"
 echo ""
 echo "${GREEN}  Secrets injected into the child process · detected leaks are stopped${NC}"
 echo ""
@@ -224,12 +224,12 @@ sleep 2
 # SCENE 9: Outro (2:20)
 # ─────────────────────────────────────────────────────
 clear_section
-echo "${RED}${BOLD}Keyblind v0.7.0 — Blind AI to Your Keys${NC}"
+echo "${RED}${BOLD}Keyclasp v0.7.0 — Runtime Secrets for Coding Agents${NC}"
 echo ""
 echo "  Local encrypted vault · guarded commands · 7 backends"
 echo ""
-echo "  npm install -g keyblind"
-echo "  github.com/AndreaCatalucci/keyblind"
+echo "  npm install -g keyclasp"
+echo "  github.com/AndreaCatalucci/keyclasp"
 echo ""
 echo "  ${GREEN}MIT Licensed  ·  Zero Network  ·  Zero Telemetry${NC}"
 echo ""

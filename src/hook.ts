@@ -81,17 +81,17 @@ export function installHook(): string {
 
   const hookPath = path.join(hooksDir, "pre-commit");
   const hookScript = `#!/usr/bin/env bash
-# Keyblind pre-commit hook — detect secrets before committing
-# Installed by: keyblind install-hook
+# Keyclasp pre-commit hook — detect secrets before committing
+# Installed by: keyclasp install-hook
 
-if command -v keyblind &>/dev/null; then
-  keyblind check-secrets
+if command -v keyclasp &>/dev/null; then
+  keyclasp check-secrets
   exit $?
 elif command -v npx &>/dev/null; then
-  npx keyblind check-secrets
+  npx keyclasp check-secrets
   exit $?
 else
-  echo "⚠️  keyblind not found — skipping secret check"
+  echo "⚠️  keyclasp not found — skipping secret check"
   exit 0
 fi
 `;
@@ -113,12 +113,12 @@ export function checkAndReport(): { found: number; output: string } {
     return { found: 0, output: "" };
   }
 
-  let output = "\n⚠️  KEYBLIND: Possible secrets found in staged files:\n\n";
+  let output = "\n⚠️  KEYCLASP: Possible secrets found in staged files:\n\n";
   for (const f of findings) {
     output += `  ${f.file}:${f.line}  [${f.pattern}]  ${f.match}\n`;
   }
   output += `\n  ${findings.length} potential secret(s) detected.\n`;
-  output += "  If these are real secrets, use 'keyblind sandbox' or 'keyblind set'\n";
+  output += "  If these are real secrets, use 'keyclasp sandbox' or 'keyclasp set'\n";
   output += "  to store them securely before committing.\n";
   output += "  To bypass: git commit --no-verify\n";
 

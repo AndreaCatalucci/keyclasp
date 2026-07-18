@@ -3,7 +3,7 @@ import os from "node:os";
 import { StringDecoder } from "node:string_decoder";
 import path from "node:path";
 
-export const REDACTION = "[KEYBLIND_REDACTED]";
+export const REDACTION = "[KEYCLASP_REDACTED]";
 export const MIN_LEAK_VALUE_LENGTH = 8;
 
 export interface ParsedRunArgs {
@@ -72,30 +72,30 @@ export function parseRunArgs(args: string[]): ParsedRunArgs {
   const commandArgs: string[] = [];
   const envSpecs: RunEnvSpec[] = [];
   let allowUnsafe = false;
-  let parsingKeyblindOptions = true;
+  let parsingKeyclaspOptions = true;
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
-    if (parsingKeyblindOptions && arg === "--allow-unsafe") {
+    if (parsingKeyclaspOptions && arg === "--allow-unsafe") {
       allowUnsafe = true;
       continue;
     }
-    if (parsingKeyblindOptions && arg === "--env") {
+    if (parsingKeyclaspOptions && arg === "--env") {
       const spec = args[index + 1];
       if (!spec) throw new Error("Missing value for --env. Expected SOURCE or SOURCE:TARGET.");
       envSpecs.push(parseEnvSpec(spec));
       index += 1;
       continue;
     }
-    if (parsingKeyblindOptions && arg.startsWith("--env=")) {
+    if (parsingKeyclaspOptions && arg.startsWith("--env=")) {
       envSpecs.push(parseEnvSpec(arg.slice("--env=".length)));
       continue;
     }
-    if (parsingKeyblindOptions && arg === "--") {
-      parsingKeyblindOptions = false;
+    if (parsingKeyclaspOptions && arg === "--") {
+      parsingKeyclaspOptions = false;
       continue;
     }
-    parsingKeyblindOptions = false;
+    parsingKeyclaspOptions = false;
     commandArgs.push(arg);
   }
 
@@ -239,14 +239,14 @@ export async function runCommandWithSecrets(options: RunCommandOptions): Promise
     return { kind: "error", exitCode: 1 };
   }
   if (parsed.commandArgs.length === 0) {
-    options.stderr("Usage: keyblind run [--allow-unsafe] [--env SOURCE[:TARGET]] <command...>\n");
+    options.stderr("Usage: keyclasp run [--allow-unsafe] [--env SOURCE[:TARGET]] <command...>\n");
     return { kind: "error", exitCode: 1 };
   }
 
   const unsafe = checkUnsafeCommand(parsed.commandArgs);
   if (!parsed.allowUnsafe && unsafe) {
     options.stderr(`BLOCKED: ${unsafe.reason}.\n`);
-    options.stderr("Operator override: keyblind run --allow-unsafe -- <command...>\n");
+    options.stderr("Operator override: keyclasp run --allow-unsafe -- <command...>\n");
     return { kind: "blocked", exitCode: 2 };
   }
 
@@ -265,7 +265,7 @@ export async function runCommandWithSecrets(options: RunCommandOptions): Promise
   }
 
   if (parsed.allowUnsafe) {
-    options.stderr("WARNING: keyblind run exfiltration protection disabled by --allow-unsafe.\n");
+    options.stderr("WARNING: keyclasp run exfiltration protection disabled by --allow-unsafe.\n");
     return spawnRaw(parsed.commandArgs, env);
   }
 

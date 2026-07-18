@@ -1,7 +1,6 @@
-import { isInitialized, getKey, listSecrets, checkExpired, checkVaultDecryptability } from "./vault.js";
+import { isInitialized, getKey, getVaultLocation, listSecrets, checkExpired, checkVaultDecryptability } from "./vault.js";
 import { getBackend, listAvailableBackends } from "./backends.js";
 import { readConfig } from "./config.js";
-import os from "node:os";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -16,9 +15,9 @@ export function runDoctor(): CheckResult[] {
 
   // 1. Vault initialization
   if (isInitialized()) {
-    checks.push({ name: "Vault initialized", status: "ok", detail: "~/.keyblind/ exists with a key file" });
+    checks.push({ name: "Vault initialized", status: "ok", detail: `${getVaultLocation()} exists with a key file` });
   } else {
-    checks.push({ name: "Vault initialized", status: "error", detail: "Not initialized. Run: keyblind init" });
+    checks.push({ name: "Vault initialized", status: "error", detail: "Not initialized. Run: keyclasp init" });
   }
 
   // 2. Key access
@@ -26,7 +25,7 @@ export function runDoctor(): CheckResult[] {
     getKey();
     checks.push({ name: "Encryption key", status: "ok", detail: "Key file is readable" });
   } catch {
-    checks.push({ name: "Encryption key", status: "error", detail: "Cannot read key. Vault may be corrupted. Try: keyblind init" });
+    checks.push({ name: "Encryption key", status: "error", detail: "Cannot read key. Vault may be corrupted. Try: keyclasp init" });
   }
 
   // 3. Secret count
@@ -64,7 +63,7 @@ export function runDoctor(): CheckResult[] {
       if (expired.length === 0) {
         checks.push({ name: "Expired secrets", status: "ok", detail: "No expired secrets" });
       } else {
-        checks.push({ name: "Expired secrets", status: "warn", detail: `${expired.length} expired: ${expired.join(", ")}. Run: keyblind rotate <name>` });
+        checks.push({ name: "Expired secrets", status: "warn", detail: `${expired.length} expired: ${expired.join(", ")}. Run: keyclasp rotate <name>` });
       }
     } catch {
       checks.push({ name: "Expired secrets", status: "warn", detail: "Could not check expiry" });
@@ -88,7 +87,7 @@ export function runDoctor(): CheckResult[] {
 
   // 7. Disk space for vault
   try {
-    const vaultDir = path.join(os.homedir(), ".keyblind");
+    const vaultDir = getVaultLocation();
     // Check disk space via statfs-like approach
     const free = getDiskFree(vaultDir);
     if (free === null) {
@@ -109,9 +108,9 @@ export function runDoctor(): CheckResult[] {
     if (config.backend) parts.push(`backend=${config.backend}`);
     if (config.projectName) parts.push(`project=${config.projectName}`);
     if (config.expiryDays) parts.push(`expiry=${config.expiryDays}d`);
-    checks.push({ name: "Project config", status: "ok", detail: `.keyblind found (${parts.join(", ") || "minimal"})` });
+    checks.push({ name: "Project config", status: "ok", detail: `.keyclasp found (${parts.join(", ") || "minimal"})` });
   } else {
-    checks.push({ name: "Project config", status: "ok", detail: "No .keyblind file (optional)" });
+    checks.push({ name: "Project config", status: "ok", detail: "No .keyclasp file (optional)" });
   }
 
   // 9. Sandbox audit — check if any .env has unsandboxed patterns
@@ -119,7 +118,7 @@ export function runDoctor(): CheckResult[] {
     const envContent = fs.readFileSync(".env", "utf8");
     const hasRealSecrets = /^(?!#)(?!.*sandbox_)[A-Z_]+=.*(?:sk-|ghp_|xox[baprs]-|AKIA|ya29\.|SG\.|eyJ)/m.test(envContent);
     if (hasRealSecrets) {
-      checks.push({ name: ".env safety", status: "warn", detail: ".env may contain real API keys. Run: keyblind sandbox" });
+      checks.push({ name: ".env safety", status: "warn", detail: ".env may contain real API keys. Run: keyclasp sandbox" });
     } else {
       checks.push({ name: ".env safety", status: "ok", detail: "No obvious real secrets detected in .env" });
     }

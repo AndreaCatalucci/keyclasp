@@ -157,7 +157,7 @@ describe("secret redaction", () => {
     const final = redactor.end();
 
     expect(written.leaked || final.leaked).toBe(true);
-    expect(written.output + final.output).toBe("before [KEYBLIND_REDACTED] after");
+    expect(written.output + final.output).toBe("before [KEYCLASP_REDACTED] after");
   });
 
   it("does not flush a split secret before it can be detected", () => {
@@ -168,7 +168,7 @@ describe("secret redaction", () => {
 
     expect(first.output).not.toContain("sk-test");
     expect(first.leaked).toBe(false);
-    expect(first.output + second.output + final.output).toBe("prefix [KEYBLIND_REDACTED] suffix");
+    expect(first.output + second.output + final.output).toBe("prefix [KEYCLASP_REDACTED] suffix");
     expect(second.leaked).toBe(true);
   });
 
@@ -182,11 +182,11 @@ describe("secret redaction", () => {
 
   it("does not treat sandbox-looking values as leaks unless they are tracked", () => {
     const redactor = createSecretRedactor(["sk-real-secret"]);
-    const written = redactor.write("KEYBLIND_SANDBOX_deadbeef");
+    const written = redactor.write("KEYCLASP_SANDBOX_deadbeef");
     const final = redactor.end();
 
     expect(written.leaked || final.leaked).toBe(false);
-    expect(written.output + final.output).toBe("KEYBLIND_SANDBOX_deadbeef");
+    expect(written.output + final.output).toBe("KEYCLASP_SANDBOX_deadbeef");
   });
 
   it("keeps carry state after one leak to catch a second split secret", () => {
@@ -197,7 +197,7 @@ describe("secret redaction", () => {
     const output = first.output + second.output + final.output;
 
     expect(first.leaked || second.leaked || final.leaked).toBe(true);
-    expect(output).toBe("before [KEYBLIND_REDACTED] then [KEYBLIND_REDACTED] after");
+    expect(output).toBe("before [KEYCLASP_REDACTED] then [KEYCLASP_REDACTED] after");
     expect(output).not.toContain("first-secret");
     expect(output).not.toContain("second-secret");
   });
@@ -234,7 +234,7 @@ describe("guarded command execution", () => {
     expect(blocked.exitCode).toBe(2);
     expect(resolvedNames).toEqual([]);
     expect(blockedStderr).toContain("BLOCKED:");
-    expect(blockedStderr).toContain("keyblind run --allow-unsafe -- <command...>");
+    expect(blockedStderr).toContain("keyclasp run --allow-unsafe -- <command...>");
     expect(blockedStderr).not.toContain("sk-test-secret");
 
     let shellBlockedStderr = "";
@@ -309,7 +309,7 @@ describe("guarded command execution", () => {
     expect(result.kind).toBe("exit");
     expect(result.exitCode).toBe(0);
     expect(stdout).toBe("Initializing available terraform packages\n");
-    expect(stdout).not.toContain("[KEYBLIND_REDACTED]");
+    expect(stdout).not.toContain("[KEYCLASP_REDACTED]");
   });
 
   it("redacts stdout leaks and returns nonzero", async () => {
@@ -326,7 +326,7 @@ describe("guarded command execution", () => {
 
     expect(result.kind).toBe("leak");
     expect(result.exitCode).toBe(2);
-    expect(stdout).toContain("[KEYBLIND_REDACTED]");
+    expect(stdout).toContain("[KEYCLASP_REDACTED]");
     expect(stdout).not.toContain("sk-test-secret");
     expect(stderr).toContain("terminated");
   });
@@ -348,7 +348,7 @@ describe("guarded command execution", () => {
 
     expect(result.kind).toBe("leak");
     expect(stderr).toContain("before ");
-    expect(stderr).toContain("[KEYBLIND_REDACTED] after");
+    expect(stderr).toContain("[KEYCLASP_REDACTED] after");
     expect(stderr).not.toContain("sk-test-secret");
   });
 
@@ -373,7 +373,7 @@ describe("guarded command execution", () => {
     });
 
     expect(result.kind).toBe("leak");
-    expect(stdout).toContain("before [KEYBLIND_REDACTED] after");
+    expect(stdout).toContain("before [KEYCLASP_REDACTED] after");
     expect(stdout).not.toContain("sk-😀-secret");
   });
 

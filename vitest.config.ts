@@ -5,7 +5,7 @@ export default defineConfig({
     include: ["tests/**/*.test.ts"],
     exclude: ["node_modules/**", "dist/**", ".worktrees/**"],
     env: {
-      KEYBLIND_DEV: "true",
+      KEYCLASP_DEV: "true",
     },
   },
 });

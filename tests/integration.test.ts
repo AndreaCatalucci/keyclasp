@@ -4,10 +4,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const tmpDir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "keyblind-test-")));
-const vaultDir = path.join(tmpDir, ".keyblind");
-const previousKeyblindHome = process.env.KEYBLIND_HOME;
-process.env.KEYBLIND_HOME = vaultDir;
+const tmpDir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "keyclasp-test-")));
+const vaultDir = path.join(tmpDir, ".keyclasp");
+const previousKeyclaspHome = process.env.KEYCLASP_HOME;
+process.env.KEYCLASP_HOME = vaultDir;
 
 import {
   initializeVault,
@@ -30,9 +30,11 @@ import { createShareLink, receiveShare, parseTTL } from "../src/share.js";
 import { getAuditLog, checkExpired, setExpiry } from "../src/vault.js";
 import { setBackend, getBackend, listAvailableBackends } from "../src/backends.js";
 import { generateSecret } from "../src/config.js";
+import { applySyncBundle, createSyncBundle } from "../src/sync.js";
+import { unsandboxEnvFile } from "../src/sandbox.js";
 
 beforeAll(() => {
-  process.env.KEYBLIND_HOME = vaultDir;
+  process.env.KEYCLASP_HOME = vaultDir;
   fs.mkdirSync(tmpDir, { recursive: true });
   fs.mkdirSync(vaultDir, { recursive: true });
   if (!isInitialized()) initializeVault("integration-test-passphrase");
@@ -40,10 +42,10 @@ beforeAll(() => {
 
 afterAll(() => {
   closeDb();
-  if (previousKeyblindHome === undefined) {
-    delete process.env.KEYBLIND_HOME;
+  if (previousKeyclaspHome === undefined) {
+    delete process.env.KEYCLASP_HOME;
   } else {
-    process.env.KEYBLIND_HOME = previousKeyblindHome;
+    process.env.KEYCLASP_HOME = previousKeyclaspHome;
   }
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
@@ -159,7 +161,7 @@ describe("Secret sharing integration", () => {
   it("creates a share with full URL format that can be received", () => {
     storeSecret("SHARE_TEST", "url-test-value");
     const { url } = createShareLink("SHARE_TEST", { ttl: "24h" });
-    expect(url).toContain("https://keyblind.dev/share#");
+    expect(url).toContain("https://github.com/AndreaCatalucci/keyclasp#");
 
     const result = receiveShare(url, "FROM_URL");
     expect(result.value).toBe("url-test-value");
@@ -182,6 +184,43 @@ describe("Secret sharing integration", () => {
     const { fragment } = createShareLink("SHARE_TEST");
     const result = receiveShare(fragment, "JSON_SECRET");
     expect(result.value).toBe(special);
+  });
+});
+
+describe("Keyblind compatibility", () => {
+  it("imports sync bundles created with the Keyblind format marker", () => {
+    storeSecret("LEGACY_SYNC", "legacy-sync-value");
+    const bundle = createSyncBundle().replace("keyclasp-sync-v1", "keyblind-sync-v1");
+    deleteSecret("LEGACY_SYNC");
+
+    expect(applySyncBundle(bundle).imported).toBeGreaterThan(0);
+    expect(resolveSecret("LEGACY_SYNC")).toBe("legacy-sync-value");
+  });
+
+  it("restores the Keyblind backup when current and legacy backups coexist", () => {
+    const envPath = path.join(tmpDir, ".env.legacy-sandbox");
+    const original = "API_KEY=real-value\n";
+    fs.writeFileSync(envPath, `# @keyblind-backup:{}\nAPI_KEY=KEYBLIND_SANDBOX_deadbeef\n`);
+    storeSecret("__keyclasp_env_backup", "API_KEY=wrong-current-value\n");
+    storeSecret("__keyblind_env_backup", original);
+    storeSecret("__keyblind_sandbox_backup__API_KEY", "real-value");
+
+    expect(unsandboxEnvFile(envPath)).toContain("API_KEY");
+    expect(fs.readFileSync(envPath, "utf8")).toBe(original);
+  });
+
+  it("refuses to restore a file with both Keyclasp and Keyblind markers", () => {
+    const envPath = path.join(tmpDir, ".env.ambiguous-sandbox");
+    const sandboxed = [
+      "# @keyclasp-backup:{}",
+      "# @keyblind-backup:{}",
+      "API_KEY=KEYCLASP_SANDBOX_deadbeef",
+      "",
+    ].join("\n");
+    fs.writeFileSync(envPath, sandboxed);
+
+    expect(() => unsandboxEnvFile(envPath)).toThrow(/both Keyclasp and Keyblind sandbox markers/);
+    expect(fs.readFileSync(envPath, "utf8")).toBe(sandboxed);
   });
 });
 

@@ -15,18 +15,26 @@ export interface ProjectConfig {
   watchPath?: string;
 }
 
-const CONFIG_FILE = ".keyblind";
+const CONFIG_FILE = ".keyclasp";
+const LEGACY_CONFIG_FILE = ".keyblind";
 
 export function getConfigPath(dir?: string): string {
   return path.join(dir || process.cwd(), CONFIG_FILE);
 }
 
 export function readConfig(dir?: string): ProjectConfig | null {
-  const configPath = getConfigPath(dir);
-  if (!fs.existsSync(configPath)) return null;
+  const baseDir = dir || process.cwd();
+  const preferredPath = getConfigPath(baseDir);
+  const legacyPath = path.join(baseDir, LEGACY_CONFIG_FILE);
+  try {
+    const raw = fs.readFileSync(preferredPath, "utf8");
+    return JSON.parse(raw) as ProjectConfig;
+  } catch (err: any) {
+    if (err?.code !== "ENOENT") return null;
+  }
 
   try {
-    const raw = fs.readFileSync(configPath, "utf8");
+    const raw = fs.readFileSync(legacyPath, "utf8");
     return JSON.parse(raw) as ProjectConfig;
   } catch {
     return null;
