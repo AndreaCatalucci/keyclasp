@@ -16,10 +16,9 @@
 ## Description (260 chars max)
 
 ```
-MCP-native secrets vault. Encrypt API keys, sandbox .env files with
-deterministic fakes, resolve at runtime. AI agents never see real values.
-26 MCP tools, 7 optional backends, core CLI commands. Works with Claude Code,
-Cursor, Copilot, Windsurf, Cline, Zed. MIT. Zero telemetry.
+Encrypted secrets vault for coding-agent workflows. Sandbox .env files with
+deterministic fakes and inject real values into guarded child processes.
+Seven optional backends, one CLI, and no editor lock-in. MIT. Zero telemetry.
 ```
 
 ## Thumbnail
@@ -40,11 +39,11 @@ Terminal showing `keyblind sandbox` output with deterministic fakes.
 Caption: "After sandboxing: deterministic HMAC-SHA256 fakes. Clean git diffs. Same fake every time."
 
 ### Image 3: Feature Grid
-Show the core feature set: vault, sandbox, TOTP, sharing, and agent-focused MCP tools.
-Caption: "MCP tools, local-first backends, deterministic sandboxing, and runtime secret resolution."
+Show the core feature set: vault, sandbox, guarded execution, TOTP, sharing, and backends.
+Caption: "Local-first secrets, deterministic sandboxing, and guarded runtime injection."
 
 ### Image 4: Agent Workflow
-Terminal showing `keyblind setup-mcp`, `keyblind sandbox`, and `keyblind run`.
+Terminal showing `keyblind init`, `keyblind sandbox`, and `keyblind run`.
 Caption: "Local-first secret workflows for AI-assisted development."
 
 
@@ -65,15 +64,15 @@ at runtime. The AI never sees them.
 
 What's shipped in v0.6.0 (just published today):
 
-- MCP tools for secrets, sandboxing, TOTP, secret sharing, context, lifecycle, and audit summaries
+- Guarded CLI workflows for secrets, sandboxing, TOTP, sharing, lifecycle, and audit summaries
 - Local-first backends — local, 1Password, Bitwarden, env, AWS, GCP, Azure
 - CLI workflows for vault setup, sandboxing, and runtime injection
 
-Key differentiator from Cloak (launched last week): Keyblind is MCP-
-native — works with every AI editor, not just VS Code. 7 backends vs 1.
+Key differentiator from Cloak (launched last week): Keyblind protects the
+process boundary and works independently of the editor. Seven backends vs one.
 Deterministic sandbox vs random placeholders.
 
-Availability: Free — Unlimited secrets, optional backend adapters, all 26 MCP tools. No accounts, no payment required.
+Availability: Free — Unlimited secrets, optional backend adapters, and the complete CLI. No accounts or payment required.
 
 Stack: TypeScript, SQLite (better-sqlite3), Node.js crypto. Zero network,
 zero telemetry, zero accounts. MIT licensed.

@@ -1,8 +1,8 @@
 **Title:** Keyblind Demo — Blind AI to Your API Keys (2-Minute Screencast)
 
-**Description:** Terminal screencast + split-screen editor showing how Keyblind encrypts secrets and blinds AI agents to API keys, passwords, and tokens using MCP.
+**Description:** Terminal screencast + split-screen editor showing how Keyblind encrypts secrets, sandboxes project files, and injects credentials into guarded commands.
 
-**Tags:** `demo` `screencast` `security` `privacy` `ai` `mcp` `api-keys` `devtools` `open-source`
+**Tags:** `demo` `screencast` `security` `privacy` `ai` `api-keys` `devtools` `open-source`
 
 ---
 
@@ -34,7 +34,7 @@ Enter vault passphrase (or empty for machine-only key):
 🔑 Keyblind vault created at ~/.keyblind/
 ```
 
-**Voiceover:** "Keyblind is an MCP server that encrypts your secrets and resolves them at runtime — so AI agents never see the real values. Install it, initialize a vault, and you're ready."
+**Voiceover:** "Keyblind encrypts your secrets, replaces project values with stable fakes, and injects credentials only into the commands that need them. Install it, initialize a vault, and you're ready."
 
 ---
 
@@ -138,22 +138,16 @@ https://keyblind.dev/share#v1.abc.def...
 
 ---
 
-## Scene 8: MCP Server (1:55–2:10)
+## Scene 8: Guarded Agent Workflow (1:55–2:10)
 
-**Visual:** Show `.mcp.json` config file and editor recognizing the MCP server.
+**Visual:** Show an agent working with a sandboxed `.env`, then run the project with secrets injected.
 
-```json
-{
-  "mcpServers": {
-    "keyblind": {
-      "command": "npx",
-      "args": ["keyblind", "start"]
-    }
-  }
-}
+```bash
+keyblind sandbox .env
+keyblind run -- npm test
 ```
 
-**Voiceover:** "Keyblind works with every AI editor — Claude Code, Cursor, Copilot, Windsurf, Cline, Zed. One config file. Every tool. Your secrets stay secret."
+**Voiceover:** "This workflow works with every coding agent because it protects the files and process boundary instead of depending on an editor integration."
 
 ---
 

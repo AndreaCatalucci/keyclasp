@@ -6,7 +6,7 @@
 ## Threat Model
 
 **What we protect against:**
-- Secrets leaking into LLM conversation transcripts
+- Secrets being left in project files that coding agents can inspect
 - Unauthorized vault access from other local processes
 - Machine theft (encrypted-at-rest)
 - Tampering with vault data
@@ -143,37 +143,31 @@ const iv = crypto.randomBytes(12);
 
 Aliases are local-vault metadata pointers only. They do not duplicate encrypted secret values, and listing aliases never returns plaintext.
 
-## Protocol Security
-
-### MCP Transport
-
-- **Stdio transport**: Local process communication. No network exposure.
-
 ## Attack Surface Analysis
 
 | Attack Vector | Risk | Mitigation |
 |---------------|------|------------|
-| LLM reads secrets from transcript | **HIGH** | MCP resolves at runtime; `resolve_secret` returns plaintext by explicit contract, so clients must not paste values into prompts/logs |
-| Malicious MCP client reads all secrets | **MEDIUM** | MCP tools only return user-facing names and alias metadata, not `_keyblind*` internal entries |
+| Agent reads a real `.env` | **HIGH** | Import the file, then use deterministic sandbox values before agent access |
+| Child process reads injected secrets | **HIGH** | Run only trusted commands; guarded execution reduces accidental disclosure but does not make malicious software safe |
 | Alias metadata reveals naming conventions | **LOW** | Alias tools return names and targets only, never plaintext secret values |
 | Vault.db stolen + passphrase known | **MEDIUM** | Machine-identity-bound DEK prevents decryption on different hardware |
 | Vault.db stolen, no passphrase | **LOW** | AES-256-GCM with 600K PBKDF2 iterations. Brute force infeasible |
 | Share link intercepted | **LOW-MED** | Fragment never sent to server. But link can be intercepted via browser history or phishing |
 | Replay of old share links | **LOW** | TTL + expiry enforcement |
 | Injected command prints secrets | **HIGH** | `keyblind run` blocks obvious environment dumps, redacts detected injected secret values from stdout/stderr, terminates the child process, and requires `--allow-unsafe` to disable this guard |
+| Memory dump of running process | **MEDIUM** | DEK is in memory while vault is open. Limit the lifetime of trusted processes |
+| Dependency compromise | **MEDIUM** | Keep the dependency set small, review lockfile changes, and install only trusted releases |
 
 `keyblind run` tracks injected values of at least 8 characters for output leak detection. Shorter values are still injected, but they are too ambiguous to scan safely without false positives in ordinary command output.
-| Memory dump of running process | **MEDIUM** | DEK is in memory while vault is open. Mitigate with shorter session lifetimes |
-| Dependency compromise | **MEDIUM** | Runtime dependencies are limited to MCP SDK, SQLite, Zod, and stdlib crypto |
 
 ## Operational Recommendations
 
-1. **Use the biometric gate** (`keyblind unlock` with `keyblind start --biometric`, or `keyblind start --biometric-every-time` for per-access prompts)
-2. **Set KEYBLIND_SESSION_TIMEOUT** to auto-lock after inactivity
-3. **Never commit `.keyblind/`** to version control
-4. **Use `keyblind sandbox`** for all projects that interact with AI tools
-5. **Rotate passphrases** if you suspect vault compromise
-6. **Keep remote access disabled** unless you have a concrete operational need and a hardened deployment boundary
+1. **Never commit `.keyblind/`** to version control
+2. **Use `keyblind sandbox`** before coding agents inspect project configuration
+3. **Use `keyblind run`** instead of printing secrets into the shell
+4. **Run only trusted child processes** with injected credentials
+5. **Rotate passphrases and affected secrets** if you suspect compromise
+6. **Treat remote backends as external trust boundaries** with their own accounts and networks
 
 ## Cryptographic Inventory
 

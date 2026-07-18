@@ -1,70 +1,67 @@
 # Getting Started
 
-## Installation
+## Install Keyblind
 
 ```bash
 npm install -g keyblind
-```
-
-## Initialize Your Vault
-
-```bash
 keyblind init
 ```
 
-You'll be prompted to create a passphrase. This passphrase encrypts your vault. **Do not lose it** — there is no recovery mechanism.
-
-## Connect to Claude Code
-
-```bash
-keyblind setup-mcp
-```
-
-This auto-configures Keyblind as an MCP server. Then restart Claude Code and you can say _"list my keyblind secrets"_ or _"use my OPENAI_API_KEY"_.
-
-For other editors (Cursor, Copilot, Windsurf, etc.), see [Editors Guide](editors.md).
+Choose a strong vault passphrase and store it safely. Keyblind cannot recover a lost passphrase.
 
 ## Store Your First Secret
 
-```bash
-echo "sk-abc123..." | keyblind set OPENAI_API_KEY
-```
-
-Or type it securely:
+Use the secure prompt so the value does not enter shell history:
 
 ```bash
 keyblind set OPENAI_API_KEY -
-# Paste your key and press Ctrl+D
+# Paste the value, then press Ctrl+D
 ```
 
-## Use in Claude Code
-
-After `keyblind setup-mcp` and restart, just ask naturally:
-
-```
-> list my keyblind secrets
-> resolve my OPENAI_API_KEY
-> store a secret called DATABASE_URL
-```
-
-Keyblind resolves secrets at runtime — the plaintext never appears in the conversation transcript. You'll see "Called keyblind (ctrl+o to expand)" instead of the actual value.
-
-
-## Sandbox Your .env
+Confirm that the vault contains the name without printing its value:
 
 ```bash
-# Replace real values with deterministic fakes
-keyblind sandbox
-
-# Restore real values when you need them
-keyblind unsandbox
+keyblind list
+keyblind status
 ```
 
-The fakes are HMAC-SHA256 derived — same input always produces same output, so git diffs stay clean.
+## Prepare an Existing Project
+
+If the project already contains a real `.env`, import it before sandboxing:
+
+```bash
+keyblind import .env
+keyblind sandbox .env
+```
+
+Sandboxing replaces real values with deterministic fakes. The project keeps the same variable names and stable fake values, so a coding agent can inspect configuration without reading credentials and repeated runs do not create noisy diffs.
+
+## Run Commands With Secrets
+
+```bash
+keyblind run -- npm test
+keyblind run -- npm start
+```
+
+Keyblind injects stored secrets into the child process environment. It blocks obvious environment-dump commands by default and watches stdout and stderr for injected values. If it detects a leak, it redacts the value and terminates the child process.
+
+When a command expects another variable name:
+
+```bash
+keyblind run --env OPENAI_API_KEY:AI_TOKEN -- npm test
+```
+
+## Restore a Sandboxed File
+
+```bash
+keyblind unsandbox .env
+```
+
+Restore real values only for a trusted local workflow. Sandbox the file again before letting a coding agent inspect or edit the project.
 
 ## Next Steps
 
-- [Full Command Reference](commands.md)
-- [MCP Tools Reference](mcp-integration.md)
-- [Security Model](security.md)
+- [CLI command reference](commands.md)
+- [Recipes](recipes.md)
+- [Security design](security.md)
 - [FAQ](faq.md)

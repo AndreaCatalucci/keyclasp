@@ -1,4 +1,0 @@
-interface:
-  display_name: "Keyblind Agent"
-  short_description: "Use Keyblind secrets safely in agent workflows"
-  default_prompt: "Use $keyblind-agent to set up and use project secrets without exposing values."

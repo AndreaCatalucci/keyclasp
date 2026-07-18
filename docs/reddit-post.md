@@ -6,7 +6,7 @@
 
 Your `.env` file. Full of API keys, passwords, and tokens. Every AI coding tool reads it. And when they do, those secrets end up in conversation transcripts sometimes indexed by search engines forever. Security researchers found 100,000+ LLM conversations with exposed secrets in 2025.
 
-Keyblind is an MCP server that encrypts your secrets and resolves them at runtime. AI agents never see the real values.
+Keyblind is a local encrypted vault that replaces project secrets with deterministic fakes and injects real values only into guarded commands.
 
 **How it works:**
 
@@ -15,7 +15,7 @@ Keyblind is an MCP server that encrypts your secrets and resolves them at runtim
 - `keyblind run -- npm test` — injects real secrets as env vars for that command only.
 - `keyblind unsandbox` — restores real values when you're done.
 
-**Works everywhere:** Claude Code, Cursor, Copilot, Windsurf, Cline, Zed one `.mcp.json` file.
+**Works everywhere:** the workflow protects files and commands, so it does not depend on a particular editor.
 
 **Zero network, zero telemetry, zero accounts.** AES-256-GCM encrypted. Keys bound to your machine.
 

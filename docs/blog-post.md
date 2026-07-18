@@ -2,7 +2,7 @@
 
 **Description:** 100,000+ LLM conversations with exposed secrets were found indexed by search engines in 2025. Here's how to make sure yours aren't next.
 
-**Tags:** `security` `privacy` `ai` `mcp` `api-keys` `devtools` `open-source` `typescript` `show-hn`
+**Tags:** `security` `privacy` `ai` `api-keys` `devtools` `open-source` `typescript` `show-hn`
 
 ---
 
@@ -22,28 +22,22 @@ In 2025, security researchers found over 100,000 LLM conversation transcripts co
 - Committed secrets exposed by an AI suggestion
 - Had their sandboxed environment read by an agent with file access
 
-The existing solutions all had the same limitation: they were editor-specific. VS Code extensions that don't work in Cursor. CLI tools that don't integrate with AI workflows. Nothing that worked across the entire AI-assisted development ecosystem.
+The existing solutions often depend on a particular editor. Keyblind instead protects the project files and commands that every coding agent works with.
 
-## Enter Keyblind: MCP-First Secret Management
+## Enter Keyblind: Guarded Secret Workflows
 
-Keyblind takes a different approach. Instead of being an editor extension, it's an **MCP server** a tool that any AI agent can talk to using the Model Context Protocol, the standard protocol for AI-tool communication.
+Keyblind is a local encrypted vault and CLI. It replaces real `.env` values with deterministic fakes and injects credentials only into commands that need them.
 
 Here's the architecture:
 
 ```
-┌──────────┐     ┌────────────────┐     ┌─────────────────┐
-│ AI Agent │ ──→ │  Keyblind MCP  │ ──→ │  Encrypted      │
-│ (Claude) │     │  Server (7 tools)│   │  SQLite Vault   │
-│          │ ←── │                 │ ←── │  (AES-256-GCM)  │
-└──────────┘     └────────────────┘     └─────────────────┘
-      ↑                                        │
-      │ secret value never appears             │ secrets never
-      │ in conversation transcript             │ stored in plaintext
+┌───────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│ Coding Agent  │ ──→ │ Sandboxed Files │     │ Encrypted Vault │
+│ sees fakes    │     │ and Commands    │ ──→ │ and Backends    │
+└───────────────┘     └─────────────────┘     └─────────────────┘
 ```
 
-When an AI agent needs an API key, it calls `resolve_secret("OPENAI_API_KEY")`. Keyblind decrypts the value and passes it back but the value goes directly to the runtime environment, **never appearing in the LLM conversation transcript.**
-
-The AI agent never sees the actual secret. It just knows the operation succeeded.
+When a test, build, or development server needs credentials, run it through `keyblind run -- <command>`. Keyblind injects the values into that child process, blocks obvious environment dumps, and stops detected output leaks.
 
 ## The Sandbox Trick
 
@@ -81,35 +75,30 @@ Use your password manager. Use your cloud provider. Use the local vault. Mix and
 
 ## Zero Network, Zero Telemetry
 
-Keyblind is **fully local**. No cloud. No accounts. No analytics. No network calls. Your secrets never leave your machine. The encryption is AES-256-GCM with PBKDF2 key derivation at 600,000 iterations. The encryption key is XOR-wrapped with your machine identity even if someone copies your vault file to another machine, they can't decrypt it.
+The default vault is fully local: no account, analytics, or network calls. Optional remote backends use their provider CLIs and networks. Local encryption uses AES-256-GCM with PBKDF2 key derivation at 600,000 iterations, and the key is wrapped with a machine fingerprint.
 
-## Works Everywhere
+## Works With Any Coding Agent
 
-Keyblind speaks MCP. Any editor or tool that supports the Model Context Protocol can use it:
+Keyblind protects files and commands instead of depending on an editor extension:
 
-```json
-{
-  "mcpServers": {
-    "keyblind": {
-      "command": "npx",
-      "args": ["keyblind", "start"]
-    }
-  }
-}
+```bash
+keyblind import .env
+keyblind sandbox .env
+keyblind run -- npm test
 ```
 
-That's it. Claude Code, Cursor, Copilot, Windsurf, Cline, Zed  one config file, zero editor-specific setup.
+The same workflow works whether you use Claude Code, Cursor, Copilot, Windsurf, Cline, Zed, or a terminal-only agent.
 
 ## The Competition
 
-[Cloak](https://getcloak.dev) launched two days before Keyblind (May 25, 2026). It's a Rust CLI + VS Code extension that sandboxes `.env` files. Solid tool. But it's VS Code/Cursor only no MCP support, no other editors, no other backends.
+[Cloak](https://getcloak.dev) launched two days before Keyblind (May 25, 2026). It's a Rust CLI and editor extension that sandboxes `.env` files. Keyblind adds guarded command execution, secret lifecycle commands, and optional backends.
 
-Keyblind's bet is that the future of AI-secret management is **protocol-native**, not editor-native. MCP is the standard. Every editor will support it. Building on MCP means Keyblind works today and tomorrow, regardless of which AI tool wins.
+Keyblind's bet is that the safest integration point is the process boundary: keep plaintext out of project files and inject it only into the trusted commands that need it.
 
 ## What's Next
 
 Keyblind v0.2.0 shipped with:
-- 7 MCP tools (including audit logging)
+- Guarded command execution and deterministic `.env` sandboxing
 - 7 secret backends (local, cloud, and password managers)
 - Secret rotation and expiry tracking
 - Team vaults for shared secrets

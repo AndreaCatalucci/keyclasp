@@ -8,7 +8,7 @@ AI coding tools like Claude Code, Cursor, and Copilot can't tell the difference 
 
 I built **Keyblind** to solve this.
 
-It's an MCP server that encrypts your secrets and resolves them at runtime — the AI agent never sees the real value.
+It's a local encrypted vault that replaces project secrets with deterministic fakes and injects real values only into guarded commands.
 
 **How it works:**
 - `keyblind sandbox` replaces every real `.env` value with a deterministic fake

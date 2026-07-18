@@ -2,55 +2,48 @@
 
 ## What is Keyblind?
 
-Keyblind is an encrypted secrets vault that integrates with AI coding tools via the Model Context Protocol (MCP). It stores API keys, tokens, and passwords in an AES-256-GCM encrypted SQLite database and resolves them at runtime. `resolve_secret` returns plaintext to the MCP caller by explicit contract; clients must keep that value out of prompts, logs, and chat transcripts.
+Keyblind is a local encrypted secrets vault and CLI. It keeps real credentials outside project files, replaces `.env` values with safe deterministic fakes, and injects secrets into child processes only when a command needs them.
 
-## How is this different from a .env file?
+## How is this different from a `.env` file?
 
-`.env` files are read by your code. When you paste code into an AI chat, the `.env` contents can leak. Keyblind keeps secrets in an encrypted vault and only resolves them when the AI needs them, keeping them out of the chat transcript entirely.
+A `.env` file stores plaintext inside the project directory, where coding agents, logs, shell tools, and accidental commits can expose it. Keyblind stores real values in an encrypted vault. `keyblind sandbox` leaves fake values in the project, while `keyblind run` supplies the real values to a trusted process at runtime.
 
-For local `.env` files, `keyblind sandbox` replaces real values with deterministic fakes that are safe to share with AI tools.
+## How is this different from 1Password or Bitwarden?
 
-## How is this different from 1Password / Bitwarden?
-
-Keyblind is **MCP-native**. It integrates directly with AI agents via the Model Context Protocol. 1Password and Bitwarden are human-facing password managers. Keyblind also supports using 1Password and Bitwarden as backends — so you can use both together.
+Keyblind focuses on safe developer and coding-agent workflows around project environment variables. It can also use 1Password or Bitwarden as an optional backend, so those tools can remain the source of truth while Keyblind provides sandboxing and guarded command execution.
 
 ## Is Keyblind open source?
 
-Yes. MIT license. The full source is at [github.com/AndreaCatalucci/keyblind](https://github.com/AndreaCatalucci/keyblind).
+Yes. Keyblind uses the MIT license. The source is available at [github.com/AndreaCatalucci/keyblind](https://github.com/AndreaCatalucci/keyblind).
 
 ## Where is my data stored?
 
-By default, in `~/.keyblind/vault.db` — an AES-256-GCM encrypted SQLite database. Nothing leaves your machine. No cloud, no telemetry, no accounts.
+The default backend stores an AES-256-GCM encrypted SQLite vault at `~/.keyblind/vault.db`. Local mode requires no account, network connection, or telemetry. Optional remote backends use their provider CLIs, accounts, and networks.
 
-## What happens if I lose my passphrase?
+## What happens if I lose my passphrase or change machines?
 
-Your secrets are unrecoverable. The passphrase encrypts the vault key. There is no backdoor, no recovery email, no "forgot password" flow. **Write down your passphrase and store it securely.**
-
-## Does Keyblind require a license key?
-
-No. Keyblind is MIT licensed, local-first, and does not include activation, paid-tier gates, or phone-home license checks.
+There is no recovery email, backdoor, or “forgot password” flow. The vault key is also bound to a machine fingerprint. Keep a tested recovery or migration path before treating the local vault as the only copy of an important credential.
 
 ## Can I use Keyblind in CI/CD?
 
-Yes. Use a local vault or one of the optional backend adapters available in your CI environment. Keyblind does not require a license key for private repositories.
+Yes. Use a vault or backend available in the CI environment and run the required command through `keyblind run`. Avoid commands that print the full environment, and treat build logs as potentially sensitive.
 
-## What MCP tools does Keyblind expose?
+## Can a coding agent safely use Keyblind?
 
-26 tools covering secrets, sandboxing, TOTP, sharing, safe runtime context, backend/config status, redacted activity, generation, rotation, history, rollback, and expiry checks.
+Yes, when the agent works with secret names and uses guarded commands instead of requesting plaintext. Sandbox project `.env` files before the agent reads them, and prefer `keyblind run -- <command>` whenever a tool needs credentials.
 
-## How do I switch between backends?
+## Does `keyblind run` make any program safe?
+
+No. A child process that receives a secret can misuse it. Keyblind blocks common environment-dump commands and scans output for injected values, but these are safeguards rather than a security boundary against malicious software.
+
+## How do I switch backends?
 
 ```bash
-keyblind config backend aws    # Use AWS Secrets Manager
-keyblind config backend local  # Back to local vault
+keyblind config backend aws
+keyblind config backend local
+keyblind backends
 ```
-
-Run `keyblind backends` to see which backends are available.
-
-## Can I use Keyblind with non-MCP tools?
-
-Yes. `keyblind get OPENAI_API_KEY` works as a standard CLI. You can use it in shell scripts, Makefiles, or anywhere you'd normally use environment variables.
 
 ## How do I report a security issue?
 
-Email security@keyblind.dev. PGP key available on request. Do not open a public issue for security bugs.
+Email security@keyblind.dev. Do not open a public issue for security vulnerabilities.

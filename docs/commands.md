@@ -18,14 +18,6 @@
 
 Aliases are local-vault metadata pointers only; external backend alias parity is deferred. `keyblind get WORLD` can resolve a persistent alias like `WORLD -> HELLO`, but `keyblind aliases` never returns plaintext.
 
-## MCP Setup
-
-```bash
-keyblind setup-mcp              # Auto-configure Claude Code MCP (one command)
-```
-
-Runs `claude mcp add --scope user keyblind -- keyblind start`. Works from any directory.
-
 ## Import / Export
 
 ```bash
@@ -58,14 +50,6 @@ keyblind receive <url-or-fragment>
 ```
 
 The secret is encrypted into the URL fragment — never sent to any server.
-
-## Server
-
-```bash
-keyblind start                  # MCP server (stdio — for AI agents)
-keyblind start --biometric      # Require a 15-minute biometric session
-keyblind start --biometric-every-time  # Require biometrics for every secret access
-```
 
 ## Run with Secrets
 

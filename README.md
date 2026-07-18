@@ -1,201 +1,175 @@
 # Keyblind — Blind AI to Your Keys
 
-**Encrypted secrets vault with MCP for AI agents. Secrets resolved at runtime, never leaked to LLM conversations.**
+**A local encrypted vault that keeps real credentials out of files coding agents can read.**
 
 [![npm version](https://img.shields.io/npm/v/keyblind)](https://www.npmjs.com/package/keyblind)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
+## What Keyblind Does
 
-## Why
+Keyblind stores API keys, passwords, tokens, and other credentials in an encrypted local vault. It helps you work with coding agents without leaving real secrets in `.env` files, terminal commands, generated code, or git diffs.
 
-Developers regularly leak API keys, passwords, and tokens to AI coding tools. 100,000+ LLM conversations with exposed secrets were found indexed by search engines in 2025.
+Use Keyblind to:
 
-AI agents read your `.env` files. They copy-paste secrets into conversations. They commit them accidentally. Keyblind stops this by keeping secrets encrypted at rest and resolving them _at runtime_. `resolve_secret` returns plaintext to the MCP caller by explicit contract; clients must keep that value out of prompts, logs, and chat transcripts.
+- replace real `.env` values with stable, realistic fakes before an agent reads the project;
+- run commands with secrets injected only into the child process;
+- block obvious environment-dump commands and stop output that contains injected secrets;
+- store, rotate, share, and audit secrets from one local CLI;
+- optionally read from 1Password, Bitwarden, environment variables, AWS, GCP, or Azure.
 
-## How It Works
+Keyblind is local-first. The default vault requires no account, network connection, or telemetry.
 
+## Why It Helps
+
+Coding agents inspect configuration, run commands, edit files, and collect logs. A normal `.env` file puts plaintext credentials directly inside that working set.
+
+Keyblind separates project configuration from real credentials:
+
+```text
+project files       Keyblind vault           child process
+safe fake values -> encrypted secrets -> runtime environment
 ```
-┌──────────┐     ┌────────────────┐     ┌─────────────────┐
-│ AI Agent │ ──→ │  Keyblind MCP  │ ──→ │  Encrypted      │
-│ (Claude) │     │  Server        │     │  SQLite Vault   │
-│          │ ←── │  (29 tools)    │ ←── │  (AES-256-GCM)  │
-└──────────┘     └────────────────┘     └─────────────────┘
-      ↑                                        │
-      │ secret value never appears             │ secrets never
-      │ in conversation transcript             │ stored in plaintext
-```
+
+The agent can understand which variables a project expects without reading their real values. When a command needs credentials, `keyblind run` injects them at execution time and watches output for accidental disclosure.
 
 ## Quick Start
 
+### 1. Install and initialize
+
 ```bash
-# 1. Install
-npm i -g keyblind
-
-# 2. Initialize your vault
+npm install -g keyblind
 keyblind init
+```
 
-# 3. Auto-configure MCP for Claude Code (one command)
-keyblind setup-mcp
+Keep the vault passphrase safe. Keyblind cannot recover it for you.
 
-# 4. Store secrets
-echo "sk-proj-abc123" | keyblind set OPENAI_API_KEY
-keyblind set DATABASE_URL -    # prompts securely
+### 2. Store a secret securely
 
-# 5. Sandbox your .env (AI agents see fakes)
-keyblind sandbox
+```bash
+keyblind set OPENAI_API_KEY -
+```
 
-# 6. Resolve a secret
-keyblind get OPENAI_API_KEY
+Paste the value at the secure prompt and press Ctrl+D. Avoid typing secrets directly into shell commands, where they may remain in shell history.
 
-# 7. Add a local alias for tools that expect a different name
-keyblind alias OPENAI_API_KEY AI_TOKEN
-keyblind get AI_TOKEN
+### 3. Prepare a project for an agent
 
-# 8. Run commands with secrets injected as env vars
+If the project already has a real `.env`, import it before replacing its values:
+
+```bash
+keyblind import .env
+keyblind sandbox .env
+```
+
+The sandbox uses deterministic fake values, so repeated runs do not create noisy git diffs.
+
+### 4. Run a command with secrets
+
+```bash
+keyblind run -- npm test
 keyblind run -- npm start
+```
 
-# 9. List all secrets (names only, values hidden)
+Keyblind injects stored secrets as environment variables for the child process. If detected output contains an injected secret, Keyblind redacts the value and terminates the command.
+
+### 5. Verify the setup
+
+```bash
+keyblind status
 keyblind list
 ```
 
-> **That's it.** After `keyblind setup-mcp`, restart Claude Code. Then just say _"list my keyblind secrets"_ or _"use my OPENAI_API_KEY"_ — the AI agent resolves secrets at runtime without ever seeing them in the transcript.
+`status` checks the vault and active backend. `list` prints secret names only, never their values.
 
-## MCP Server
+## Common Workflows
 
-Keyblind is **MCP-first** — it works with every AI tool that speaks the Model Context Protocol (Claude Code, Cursor, Copilot, Windsurf, Cline, Zed).
+### Map a secret to another variable name
 
-### Setup (automatic)
-
-```bash
-keyblind setup-mcp
-```
-
-This auto-configures Claude Code to use Keyblind. Works from any directory. For other editors, see [editor-specific configs](docs/editors.md).
-
-### Setup (manual)
-
-Add a `.mcp.json` to your project root, or use `claude mcp add`:
+For one command:
 
 ```bash
-claude mcp add --scope user keyblind -- keyblind start
+keyblind run --env OPENAI_API_KEY:AI_TOKEN -- npm test
 ```
 
-With biometric session gate (Touch ID required before the MCP server starts, session expires after 15 minutes):
+For a reusable local alias:
 
 ```bash
-keyblind unlock                      # Authenticate first
-claude mcp add keyblind -- keyblind start --biometric
+keyblind alias OPENAI_API_KEY AI_TOKEN
+keyblind aliases
 ```
 
-With biometric gate on every secret access:
+Aliases point to the original encrypted value; they do not duplicate it.
+
+### Generate or rotate without revealing the value
 
 ```bash
-claude mcp add keyblind -- keyblind start --biometric-every-time
+keyblind generate SESSION_SECRET
+keyblind rotate OPENAI_API_KEY
 ```
 
-### MCP Tools
+### Restore a sandboxed `.env`
 
-| Tool | Description |
-|------|-------------|
-| `resolve_secret` | Resolve a secret at runtime (returns plaintext by explicit contract) |
-| `store_secret` | Encrypt and store a secret |
-| `list_secrets` | List secret names (values never revealed) |
-| `delete_secret` | Delete a secret |
-| `create_alias` | Create a local alias pointer for a stored secret |
-| `list_aliases` | List alias metadata only (no plaintext values) |
-| `delete_alias` | Delete an alias pointer |
-| `sandbox_env` | Replace `.env` values with deterministic fakes |
-| `unsandbox_env` | Restore real `.env` values from vault |
-| `audit_log` | View secret resolution audit trail |
-| `totp_code` | Generate a TOTP 2FA code for a stored config |
-| `totp_store` | Store a TOTP configuration from otpauth:// URI |
-| `totp_list` | List all stored TOTP configurations |
-| `totp_delete` | Delete a TOTP configuration |
-| `create_share_link` | Create encrypted, expiring share link for a secret |
-| `receive_share` | Receive and decrypt a shared secret |
-| `vault_status` | Safe initialized/project/backend summary |
-| `config_status` | Safe project config summary |
-| `backend_status` | Current backend and adapter availability |
-| `capabilities` | Tool list with safety semantics |
-| `recent_activity` | Redacted audit summary |
-| `generate_secret` | Generate and store a secret without returning the value |
-| `rotate_secret` | Rotate an existing secret and save encrypted history |
-| `secret_history` | List history versions without historical values |
-| `rollback_secret` | Restore a previous encrypted version |
-| `check_expired` | List expired secret names |
-| `expiring_soon` | List expiring secret names and dates |
-| `set_config` | Update safe project config keys |
-| `set_backend` | Switch and persist the active backend |
+```bash
+keyblind unsandbox .env
+```
+
+Restore real values only when a local workflow genuinely requires them. Sandbox the file again before giving a coding agent access to the project.
+
+### Check health and activity
+
+```bash
+keyblind doctor
+keyblind audit
+keyblind check --expired
+```
+
+## Using Keyblind With Coding Agents
+
+Keyblind works best when the agent follows three rules:
+
+1. Inspect secret names and redacted status, not plaintext values.
+2. Sandbox `.env` files before reading or editing them.
+3. Use `keyblind run -- <command>` when a tool needs credentials.
+
+Reusable coding-agent skills and task recipes are planned, but are not currently shipped. They will build on sandboxing and guarded CLI execution rather than giving the model direct access to secret values.
 
 ## Backends
 
-Keyblind defaults to the local encrypted vault and supports optional backend adapters:
+The default local backend stores AES-256-GCM encrypted values in SQLite. Optional adapters use their provider CLIs and may require accounts and network access.
 
-```bash
-keyblind backends                          # List available backends
-keyblind backend 1password                 # Switch to 1Password
-keyblind backend bitwarden                 # Switch to Bitwarden
-```
-
-| Backend | Read | Write | Requires |
-|---------|------|-------|----------|
-| **local** (default) | ✓ | ✓ | Nothing |
+| Backend | Read | Write | Requirement |
+|---|---:|---:|---|
+| **local** | ✓ | ✓ | Nothing |
 | **1password** | ✓ | ✓ | `op` CLI |
 | **bitwarden** | ✓ | — | `bw` CLI |
-| **env** | ✓ | — | Nothing |
+| **env** | ✓ | — | Environment variables |
 | **aws** | ✓ | ✓ | `aws` CLI |
 | **gcp** | ✓ | ✓ | `gcloud` CLI |
 | **azure** | ✓ | ✓ | `az` CLI |
 
-## Security
-
-- **AES-256-GCM** encryption with PBKDF2 key derivation (600K iterations)
-- **Machine-identity-bound key** — encryption key XOR-wrapped with machine fingerprint
-- **Zero network, zero telemetry** — no cloud, no accounts, no analytics
-- **Vault stored at `~/.keyblind/`** with `0700` permissions
-- **Deterministic sandbox fakes** using HMAC-SHA256 per project + key name
-
-## CLI Reference
-
-```
-keyblind init                 Initialize the encrypted vault
-keyblind set <name>           Store a secret (value from stdin)
-keyblind set <name> -         Store a secret (prompts securely)
-keyblind get <name>           Resolve and print a secret
-keyblind list                 List all stored secrets
-keyblind delete <name>        Delete a secret
-keyblind alias <target> <alias>  Create a local alias for a secret
-keyblind aliases              List aliases (metadata only)
-keyblind unalias <alias>      Delete an alias
-keyblind setup-mcp            Auto-configure MCP for Claude Code
-keyblind sandbox [.env]       Replace .env with deterministic fakes
-keyblind unsandbox [.env]     Restore real .env values
-keyblind run [--env SOURCE[:TARGET]] <command...>  Run guarded command with secrets as env vars
-keyblind run --allow-unsafe -- <command...>  Disable run leak protection for this command
-keyblind start                Start MCP server (stdio — for AI agents)
-keyblind start --biometric    Start MCP server with biometric session requirement
-keyblind start --biometric-every-time  Require biometrics for every secret access
-keyblind backends             List available backends
-keyblind backend <name>       Switch backend
-keyblind status               Show vault status
-keyblind version              Show package or local/dev version
-keyblind audit                Show secret resolution audit log
-keyblind check --expired      List secrets past expiry
-keyblind rotate <name>        Update a secret value
-keyblind totp set <name>      Store TOTP 2FA config
-keyblind totp code <name>     Generate current TOTP code
-keyblind totp list            List all TOTP configs
-keyblind totp delete <name>   Delete a TOTP config
-keyblind share <name>         Create encrypted share link
-keyblind receive <url>        Receive a shared secret
-keyblind doctor               Run vault health check
-keyblind generate <name>      Generate a strong random secret
-keyblind import [.env]        Bulk import from .env file
-keyblind export               Export all secrets
-keyblind completions [shell]  Generate shell completion script
+```bash
+keyblind backends
+keyblind config backend 1password
 ```
 
-Aliases are local-vault metadata pointers. They do not duplicate secret values, and alias lists never return plaintext. External backend alias parity is deferred. `keyblind run` injects both canonical secret names and persistent alias names by default; `--env HELLO:WORLD` is a transient per-command mapping and does not create alias metadata.
+## Security Boundaries
+
+- Secret values are encrypted individually with AES-256-GCM.
+- The default vault lives under `~/.keyblind/` with owner-only permissions.
+- Secret names and some metadata remain plaintext so Keyblind can query them.
+- A process receiving an injected secret can still misuse or print it; `keyblind run` reduces this risk but cannot make an untrusted program safe.
+- Commands such as `keyblind get` and `keyblind export --env` deliberately print plaintext. Their output may remain in terminal scrollback or logs.
+- Machine identity binding makes copied vaults harder to decrypt, but also affects machine migration and recovery. Review the security guide before relying on it as your only copy.
+- Keyblind has not received a professional third-party security audit.
+
+See the [security design](docs/security.md) for the full threat model.
+
+## Documentation
+
+- [Getting started](docs/getting-started.md)
+- [CLI command reference](docs/commands.md)
+- [Recipes](docs/recipes.md)
+- [Security design](docs/security.md)
+- [FAQ](docs/faq.md)
 
 ## Development
 
@@ -203,24 +177,9 @@ Aliases are local-vault metadata pointers. They do not duplicate secret values, 
 git clone https://github.com/AndreaCatalucci/keyblind.git
 cd keyblind
 npm install
-npm run build       # Compile TypeScript
-npm test            # Run tests
-npm run dev         # Watch mode
+npm run build
+npm test
 ```
-
-### Versioning
-
-`package.json.version` is the publishable npm semver and should change only for an intentional release.
-Local git checkouts derive their displayed identity from that semver plus source state, for example `0.6.0-dev+git.abc1234.dirty`.
-Packaged or gitless installs report the plain package semver.
-
-```bash
-keyblind version
-npm version patch   # or minor / major, when preparing a release
-npm publish
-```
-
-Deliberate prereleases should use npm prerelease versions and a non-latest tag, for example `npm version prerelease --preid beta` followed by `npm publish --tag beta`.
 
 ## License
 
