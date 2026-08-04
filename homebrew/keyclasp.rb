@@ -1,5 +1,5 @@
 class Keyclasp < Formula
-  desc "Runtime secrets for coding agents"
+  desc "Local encrypted credential vault for coding agents"
   homepage "https://github.com/AndreaCatalucci/keyclasp"
   head "https://github.com/AndreaCatalucci/keyclasp.git", branch: "main"
   license "MIT"

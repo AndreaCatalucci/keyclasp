@@ -16,10 +16,9 @@ Use Keyclasp as the boundary between Codex and plaintext credentials. Work with 
    ```bash
    keyclasp status
    keyclasp list
-   keyclasp aliases
    ```
 
-4. Match the required environment variables to the listed secret names or aliases.
+4. Match the required environment variables to the listed secret names.
 5. Run the command through Keyclasp.
 
 ## Choose the Injection Form
@@ -37,7 +36,7 @@ keyclasp run --env OPENAI_KEY:OPENAI_API_KEY -- npm test
 keyclasp run --env AWS_ACCESS_KEY_ID --env AWS_SECRET_ACCESS_KEY -- aws s3 ls
 ```
 
-Use the short form only when the command legitimately needs the full configured environment. With no `--env` option, Keyclasp injects every stored secret and persistent alias under its own name.
+Use the short form only when the command legitimately needs the full configured environment. With no `--env` option, Keyclasp injects every stored secret under its own name.
 
 ```bash
 keyclasp run -- npm test
@@ -47,7 +46,7 @@ Always place Keyclasp options before `--`; everything after `--` is the child co
 
 ## Safety Rules
 
-- Do not run `keyclasp get`, `keyclasp export --env`, or any other command that prints plaintext secrets.
+- Do not run `keyclasp get` or any other command that prints a plaintext secret.
 - Do not inspect injected values with `env`, `printenv`, shell expansion, debug logging, or equivalent commands. Verify behavior through the target command instead.
 - Do not paste secret values into prompts, source files, command arguments, logs, test snapshots, commits, or summaries.
 - Treat the child command as trusted code: it can read every secret injected into it. Use explicit `--env` mappings for least privilege when possible.

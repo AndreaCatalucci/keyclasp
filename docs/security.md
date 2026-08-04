@@ -1,21 +1,24 @@
 # Keyclasp Security Design
 
-> Self-audit of the cryptographic architecture. Covers v0.5.0.
+> Self-audit of the cryptographic architecture. Covers v1.0.0, the minimal hardened core (local vault + guarded `run`).
 > To report a vulnerability privately, open a [GitHub security advisory](https://github.com/AndreaCatalucci/keyclasp/security/advisories/new).
 
 ## Threat Model
 
 **What we protect against:**
 - Secrets being left in project files that coding agents can inspect
-- Unauthorized vault access from other local processes
+- A coding agent (or its prompt/transcript/context) ever observing a plaintext secret value
+- Unauthorized vault access from other local processes or users
 - Machine theft (encrypted-at-rest)
 - Tampering with vault data
+- Accidental leakage of an injected secret into a guarded command's own stdout/stderr
 
 **What we don't protect against (out of scope):**
 - Kernel-level attacks (rootkits)
 - Physical hardware keyloggers
 - Memory dumping from a running process that has unlocked the vault
 - Supply chain compromise of the `keyclasp` npm package itself
+- A trusted child process deliberately exfiltrating a secret it was intentionally given (e.g. via `--allow-unsafe`, or a network call it makes on purpose)
 
 ## Architecture Overview
 
@@ -24,159 +27,117 @@
 │                   KEYCLASP VAULT                      │
 ├──────────────────────────────────────────────────────┤
 │                                                       │
-│  User Passphrase ──► PBKDF2 (600K iter) ──► KEK      │
+│  User Passphrase ──► PBKDF2 (600K iter) ──► Key      │
 │                                                       │
-│  Machine Fingerprint ──► XOR ──► DEK                 │
-│       (hostname + arch + platform + cpus)             │
+│  Machine Fingerprint ──► XOR-wrap ──► Key file        │
+│       (stable hardware/OS identifier)                 │
 │                                                       │
-│  DEK ──► AES-256-GCM ──► SQLite (encrypted blobs)    │
+│  Key ──► AES-256-GCM ──► SQLite (encrypted blobs)    │
 │                                                       │
 │  Secrets stored as:                                   │
 │    { iv, authTag, ciphertext }                        │
-│                                                       │
-│  HMAC-SHA256 ──► Deterministic sandbox fakes          │
-│                                                       │
-│  HKDF ──► Share link key derivation                    │
 │                                                       │
 └──────────────────────────────────────────────────────┘
 ```
 
 ## Cryptographic Primitives
 
-### 1. Key Derivation (KEK)
+### 1. Key Derivation
 
-The Key Encryption Key (KEK) is derived from the user's passphrase using:
+The vault encryption key is derived from the user's passphrase using:
 
 - **Algorithm**: PBKDF2-HMAC-SHA256
 - **Iterations**: 600,000
-- **Salt**: Stored in vault metadata (`_keyclasp_meta`)
+- **Salt**: 32 random bytes, stored alongside the wrapped key in the key file
 - **Key length**: 32 bytes (256 bits)
 
 ```ts
-const kek = crypto.pbkdf2Sync(passphrase, salt, 600_000, 32, "sha256");
+const key = crypto.pbkdf2Sync(passphrase, salt, 600_000, 32, "sha256");
 ```
 
-**Rationale**: 600K iterations balances security with startup time (~200ms on modern hardware). Per OWASP 2025 guidelines, the minimum is 600K for PBKDF2-SHA256.
+**Rationale**: 600K iterations balances security with startup time (~200ms on modern hardware). Per OWASP guidance, this is at or above the minimum for PBKDF2-SHA256.
 
-### 2. Machine-Identity-Bound Key (DEK)
+An empty passphrase is accepted ("machine-only key"). In that mode the derived key depends only on the random salt, so the meaningful protection comes entirely from the machine-identity wrap described next — the vault is then portable only in the sense that it requires the original machine, not a secret the user must remember.
 
-The Data Encryption Key (DEK) is derived by XOR-wrapping the KEK with a machine fingerprint:
+### 2. Machine-Identity-Bound Key File
+
+The on-disk key file wraps the derived key with a machine fingerprint before writing it out:
 
 ```ts
-const fingerprint = crypto.createHash("sha256")
-  .update(`${os.hostname()}-${os.arch()}-${os.platform()}-${os.cpus().length}`)
-  .digest();
-const dek = xor(kek, fingerprint);
+const wrappingKey = sha256(magic || salt || machineIdentity);
+const wrappedKey = xor(key, wrappingKey);
 ```
 
-**Purpose**: A vault file copied to another machine cannot be decrypted even with the correct passphrase. The attacker needs both the passphrase AND the original machine's fingerprint.
+`machineIdentity` prefers a stable hardware/OS identifier (e.g. `IOPlatformUUID` on macOS, `/etc/machine-id` on Linux, `MachineGuid` on Windows) and falls back to a hash of hostname/user/platform/arch.
 
-**Caveat**: This is NOT a hardware-bound key (no TPM/SE usage). It provides machine identity binding but not hardware attestation. An attacker with the original machine's hostname/arch/cpu info AND the passphrase can reconstruct the DEK.
+**Purpose**: A key file copied to another machine cannot be unwrapped there, even with the correct passphrase, unless the destination machine's identity also matches. This limits blast radius if the key file alone is exfiltrated.
+
+**Caveat**: This is not hardware attestation (no TPM/Secure Enclave). It is a locally-readable machine fingerprint, not a secret. An attacker with local access to the same machine (or its fingerprint) plus the passphrase can reconstruct the key. The real security boundary against a stolen key file is the passphrase, when one is set.
 
 ### 3. Symmetric Encryption (AES-256-GCM)
 
-Every secret stored in the SQLite database is individually encrypted:
+Every secret value stored in the SQLite database is individually encrypted:
 
 - **Algorithm**: AES-256-GCM
-- **Key**: 256-bit DEK
-- **IV**: 96-bit random (crypto.randomBytes(12))
+- **Key**: 256-bit vault key
+- **IV**: 96-bit random (`crypto.randomBytes(12)`) per value
 - **Auth tag**: 128-bit (GCM default)
-- **AAD**: None
 
 ```ts
 const iv = crypto.randomBytes(12);
-const cipher = crypto.createCipheriv("aes-256-gcm", dek, iv, { authTagLength: 16 });
+const cipher = crypto.createCipheriv("aes-256-gcm", key, iv, { authTagLength: 16 });
 const encrypted = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
 const authTag = cipher.getAuthTag();
 ```
 
-**GCM over CBC**: We chose GCM for built-in authentication (AEAD). Tampering with ciphertext or auth tag is detected on decryption and throws. This prevents chosen-ciphertext attacks.
-
-**Why no AAD**: We don't associate additional data with the ciphertext. The secret name is stored outside the encrypted blob, making it queryable. An attacker can't swap two secrets' encrypted values because the decryption would produce garbage (not a valid secret), and the auth tag check would fail if the ciphertext is modified.
-
-### 4. Sandbox Fakes (HMAC-SHA256)
-
-Deterministic fake values for `.env` sandboxing:
-
-```ts
-const fake = crypto.createHmac("sha256", projectHash)
-  .update(secretName)
-  .digest("hex")
-  .slice(0, 32);
-```
-
-**Property**: Same project + same secret name = same fake value every time. Safe to commit to git. Collision resistance from SHA256.
-
-### 5. Secret Sharing (AES-256-GCM + URL Fragment)
-
-Share links encrypt the secret into the URL fragment:
-
-```ts
-const key = crypto.randomBytes(32);
-const iv = crypto.randomBytes(12);
-// AES-256-GCM encrypt payload → encode as base64url
-// Key goes in fragment, payload follows
-```
-
-**The fragment (everything after #) never leaves the browser.** When the recipient opens the link, the browser strips the fragment before sending the HTTP request. The receiving CLI decrypts locally.
-
-**One-time view**: The `maxViews` field is advisory — stored in the encrypted payload itself. A malicious recipient could re-share. For truly one-time sharing, use a separate channel for the key.
+**GCM over CBC**: GCM provides built-in authentication (AEAD). Tampering with ciphertext or the auth tag is detected on decryption and throws, rather than silently returning corrupted plaintext.
 
 ## Storage Security
 
-### SQLite Database
+- **Location**: `~/.keyclasp/vault.db` and `~/.keyclasp/.keyclasp.key`
+- **Directory permissions**: `0700` (owner-only)
+- **File permissions**: `0600` (owner read/write only) on both the database and the key file
+- **What's stored in plaintext**: secret names only (needed to list and query)
+- **What's encrypted**: every secret value, individually, with its own IV
 
-- **Location**: `~/.keyclasp/vault.db`
-- **Permissions**: `0600` (owner read/write only)
-- **Keychain directory**: `~/.keyclasp/` permissions `0700`
+## `keyclasp run` — the Process Boundary
 
-### What's Stored in Plaintext
+`keyclasp run` is the only supported way for a coding agent to cause a secret to reach a process. The agent itself never sees the plaintext value:
 
-- Secret names (for querying)
-- Alias metadata (alias name and canonical target name)
-- Internal metadata (`_keyclasp_meta`, `_expiry:*`)
-- TOTP URIs
-
-### What's Encrypted
-
-- Secret values (each with unique IV)
-
-Aliases are local-vault metadata pointers only. They do not duplicate encrypted secret values, and listing aliases never returns plaintext.
+1. Secret names (not values) are the only thing an agent can discover, via `keyclasp list`.
+2. `keyclasp run [--env SOURCE[:TARGET]] -- <command>` resolves and decrypts the requested secrets and injects them directly into the spawned child's environment — the value never passes through the CLI's own stdout, and never appears in the shell command line or process arguments.
+3. Before spawning, the command is checked against a small denylist of programs and shell one-liners known to dump the full environment (`env`, `printenv`, `export`, `bash -c 'env'`, etc.) and refused unless `--allow-unsafe` is passed explicitly.
+4. While the child runs, its stdout and stderr are scanned for any injected value at least 8 characters long. A match is redacted in the stream and the child is terminated (`SIGTERM`, then `SIGKILL` after a grace period) so a partial leak cannot continue.
 
 ## Attack Surface Analysis
 
 | Attack Vector | Risk | Mitigation |
 |---------------|------|------------|
-| Agent reads a real `.env` | **HIGH** | Import the file, then use deterministic sandbox values before agent access |
+| Agent asks for a secret value directly | **HIGH** | There is no CLI path that returns a value to an agent's own context; `keyclasp get` is a human-facing command the agent skill instructs agents never to invoke |
 | Child process reads injected secrets | **HIGH** | Run only trusted commands; guarded execution reduces accidental disclosure but does not make malicious software safe |
-| Alias metadata reveals naming conventions | **LOW** | Alias tools return names and targets only, never plaintext secret values |
-| Vault.db stolen + passphrase known | **MEDIUM** | Machine-identity-bound DEK prevents decryption on different hardware |
-| Vault.db stolen, no passphrase | **LOW** | AES-256-GCM with 600K PBKDF2 iterations. Brute force infeasible |
-| Share link intercepted | **LOW-MED** | Fragment never sent to server. But link can be intercepted via browser history or phishing |
-| Replay of old share links | **LOW** | TTL + expiry enforcement |
-| Injected command prints secrets | **HIGH** | `keyclasp run` blocks obvious environment dumps, redacts detected injected secret values from stdout/stderr, terminates the child process, and requires `--allow-unsafe` to disable this guard |
-| Memory dump of running process | **MEDIUM** | DEK is in memory while vault is open. Limit the lifetime of trusted processes |
-| Dependency compromise | **MEDIUM** | Keep the dependency set small, review lockfile changes, and install only trusted releases |
+| Injected command prints secrets to its own output | **HIGH** | `keyclasp run` blocks obvious environment dumps, redacts detected injected values from stdout/stderr, and terminates the child process by default; `--allow-unsafe` disables this and must be explicit |
+| Vault.db stolen + passphrase known | **MEDIUM** | Machine-identity-bound key file prevents unwrapping on different hardware |
+| Vault.db stolen, no passphrase, key file also stolen | **LOW-MEDIUM** | AES-256-GCM with 600K-iteration PBKDF2; if a real passphrase was set, brute force is infeasible. An empty ("machine-only") passphrase is weaker if both files leave the original machine's identity along with them |
+| Memory dump of a running process that has unlocked the vault | **MEDIUM** | Out of scope; limit the lifetime of trusted processes |
+| Dependency compromise | **MEDIUM** | Dependency set is intentionally minimal (`better-sqlite3` is the only runtime dependency); review lockfile changes before installing |
 
 `keyclasp run` tracks injected values of at least 8 characters for output leak detection. Shorter values are still injected, but they are too ambiguous to scan safely without false positives in ordinary command output.
 
 ## Operational Recommendations
 
-1. **Never commit `.keyclasp/`** to version control
-2. **Use `keyclasp sandbox`** before coding agents inspect project configuration
-3. **Use `keyclasp run`** instead of printing secrets into the shell
-4. **Run only trusted child processes** with injected credentials
-5. **Rotate passphrases and affected secrets** if you suspect compromise
-6. **Treat remote backends as external trust boundaries** with their own accounts and networks
+1. **Never commit `.keyclasp/`** to version control.
+2. **Set a real passphrase at `keyclasp init`** unless you specifically want a machine-bound vault with no passphrase to remember.
+3. **Use `keyclasp run`** instead of printing secrets into the shell or pasting them into an agent prompt.
+4. **Prefer `--env SOURCE[:TARGET]`** to inject only the specific secrets a command needs, not the entire vault.
+5. **Run only trusted child processes** with injected credentials.
+6. **Rotate affected secrets** (`keyclasp set <name>` again) if you suspect compromise.
 
 ## Cryptographic Inventory
 
 | Algorithm | Key Size | Used For | Node API |
 |-----------|----------|----------|----------|
-| AES-256-GCM | 256 bit | Secret encryption | `crypto.createCipheriv` |
-| PBKDF2-SHA256 | 256 bit | Key derivation | `crypto.pbkdf2Sync` |
-| SHA256 | 256 bit | Machine fingerprint, HMAC | `crypto.createHash` |
-| HMAC-SHA256 | 256 bit | Sandbox fakes | `crypto.createHmac` |
-| HMAC-SHA1/256/512 | 160-512 bit | TOTP/HOTP codes | `crypto.createHmac` |
+| AES-256-GCM | 256 bit | Secret value encryption | `crypto.createCipheriv` |
+| PBKDF2-SHA256 | 256 bit | Key derivation from passphrase | `crypto.pbkdf2Sync` |
+| SHA256 | 256 bit | Machine fingerprint, key wrapping | `crypto.createHash` |
 
-All algorithms use Node.js built-in `crypto` module. No third-party crypto libraries.
+All algorithms use Node.js's built-in `crypto` module. No third-party crypto libraries.

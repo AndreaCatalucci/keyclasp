@@ -12,22 +12,19 @@
 </head>
 <body>
 <h1>Privacy Policy — Keyclasp</h1>
-<p><strong>Last updated:</strong> July 18, 2026</p>
+<p><strong>Last updated:</strong> August 4, 2026</p>
 
 <h2>Data Collection</h2>
 <p>Keyclasp does not collect analytics, telemetry, advertising identifiers, or usage data. The project does not operate an account system or hosted vault service.</p>
 
 <h2>How It Works</h2>
-<p>The default vault encrypts secrets on your machine. Sandboxing replaces project values with deterministic fakes, and guarded execution injects selected secrets into a child process at runtime. Programs you run can make their own network requests; Keyclasp does not control their behavior.</p>
+<p>The vault encrypts secrets on your machine with AES-256-GCM. Guarded execution (<code>keyclasp run</code>) injects selected secrets into a child process at runtime and never routes them through Keyclasp's own output. Programs you run can make their own network requests; Keyclasp does not control their behavior.</p>
 
 <h2>Local Storage</h2>
-<p>Vault data, encryption material, configuration, history, aliases, and audit metadata are stored locally under the user's Keyclasp directory. Project configuration may also be stored in a local <code>.keyclasp</code> file.</p>
-
-<h2>Optional Backends</h2>
-<p>If you configure 1Password, Bitwarden, AWS, GCP, Azure, or another external backend, its command-line tool and service handle data under that provider's terms. The local backend requires no network connection.</p>
+<p>Vault data and encryption key material are stored locally under the user's Keyclasp directory (<code>~/.keyclasp/</code> by default), with owner-only file permissions. Nothing is stored outside that directory.</p>
 
 <h2>Third Parties</h2>
-<p>Keyclasp does not sell user data or include advertising. Data reaches a third party only when you configure an external backend, share an encrypted link through another service, or run a program that transmits it.</p>
+<p>Keyclasp does not sell user data, include advertising, or make network requests of its own. Data reaches a third party only if a program you run through <code>keyclasp run</code> transmits it.</p>
 
 <h2>Contact</h2>
 <p>Keyclasp is open source under the MIT license. For questions, use <a href="https://github.com/AndreaCatalucci/keyclasp/issues">github.com/AndreaCatalucci/keyclasp/issues</a>.</p>

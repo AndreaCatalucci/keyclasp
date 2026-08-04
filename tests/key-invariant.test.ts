@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, expect, it, beforeEach, afterEach } from "vitest";
 import crypto from "node:crypto";
 import Database from "better-sqlite3";
 import fs from "node:fs";
@@ -13,13 +13,10 @@ import {
   isInitialized,
   listSecrets,
   resolveSecret,
-  setProjectName,
   setMachineIdentityForTests,
   storeSecret,
   getVaultLocation,
 } from "../src/vault.js";
-import { getSecretHistory, rotateLocalSecret } from "../src/sync.js";
-import { runDoctor } from "../src/doctor.js";
 
 const previousKeyclaspHome = process.env.KEYCLASP_HOME;
 const previousKeyblindHome = process.env.KEYBLIND_HOME;
@@ -38,10 +35,8 @@ function restartRuntime(): void {
   resetRuntime();
 }
 
-function keyPath(project?: string): string {
-  return project
-    ? path.join(vaultHome, "projects", project, ".keyclasp.key")
-    : path.join(vaultHome, ".keyclasp.key");
+function keyPath(): string {
+  return path.join(vaultHome, ".keyclasp.key");
 }
 
 function legacyKeyPath(): string {
@@ -127,13 +122,11 @@ beforeEach(() => {
   vaultHome = path.join(tmpDir, ".keyclasp");
   process.env.KEYCLASP_HOME = vaultHome;
   setMachineIdentityForTests(null);
-  setProjectName(null);
   resetRuntime();
 });
 
 afterEach(() => {
   setMachineIdentityForTests(null);
-  setProjectName(null);
   resetRuntime();
   if (previousKeyclaspHome === undefined) {
     delete process.env.KEYCLASP_HOME;
@@ -387,39 +380,6 @@ describe("vault key invariants", () => {
     expect(resolveSecret("NEW_AFTER_DRIFT")).toBeNull();
   });
 
-  it("saves rotation history before replacing a local secret", () => {
-    initializeVault("rotation-passphrase");
-    storeSecret("ROTATE_WITH_HISTORY", "before-rotation");
-
-    expect(rotateLocalSecret("ROTATE_WITH_HISTORY", "after-rotation")).toBe(true);
-
-    expect(resolveSecret("ROTATE_WITH_HISTORY")).toBe("after-rotation");
-    expect(getSecretHistory("ROTATE_WITH_HISTORY")).toEqual([
-      expect.objectContaining({ value: "before-rotation" }),
-    ]);
-  });
-
-  it("keeps project vault keys isolated across project switches and restarts", () => {
-    setProjectName("alpha");
-    initializeVault("alpha-passphrase");
-    storeSecret("PROJECT_SECRET", "alpha-value");
-    const alphaKey = fs.readFileSync(keyPath("alpha"));
-
-    setProjectName("beta");
-    initializeVault("beta-passphrase");
-    storeSecret("PROJECT_SECRET", "beta-value");
-    const betaKey = fs.readFileSync(keyPath("beta"));
-    expect(betaKey.equals(alphaKey)).toBe(false);
-
-    setProjectName("alpha");
-    restartRuntime();
-    expect(resolveSecret("PROJECT_SECRET")).toBe("alpha-value");
-
-    setProjectName("beta");
-    restartRuntime();
-    expect(resolveSecret("PROJECT_SECRET")).toBe("beta-value");
-  });
-
   it("detects key/vault drift when names are visible but values are unrecoverable", () => {
     const homeA = path.join(tmpDir, "home-a", ".keyclasp");
     const homeB = path.join(tmpDir, "home-b", ".keyclasp");
@@ -445,13 +405,5 @@ describe("vault key invariants", () => {
     expect(decryptability.failures).toEqual([
       expect.objectContaining({ name: "REPRO_SECRET" }),
     ]);
-
-    const checks = runDoctor();
-    expect(checks).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        name: "Secret decryptability",
-        status: "error",
-      }),
-    ]));
   });
 });

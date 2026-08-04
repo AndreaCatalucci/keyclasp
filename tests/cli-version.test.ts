@@ -39,29 +39,38 @@ describe("CLI version output", () => {
     expect(runCli(["version"])).toMatch(new RegExp(`^${packageVersion.replaceAll(".", "\\.")}(?:-dev\\+git\\.[0-9a-f]+(?:\\.dirty)?)?$`));
   });
 
-  it("supports version flags and --project without requiring vault access", () => {
+  it("supports version flags without requiring vault access", () => {
     const version = runCli(["version"]);
     expect(runCli(["--version"])).toBe(version);
     expect(runCli(["-v"])).toBe(version);
-    expect(runCli(["--project", "isolated", "--version"])).toBe(version);
   });
 });
 
 describe("removed CLI surface", () => {
-  it.each(["start", "unlock"])("rejects the removed %s command normally", (command) => {
-    const result = runCliFailure([command]);
+  it.each(["start", "unlock", "sandbox", "totp", "share", "sync", "alias", "backend", "doctor"])(
+    "rejects the removed %s command normally",
+    (command) => {
+      const result = runCliFailure([command]);
 
-    expect(result.status).toBe(1);
-    expect(result.stderr).toContain(`Unknown command: ${command}`);
-    expect(result.stderr).not.toContain("deprecated");
-  });
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain(`Unknown command: ${command}`);
+      expect(result.stderr).not.toContain("deprecated");
+    },
+  );
 
-  it("omits removed commands and authentication flags from help", () => {
+  it("lists only the minimal command surface in help", () => {
     const help = runCli(["help"]);
 
-    expect(help).not.toContain("setup-");
-    expect(help).not.toMatch(/--bio(?:metric)|unlock/);
+    expect(help).toContain("keyclasp init");
+    expect(help).toContain("keyclasp set");
+    expect(help).toContain("keyclasp get");
+    expect(help).toContain("keyclasp list");
+    expect(help).toContain("keyclasp delete");
     expect(help).toContain("keyclasp run");
-    expect(help).toContain("keyclasp sandbox");
+    expect(help).toContain("keyclasp status");
+    expect(help).not.toContain("keyclasp sandbox");
+    expect(help).not.toContain("keyclasp totp");
+    expect(help).not.toContain("keyclasp share");
+    expect(help).not.toContain("--project");
   });
 });

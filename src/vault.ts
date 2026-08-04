@@ -16,34 +16,20 @@ const LEGACY_KEY_FILE_MAGIC = Buffer.from("keyblind:v2\n", "utf8");
 const KEY_FILE_CORRUPT_ERROR = "Keyclasp key file is corrupted or incomplete.";
 const KEY_VAULT_MISMATCH_ERROR = "Keyclasp key file does not unlock this vault database. Restore the matching .keyclasp.key before reading or writing secrets.";
 const VAULT_HOME_CONFLICT_ERROR = "Both ~/.keyclasp and ~/.keyblind contain vault data. Set KEYCLASP_HOME explicitly to choose one before continuing.";
+// Names written by features that have since been removed. Guarded against so
+// vaults created by earlier versions never resurface stale, unreadable rows.
 const REMOVED_INTERNAL_SECRET_NAMES = new Set([
   "_keyclasp_sso:config",
   "_keyclasp_sso:token",
   "_keyclasp_deadman:config",
   "_keyclasp_deadman:last_checkin",
   "__keyclasp_team_check",
-  // Existing Keyblind vaults may still contain these retired records.
   "_keyblind_sso:config",
   "_keyblind_sso:token",
   "_keyblind_deadman:config",
   "_keyblind_deadman:last_checkin",
   "__keyblind_team_check",
 ]);
-const RESERVED_ALIAS_PREFIXES = ["__keyclasp", "__keyblind", "__expiry:", "_totp", "_keyclasp", "_keyblind"];
-
-export interface SecretAlias {
-  alias: string;
-  target: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface AliasResolution {
-  requestedName: string;
-  resolvedName: string;
-  aliasUsed: boolean;
-  value: string | null;
-}
 
 export interface DecryptabilityCheck {
   checked: number;
@@ -61,28 +47,12 @@ type KeyValidationStamp = {
   wal: FileStamp;
 };
 
-let _projectName: string | null = null;
 let _machineIdentityForTests: { stable?: Buffer; legacy?: Buffer } | null = null;
 let _vaultHomeCache: { signature: string; path: string } | null = null;
 let _keyPathCache: { vaultDir: string; path: string } | null = null;
 
-export function setProjectName(name: string | null): void {
-  _projectName = name;
-  // Clear caches so they reload from the new project directory
-  clearKey();
-  closeDb();
-}
-
-export function getProjectName(): string | null {
-  return _projectName;
-}
-
 function getVaultDir(): string {
-  const base = resolveVaultHome();
-  if (_projectName) {
-    return path.join(base, "projects", _projectName);
-  }
-  return base;
+  return resolveVaultHome();
 }
 
 function resolveVaultHome(): string {
@@ -97,28 +67,14 @@ function resolveVaultHome(): string {
   } else {
     const preferredHome = path.join(os.homedir(), ".keyclasp");
     const legacyHome = path.join(os.homedir(), ".keyblind");
-    const preferredHasVault = hasCompleteVaultState(preferredHome);
-    const legacyHasVault = hasCompleteVaultState(legacyHome);
+    const preferredHasVault = hasCompleteVaultAt(preferredHome);
+    const legacyHasVault = hasCompleteVaultAt(legacyHome);
     if (preferredHasVault && legacyHasVault) throw new Error(VAULT_HOME_CONFLICT_ERROR);
     resolved = legacyHasVault ? legacyHome : preferredHome;
   }
 
   _vaultHomeCache = { signature, path: resolved };
   return resolved;
-}
-
-function hasCompleteVaultState(home: string): boolean {
-  if (hasCompleteVaultAt(home)) return true;
-
-  const projectsDir = path.join(home, "projects");
-  try {
-    return fs.readdirSync(projectsDir, { withFileTypes: true }).some((entry) =>
-      entry.isDirectory() && hasCompleteVaultAt(path.join(projectsDir, entry.name))
-    );
-  } catch (err: any) {
-    if (err?.code === "ENOENT" || err?.code === "ENOTDIR") return false;
-    throw err;
-  }
 }
 
 function hasCompleteVaultAt(vaultDir: string): boolean {
@@ -378,7 +334,7 @@ function canDecryptVaultRows(key: Buffer): boolean {
   const db = _db ?? new Database(dbPath, { readonly: true, fileMustExist: true });
   const closeAfter = db !== _db;
   try {
-    for (const row of iterateEncryptedVaultRows(db)) {
+    for (const row of iterateNamedEncryptedVaultRows(db)) {
       decrypt(row.encrypted_value, row.iv, row.auth_tag, key);
     }
     return true;
@@ -389,23 +345,9 @@ function canDecryptVaultRows(key: Buffer): boolean {
   }
 }
 
-function* iterateEncryptedVaultRows(db: Database.Database): IterableIterator<EncryptedVaultRow> {
-  for (const row of iterateNamedEncryptedVaultRows(db)) {
-    yield row;
-  }
-}
-
 function* iterateNamedEncryptedVaultRows(db: Database.Database): IterableIterator<NamedEncryptedVaultRow> {
-  if (tableExists(db, "secrets")) {
-    yield* db.prepare("SELECT name, encrypted_value, iv, auth_tag FROM secrets ORDER BY name").iterate() as IterableIterator<NamedEncryptedVaultRow>;
-  }
-  if (tableExists(db, "secret_history")) {
-    yield* db.prepare(`
-      SELECT name || ' history v' || version AS name, encrypted_value, iv, auth_tag
-      FROM secret_history
-      ORDER BY name, version
-    `).iterate() as IterableIterator<NamedEncryptedVaultRow>;
-  }
+  if (!tableExists(db, "secrets")) return;
+  yield* db.prepare("SELECT name, encrypted_value, iv, auth_tag FROM secrets ORDER BY name").iterate() as IterableIterator<NamedEncryptedVaultRow>;
 }
 
 function tableExists(db: Database.Database, table: string): boolean {
@@ -513,7 +455,6 @@ export function getDb(): Database.Database {
     // when the DB file is newly created. This is non-fatal — the
     // vault is fully functional with the default journal mode.
   }
-  _db.pragma("foreign_keys = ON");
   _db.exec(`
     CREATE TABLE IF NOT EXISTS secrets (
       name TEXT PRIMARY KEY,
@@ -524,41 +465,11 @@ export function getDb(): Database.Database {
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     )
   `);
-  _db.exec(`
-    CREATE TABLE IF NOT EXISTS audit_log (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      secret_name TEXT NOT NULL,
-      action TEXT NOT NULL CHECK(action IN ('resolve','store','delete')),
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    )
-  `);
-  _db.exec(`
-    CREATE TABLE IF NOT EXISTS secret_aliases (
-      alias_name TEXT PRIMARY KEY,
-      target_name TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-      FOREIGN KEY(target_name) REFERENCES secrets(name) ON DELETE CASCADE
-    )
-  `);
-  _db.exec(`
-    CREATE INDEX IF NOT EXISTS idx_secret_aliases_target ON secret_aliases(target_name);
-  `);
-  _db.exec(`
-    CREATE INDEX IF NOT EXISTS idx_audit_log_secret ON audit_log(secret_name);
-  `);
-  _db.exec(`
-    CREATE INDEX IF NOT EXISTS idx_audit_log_created ON audit_log(created_at);
-  `);
   return _db;
 }
 
 export function storeSecret(name: string, value: string): void {
   const db = getDb();
-  if (getAliasTarget(name)) {
-    throw new Error(`Cannot store secret "${name}" because it already exists as an alias.`);
-  }
-
   const key = getKey();
   assertKeyUnlocksVault(key);
   const { encrypted, iv, authTag } = encrypt(value, key);
@@ -573,7 +484,6 @@ export function storeSecret(name: string, value: string): void {
       updated_at = datetime('now')
   `);
   stmt.run(name, encrypted, iv, authTag);
-  auditLog(name, "store");
   rememberKeyValidation();
 }
 
@@ -587,23 +497,12 @@ export function resolveSecret(name: string): string | null {
     | undefined;
 
   if (!row) return null;
-  auditLog(name, "resolve");
   return decrypt(row.encrypted_value, row.iv, row.auth_tag, key);
-}
-
-export function resolveSecretWithAlias(name: string): AliasResolution {
-  const target = getAliasTarget(name);
-  const resolvedName = target ?? name;
-  return {
-    requestedName: name,
-    resolvedName,
-    aliasUsed: target !== null,
-    value: resolveSecret(resolvedName),
-  };
 }
 
 export function listSecrets(): string[] {
   const db = getDb();
+  // Internal rows use a "__" prefix (escaped below); hide them from listings.
   const rows = db.prepare("SELECT name FROM secrets WHERE name NOT LIKE '@_@_%' ESCAPE '@' ORDER BY name").all() as { name: string }[];
   return rows.map((r) => r.name).filter((name) => !REMOVED_INTERNAL_SECRET_NAMES.has(name));
 }
@@ -639,173 +538,10 @@ export function checkVaultDecryptability(): DecryptabilityCheck {
   return { checked, failures };
 }
 
-export function createAlias(alias: string, target: string): SecretAlias {
-  validateAliasName(alias, "alias");
-  validateAliasName(target, "target");
-  if (alias === target) throw new Error("Alias cannot target itself.");
-  if (secretExists(alias)) throw new Error(`Cannot create alias "${alias}" because it already exists as a secret.`);
-  if (getAliasTarget(alias)) throw new Error(`Alias "${alias}" already exists. Delete it before recreating it.`);
-  if (getAliasTarget(target)) throw new Error(`Alias "${alias}" cannot target another alias "${target}".`);
-  if (!secretExists(target)) throw new Error(`Target secret "${target}" not found.`);
-
-  const db = getDb();
-  db.prepare(`
-    INSERT INTO secret_aliases (alias_name, target_name, updated_at)
-    VALUES (?, ?, datetime('now'))
-  `).run(alias, target);
-  return getAlias(alias)!;
-}
-
-export function deleteAlias(alias: string): boolean {
-  const db = getDb();
-  const result = db.prepare("DELETE FROM secret_aliases WHERE alias_name = ?").run(alias);
-  return result.changes > 0;
-}
-
-export function listAliases(): SecretAlias[] {
-  const db = getDb();
-  const rows = db.prepare(`
-    SELECT alias_name, target_name, created_at, updated_at
-    FROM secret_aliases
-    ORDER BY alias_name
-  `).all() as { alias_name: string; target_name: string; created_at: string; updated_at: string }[];
-  return rows.map((row) => ({
-    alias: row.alias_name,
-    target: row.target_name,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  }));
-}
-
-export function countSecretsByPrefix(prefix: string): number {
-  const db = getDb();
-  const row = db.prepare("SELECT COUNT(*) as count FROM secrets WHERE substr(name, 1, ?) = ?").get(prefix.length, prefix) as { count: number };
-  return row.count;
-}
-
-export function listSecretNamesByPrefixes(prefixes: readonly string[]): string[] {
-  if (prefixes.length === 0) return [];
-  const db = getDb();
-  const ranges = prefixes.map((prefix) => [prefix, `${prefix.slice(0, -1)}${String.fromCharCode(prefix.charCodeAt(prefix.length - 1) + 1)}`]);
-  const where = ranges.map(() => "(name >= ? AND name < ?)").join(" OR ");
-  const rows = db.prepare(`SELECT name FROM secrets WHERE ${where} ORDER BY name`).all(...ranges.flat()) as { name: string }[];
-  return rows.map((row) => row.name);
-}
-
 export function deleteSecret(name: string): boolean {
   const db = getDb();
-  auditLog(name, "delete");
-  db.prepare("DELETE FROM secret_aliases WHERE target_name = ?").run(name);
-  const result = db.prepare("DELETE FROM secrets WHERE name = ? AND name NOT LIKE '@_@_expiry:%' ESCAPE '@' AND name NOT LIKE '@_@_keyclasp%' ESCAPE '@' AND name NOT LIKE '@_@_keyblind%' ESCAPE '@'").run(name);
-  // Also delete any expiry entry
-  db.prepare("DELETE FROM secrets WHERE name = ?").run(`__expiry:${name}`);
+  const result = db.prepare("DELETE FROM secrets WHERE name = ?").run(name);
   return result.changes > 0;
-}
-
-function getAlias(alias: string): SecretAlias | null {
-  const db = getDb();
-  const row = db.prepare(`
-    SELECT alias_name, target_name, created_at, updated_at
-    FROM secret_aliases
-    WHERE alias_name = ?
-  `).get(alias) as { alias_name: string; target_name: string; created_at: string; updated_at: string } | undefined;
-  if (!row) return null;
-  return {
-    alias: row.alias_name,
-    target: row.target_name,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
-}
-
-function getAliasTarget(alias: string): string | null {
-  const db = getDb();
-  const row = db.prepare("SELECT target_name FROM secret_aliases WHERE alias_name = ?").get(alias) as
-    | { target_name: string }
-    | undefined;
-  return row?.target_name ?? null;
-}
-
-function secretExists(name: string): boolean {
-  const db = getDb();
-  const row = db.prepare("SELECT 1 FROM secrets WHERE name = ?").get(name);
-  return row !== undefined;
-}
-
-function validateAliasName(name: string, label: "alias" | "target"): void {
-  if (name.length === 0 || name.includes("\0")) {
-    throw new Error(`Invalid ${label} name.`);
-  }
-  if (isReservedAliasName(name)) {
-    throw new Error(`Cannot use reserved ${label} name "${name}".`);
-  }
-}
-
-function isReservedAliasName(name: string): boolean {
-  return REMOVED_INTERNAL_SECRET_NAMES.has(name) || RESERVED_ALIAS_PREFIXES.some((prefix) => name.startsWith(prefix));
-}
-
-// --- Audit Log ---
-
-function auditLog(secretName: string, action: "resolve" | "store" | "delete"): void {
-  const db = getDb();
-  db.prepare("INSERT INTO audit_log (secret_name, action) VALUES (?, ?)").run(secretName, action);
-}
-
-export function getAuditLog(limit: number = 50): { secretName: string; action: string; timestamp: string }[] {
-  const db = getDb();
-  const rows = db.prepare("SELECT secret_name, action, created_at FROM audit_log ORDER BY id DESC LIMIT ?").all(limit) as { secret_name: string; action: string; created_at: string }[];
-  return rows.map((r) => ({
-    secretName: r.secret_name,
-    action: r.action,
-    timestamp: r.created_at,
-  }));
-}
-
-// --- Secret Expiry ---
-
-export function setExpiry(name: string, expiresAt: string): boolean {
-  const db = getDb();
-  const row = db.prepare("SELECT name FROM secrets WHERE name = ?").get(name) as { name: string } | undefined;
-  if (!row) return false;
-  // Remove metadata written by early Keyblind versions before storing the current expiry row.
-  db.prepare("DELETE FROM secrets WHERE name = ?").run(`__keyblind_expiry:${name}`);
-  // We'll use a simpler approach: store expiry as a separate row in a metadata approach
-  // Actually, let's store it directly in the audit or use a simple approach
-  // Store in a meta row
-  const key = getKey();
-  assertKeyUnlocksVault(key);
-  const { encrypted, iv, authTag } = encrypt(expiresAt, key);
-  db.prepare("INSERT INTO secrets (name, encrypted_value, iv, auth_tag) VALUES (?, ?, ?, ?) ON CONFLICT(name) DO UPDATE SET encrypted_value = excluded.encrypted_value, iv = excluded.iv, auth_tag = excluded.auth_tag").run(`__expiry:${name}`, encrypted, iv, authTag);
-  rememberKeyValidation();
-  return true;
-}
-
-export function getExpiry(name: string): string | null {
-  const db = getDb();
-  const key = getKey();
-  const row = db.prepare("SELECT encrypted_value, iv, auth_tag FROM secrets WHERE name = ?").get(`__expiry:${name}`) as
-    | { encrypted_value: Buffer; iv: Buffer; auth_tag: Buffer }
-    | undefined;
-  if (!row) return null;
-  return decrypt(row.encrypted_value, row.iv, row.auth_tag, key);
-}
-
-export function checkExpired(): string[] {
-  const db = getDb();
-  const key = getKey();
-  const rows = db.prepare("SELECT name, encrypted_value, iv, auth_tag FROM secrets WHERE name LIKE '@_@_expiry:%' ESCAPE '@'").all() as
-    { name: string; encrypted_value: Buffer; iv: Buffer; auth_tag: Buffer }[];
-  const now = new Date();
-  const expired: string[] = [];
-  for (const row of rows) {
-    const secretName = row.name.replace("__expiry:", "");
-    const expiresAt = new Date(decrypt(row.encrypted_value, row.iv, row.auth_tag, key));
-    if (expiresAt <= now) {
-      expired.push(secretName);
-    }
-  }
-  return expired;
 }
 
 export function closeDb(): void {

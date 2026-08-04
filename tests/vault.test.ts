@@ -15,20 +15,12 @@ import {
   initializeVault,
   storeSecret,
   resolveSecret,
-  resolveSecretWithAlias,
   listSecrets,
-  createAlias,
-  deleteAlias,
-  listAliases,
   deleteSecret,
   isInitialized,
   closeDb,
   clearKey,
-  countSecretsByPrefix,
-  getDb,
-  getAuditLog,
 } from "../src/vault.js";
-import { getSecretHistory, saveHistory } from "../src/sync.js";
 
 beforeAll(() => {
   process.env.KEYCLASP_HOME = vaultDir;
@@ -179,10 +171,10 @@ describe("vault CRUD", () => {
     }
   });
 
-  it("counts internal records by prefix without exposing them in list output", () => {
-    storeSecret("__keyclasp_sandbox_backup__COUNTED", "backup-value");
-    expect(countSecretsByPrefix("__keyclasp_sandbox_backup__")).toBeGreaterThanOrEqual(1);
-    expect(listSecrets()).not.toContain("__keyclasp_sandbox_backup__COUNTED");
+  it("hides internal double-underscore-prefixed rows from list output", () => {
+    storeSecret("__keyclasp_internal__COUNTED", "internal-value");
+    expect(listSecrets()).not.toContain("__keyclasp_internal__COUNTED");
+    expect(resolveSecret("__keyclasp_internal__COUNTED")).toBe("internal-value");
   });
 
   it("updates an existing secret", () => {
@@ -191,102 +183,10 @@ describe("vault CRUD", () => {
     expect(resolveSecret("UPDATE_TEST")).toBe("new");
   });
 
-  it("saves the caller-provided previous value to history", () => {
-    const historyName = `HISTORY_FROM_VALUE_${crypto.randomUUID()}`;
-    saveHistory(historyName, "previous-external-value");
-    const history = getSecretHistory(historyName);
-    expect(history).toHaveLength(1);
-    expect(history[0].value).toBe("previous-external-value");
-  });
-
   it("deletes a secret", () => {
     storeSecret("DELETE_TEST", "x");
     expect(deleteSecret("DELETE_TEST")).toBe(true);
     expect(resolveSecret("DELETE_TEST")).toBeNull();
     expect(deleteSecret("DELETE_TEST")).toBe(false);
-  });
-});
-
-describe("audit schema", () => {
-  it("omits client metadata in new vaults and reads legacy tables that contain it", () => {
-    const db = getDb();
-    const columns = getDb().prepare("PRAGMA table_info(audit_log)").all() as { name: string }[];
-    expect(columns.map((column) => column.name)).not.toContain("client_info");
-
-    db.exec("ALTER TABLE audit_log ADD COLUMN client_info TEXT");
-    db.prepare("INSERT INTO audit_log (secret_name, action, client_info) VALUES (?, ?, ?)")
-      .run("LEGACY_AUDIT_SECRET", "resolve", "legacy-client");
-
-    const entry = getAuditLog(1)[0];
-    expect(entry).toMatchObject({
-      secretName: "LEGACY_AUDIT_SECRET",
-      action: "resolve",
-    });
-    expect(entry).not.toHaveProperty("clientInfo");
-  });
-});
-
-describe("secret aliases", () => {
-  beforeAll(() => {
-    if (!isInitialized()) {
-      initializeVault("test-passphrase");
-    }
-  });
-
-  it("resolves an alias without creating a duplicate secret", () => {
-    storeSecret("ALIAS_HELLO", "hello-value");
-    createAlias("ALIAS_WORLD", "ALIAS_HELLO");
-
-    const resolved = resolveSecretWithAlias("ALIAS_WORLD");
-
-    expect(resolved).toEqual({
-      requestedName: "ALIAS_WORLD",
-      resolvedName: "ALIAS_HELLO",
-      aliasUsed: true,
-      value: "hello-value",
-    });
-    expect(listSecrets()).toContain("ALIAS_HELLO");
-    expect(listSecrets()).not.toContain("ALIAS_WORLD");
-    expect(listAliases()).toEqual(expect.arrayContaining([
-      expect.objectContaining({ alias: "ALIAS_WORLD", target: "ALIAS_HELLO" }),
-    ]));
-  });
-
-  it("rejects aliases that collide with canonical secrets", () => {
-    storeSecret("ALIAS_CANONICAL", "value");
-    storeSecret("ALIAS_COLLISION", "existing");
-
-    expect(() => createAlias("ALIAS_COLLISION", "ALIAS_CANONICAL")).toThrow(/already exists as a secret/);
-    expect(resolveSecret("ALIAS_COLLISION")).toBe("existing");
-  });
-
-  it("rejects alias chains and internal names", () => {
-    storeSecret("ALIAS_CHAIN_TARGET", "value");
-    createAlias("ALIAS_CHAIN_ONE", "ALIAS_CHAIN_TARGET");
-
-    expect(() => createAlias("ALIAS_CHAIN_TWO", "ALIAS_CHAIN_ONE")).toThrow(/target another alias/);
-    expect(() => createAlias("__keyclasp_ALIAS", "ALIAS_CHAIN_TARGET")).toThrow(/reserved/);
-    expect(() => createAlias("_totp_ALIAS", "ALIAS_CHAIN_TARGET")).toThrow(/reserved/);
-    expect(() => createAlias("_keyclasp_sso:token", "ALIAS_CHAIN_TARGET")).toThrow(/reserved/);
-  });
-
-  it("removes aliases when deleting the target secret", () => {
-    storeSecret("ALIAS_DELETE_TARGET", "value");
-    createAlias("ALIAS_DELETE_ALIAS", "ALIAS_DELETE_TARGET");
-
-    expect(deleteSecret("ALIAS_DELETE_TARGET")).toBe(true);
-
-    expect(resolveSecretWithAlias("ALIAS_DELETE_ALIAS").value).toBeNull();
-    expect(listAliases().map((alias) => alias.alias)).not.toContain("ALIAS_DELETE_ALIAS");
-  });
-
-  it("deletes only alias metadata", () => {
-    storeSecret("ALIAS_KEEP_TARGET", "value");
-    createAlias("ALIAS_REMOVE_ONLY", "ALIAS_KEEP_TARGET");
-
-    expect(deleteAlias("ALIAS_REMOVE_ONLY")).toBe(true);
-
-    expect(resolveSecret("ALIAS_KEEP_TARGET")).toBe("value");
-    expect(resolveSecretWithAlias("ALIAS_REMOVE_ONLY").value).toBeNull();
   });
 });

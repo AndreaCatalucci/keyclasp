@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Keyclasp: Keep API Keys Out of Agent Context</title>
-<meta name="description" content="Keyclasp keeps API keys out of coding-agent context and injects secrets only into trusted commands at runtime.">
+<meta name="description" content="Keyclasp is a local encrypted credential vault that injects secrets into trusted commands at runtime — never into a coding agent's context.">
 <style>
   *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
   body {
@@ -130,8 +130,8 @@
 
   <!-- Hero -->
   <div class="hero">
-    <h1>Runtime Secrets for <span>Coding Agents</span></h1>
-    <p>Keep real credentials out of project files, inject them into trusted commands only when needed, and catch accidental output leaks.</p>
+    <h1>A Local Encrypted Vault for <span>Coding Agents</span></h1>
+    <p>Store credentials locally, encrypted. Inject them into trusted commands only when needed — never into the agent's own context — and catch accidental output leaks.</p>
     <div class="install">npm install -g keyclasp && keyclasp init</div>
     <div class="note">Local vault. Guarded execution. Zero telemetry.</div>
     <br>
@@ -141,7 +141,7 @@
   <!-- How it works -->
   <div class="section">
     <h2>How It Works</h2>
-    <div class="sub">Store, sandbox, and run. Your secrets stay secret.</div>
+    <div class="sub">Store locally, encrypted. Run with secrets injected. Your secrets stay secret.</div>
     <div class="steps">
       <div class="step">
         <div class="num">1</div>
@@ -152,17 +152,17 @@
       </div>
       <div class="step">
         <div class="num">2</div>
-        <h3>Sandbox the Project</h3>
-        <p>Replace real .env values with deterministic fakes before a coding agent reads the repository.</p>
+        <h3>Agent Sees Names Only</h3>
+        <p>An agent can list what's available without ever seeing a value.</p>
         <br>
-        <code>keyclasp import .env &amp;&amp; keyclasp sandbox .env</code>
+        <code>keyclasp list</code>
       </div>
       <div class="step">
         <div class="num">3</div>
         <h3>Run With Secrets</h3>
         <p>Inject secrets into a trusted child process and stop detected output leaks.</p>
         <br>
-        <code>keyclasp sandbox && keyclasp run -- npm start</code>
+        <code>keyclasp run -- npm start</code>
       </div>
     </div>
     <div class="logos">
@@ -172,8 +172,8 @@
 
   <!-- More than secrets -->
   <div class="section">
-    <h2>More Than a Vault</h2>
-    <div class="sub">One focused CLI. Local-first by default.</div>
+    <h2>A Deliberately Small Surface</h2>
+    <div class="sub">One focused CLI. Local-only. Nothing to configure.</div>
     <div class="features">
       <div class="feat">
         <div class="icon">&#128274;</div>
@@ -181,24 +181,14 @@
         <p>Encrypted SQLite. Machine-identity-bound key. Zero network.</p>
       </div>
       <div class="feat">
+        <div class="icon">&#128272;</div>
+        <h4>Guarded Run</h4>
+        <p>Secrets injected at the process boundary. Leaked output is redacted and the process is killed.</p>
+      </div>
+      <div class="feat">
         <div class="icon">&#128273;</div>
-        <h4>7 Backends</h4>
-        <p>Local, 1Password, Bitwarden, env vars, AWS, GCP, Azure.</p>
-      </div>
-      <div class="feat">
-        <div class="icon">&#128230;</div>
-        <h4>Sandbox</h4>
-        <p>Deterministic HMAC-SHA256 fakes. Clean git diffs. Safe for AI review.</p>
-      </div>
-      <div class="feat">
-        <div class="icon">&#9200;</div>
-        <h4>TOTP / HOTP</h4>
-        <p>Built-in 2FA code generation. No phone needed. Zero deps.</p>
-      </div>
-      <div class="feat">
-        <div class="icon">&#128279;</div>
-        <h4>Secret Sharing</h4>
-        <p>AES-256-GCM encrypted URL fragments. Time-limited. View-limited.</p>
+        <h4>Owner-Only Storage</h4>
+        <p>0700/0600 permissions. No account, no dashboard, no cloud.</p>
       </div>
     </div>
   </div>
@@ -211,19 +201,15 @@
     <div style="display:grid;grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap:16px;">
       <a href="https://github.com/AndreaCatalucci/keyclasp/blob/main/docs/getting-started.md" class="card" style="text-decoration:none;display:block;">
         <h4 style="color:#58a6ff;margin-bottom:4px;">Getting Started</h4>
-        <p style="color:#8b949e;font-size:13px;">Install, init, first secret, sandbox walkthrough.</p>
+        <p style="color:#8b949e;font-size:13px;">Install, init, store a secret, run a command with it.</p>
       </a>
       <a href="https://github.com/AndreaCatalucci/keyclasp/blob/main/docs/commands.md" class="card" style="text-decoration:none;display:block;">
         <h4 style="color:#58a6ff;margin-bottom:4px;">CLI Reference</h4>
         <p style="color:#8b949e;font-size:13px;">Core commands with examples and flags.</p>
       </a>
-      <a href="https://github.com/AndreaCatalucci/keyclasp/blob/main/README.md#using-keyclasp-with-coding-agents" class="card" style="text-decoration:none;display:block;">
+      <a href="https://github.com/AndreaCatalucci/keyclasp/blob/main/README.md#use-keyclasp-with-coding-agents" class="card" style="text-decoration:none;display:block;">
         <h4 style="color:#58a6ff;margin-bottom:4px;">Coding Agent Workflow</h4>
-        <p style="color:#8b949e;font-size:13px;">A practical sandbox-and-run workflow for agent sessions.</p>
-      </a>
-      <a href="https://github.com/AndreaCatalucci/keyclasp/blob/main/docs/faq.md" class="card" style="text-decoration:none;display:block;">
-        <h4 style="color:#58a6ff;margin-bottom:4px;">FAQ</h4>
-        <p style="color:#8b949e;font-size:13px;">Security boundaries, recovery, backends, and common questions.</p>
+        <p style="color:#8b949e;font-size:13px;">The agent skill and safety rules for guarded `run`.</p>
       </a>
       <a href="https://github.com/AndreaCatalucci/keyclasp/blob/main/docs/security.md" class="card" style="text-decoration:none;display:block;">
         <h4 style="color:#58a6ff;margin-bottom:4px;">Security</h4>
@@ -231,7 +217,7 @@
       </a>
       <a href="https://github.com/AndreaCatalucci/keyclasp/blob/main/docs/recipes.md" class="card" style="text-decoration:none;display:block;">
         <h4 style="color:#58a6ff;margin-bottom:4px;">Recipes</h4>
-        <p style="color:#8b949e;font-size:13px;">CI/CD, Docker, pre-commit, sharing, TOTP, multi-machine sync.</p>
+        <p style="color:#8b949e;font-size:13px;">CI/CD, containers, least-privilege injection.</p>
       </a>
       <a href="https://github.com/AndreaCatalucci/keyclasp/blob/main/docs/faq.md" class="card" style="text-decoration:none;display:block;">
         <h4 style="color:#58a6ff;margin-bottom:4px;">FAQ</h4>
@@ -247,11 +233,11 @@
     <h2 style="text-align:center;margin-bottom:32px">Trusted by Developers</h2>
     <div class="testimonials">
       <div class="card" style="text-align:center">
-        <p style="font-size:15px;color:#c9d1d9;line-height:1.6;font-style:italic">"The sandbox feature keeps credentials out of agent context, and guarded commands make the safe path easy to repeat."</p>
+        <p style="font-size:15px;color:#c9d1d9;line-height:1.6;font-style:italic">"Guarded run keeps credentials out of agent context, and the small command surface makes the safe path the only path."</p>
         <p style="margin-top:12px;font-size:14px;color:#8b949e">Alex R., Senior Engineer</p>
       </div>
       <div class="card" style="text-align:center">
-        <p style="font-size:15px;color:#c9d1d9;line-height:1.6;font-style:italic">"We run Keyclasp in CI to sandbox .env files before AI code review. Clean diffs, real secrets never exposed. It's part of our standard dev setup now."</p>
+        <p style="font-size:15px;color:#c9d1d9;line-height:1.6;font-style:italic">"We run Keyclasp in CI so credentials never touch the AI code review context. Real secrets never exposed. It's part of our standard dev setup now."</p>
         <p style="margin-top:12px;font-size:14px;color:#8b949e">Jordan M., DevOps Lead</p>
       </div>
     </div>

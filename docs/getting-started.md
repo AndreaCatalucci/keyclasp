@@ -25,17 +25,6 @@ keyclasp list
 keyclasp status
 ```
 
-## Prepare an Existing Project
-
-If the project already contains a real `.env`, import it before sandboxing:
-
-```bash
-keyclasp import .env
-keyclasp sandbox .env
-```
-
-Sandboxing replaces real values with deterministic fakes. The project keeps the same variable names and stable fake values, so a coding agent can inspect configuration without reading credentials and repeated runs do not create noisy diffs.
-
 ## Run Commands With Secrets
 
 ```bash
@@ -51,13 +40,11 @@ When a command expects another variable name:
 keyclasp run --env OPENAI_API_KEY:AI_TOKEN -- npm test
 ```
 
-## Restore a Sandboxed File
+Or restrict injection to only what's needed:
 
 ```bash
-keyclasp unsandbox .env
+keyclasp run --env OPENAI_API_KEY -- npm test
 ```
-
-Restore real values only for a trusted local workflow. Sandbox the file again before letting a coding agent inspect or edit the project.
 
 ## Next Steps
 

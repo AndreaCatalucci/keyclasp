@@ -2,16 +2,19 @@
 
 Common patterns and workflows.
 
+## CI/CD
 
-## Pre-commit Hook
+Run the vault-backed command through `keyclasp run` instead of exporting secrets into the job environment directly:
 
 ```bash
-keyclasp install-hook
+keyclasp init <<< "$VAULT_PASSPHRASE"
+echo "$OPENAI_API_KEY" | keyclasp set OPENAI_API_KEY
+keyclasp run -- npm test
 ```
 
-This installs a git hook that blocks commits containing real API keys (detected via pattern matching).
+Treat the CI job's own secret store (e.g. GitHub Actions secrets) as the source of truth; Keyclasp only narrows what the test/build process itself can see and print.
 
-## Local Container Use
+## Container Use
 
 ```dockerfile
 FROM node:24-slim
@@ -25,51 +28,14 @@ docker run --mount type=bind,source="$HOME/.keyclasp",target=/root/.keyclasp you
   keyclasp run -- npm test
 ```
 
-## Sharing a Secret with a Teammate
+## Least-Privilege Injection
+
+Prefer explicit `--env` mappings so a command only receives the secrets it actually needs:
 
 ```bash
-# You
-keyclasp share DATABASE_URL --ttl 1h --max-views 1
-
-# Them (within 1 hour)
-keyclasp receive https://github.com/AndreaCatalucci/keyclasp#v1.abc.def
+keyclasp run --env AWS_ACCESS_KEY_ID --env AWS_SECRET_ACCESS_KEY -- aws s3 ls
 ```
 
-## Migrating from .env to Keyclasp
+## Moving a Vault to Another Machine
 
-```bash
-# 1. Import existing .env
-keyclasp import .env
-
-# 2. Verify everything imported
-keyclasp list
-
-# 3. Sandbox the .env (replace with fakes)
-keyclasp sandbox
-
-# 4. Commit the sandboxed .env
-git add .env && git commit -m "Sandbox secrets with keyclasp"
-```
-
-## Setting Up TOTP for a Service
-
-```bash
-# From QR code URI
-keyclasp totp set github "otpauth://totp/GitHub:user?secret=ABCDEFGH&issuer=GitHub"
-
-# Generate code when needed
-keyclasp totp code github
-```
-
-## Multi-Machine Sync
-
-```bash
-# Machine A
-keyclasp sync export > bundle.enc
-
-# Transfer bundle.enc to Machine B (USB, AirDrop, etc.)
-# Machine B
-keyclasp sync import bundle.enc
-```
-
-The bundle is encrypted with your vault key — safe to transfer over any channel.
+Copy the vault directory (`~/.keyclasp/`) to the new machine, then re-run `keyclasp status` there. If the key file was generated with a non-empty passphrase, it unlocks on the new machine once the passphrase-derived key is available; a machine-only key (empty passphrase) is bound to the original machine's identity and will not unlock elsewhere. Prefer setting a real passphrase during `keyclasp init` if you plan to move the vault.

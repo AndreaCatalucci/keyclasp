@@ -2,18 +2,23 @@ import { describe, expect, it } from "vitest";
 import * as keyclasp from "../src/index.js";
 
 describe("public API", () => {
-  it("keeps the supported CLI-first library surface", () => {
+  it("keeps the minimal vault + run surface", () => {
     expect(keyclasp).toHaveProperty("initializeVault");
-    expect(keyclasp).toHaveProperty("sandboxEnvFile");
-    expect(keyclasp).toHaveProperty("runDoctor");
-    expect(keyclasp).toHaveProperty("createShareLink");
+    expect(keyclasp).toHaveProperty("storeSecret");
+    expect(keyclasp).toHaveProperty("resolveSecret");
+    expect(keyclasp).toHaveProperty("listSecrets");
+    expect(keyclasp).toHaveProperty("deleteSecret");
+    expect(keyclasp).toHaveProperty("runCommandWithSecrets");
   });
 
-  it("omits removed server, setup, and authentication exports", () => {
-    expect(keyclasp).not.toHaveProperty("createServer");
-    expect(keyclasp).not.toHaveProperty("startServer");
-    expect(keyclasp).not.toHaveProperty("setupAll");
-    expect(keyclasp).not.toHaveProperty("setRequireSession");
-    expect(keyclasp).not.toHaveProperty("setClientInfo");
+  it("omits exports for removed features", () => {
+    expect(keyclasp).not.toHaveProperty("createAlias");
+    expect(keyclasp).not.toHaveProperty("storeTOTP");
+    expect(keyclasp).not.toHaveProperty("createShareLink");
+    expect(keyclasp).not.toHaveProperty("sandboxEnvFile");
+    expect(keyclasp).not.toHaveProperty("setBackend");
+    expect(keyclasp).not.toHaveProperty("runDoctor");
+    expect(keyclasp).not.toHaveProperty("setProjectName");
+    expect(keyclasp).not.toHaveProperty("getAuditLog");
   });
 });

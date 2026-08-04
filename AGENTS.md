@@ -10,26 +10,16 @@
 - **Encryption**: AES-256-GCM (Node crypto)
 - **Storage**: SQLite (better-sqlite3)
 - **Interface**: Local TypeScript CLI
-- **Backends**: Local vault, 1Password CLI, Bitwarden CLI, env vars, AWS, GCP, Azure
 
 ## Project Structure
 
 ```
 src/
-├── vault.ts        → AES-256-GCM encryption + SQLite store
-├── sandbox.ts      → .env sandbox with deterministic fakes (HMAC-SHA256)
-├── backends.ts     → Multi-backend abstraction (local, 1Password, Bitwarden, env)
-├── cli.ts          → CLI entry point (40+ commands)
-├── index.ts        → Public API exports
-├── totp.ts         → TOTP/HOTP 2FA code generation (zero deps)
-├── share.ts        → Encrypted secret sharing via URL fragments
+├── vault.ts        → AES-256-GCM encryption + SQLite store, key management
 ├── run.ts          → Guarded child-process execution with secret injection
-├── sync.ts         → Version history, rollback, sync bundles
-├── doctor.ts       → Vault health check
-├── config.ts       → Project configuration (.keyclasp)
-├── completions.ts  → Shell completions (bash, zsh, fish)
-├── hook.ts         → Pre-commit hook for secret detection
-└── watch.ts        → Watch .env and auto-sandbox
+├── cli.ts          → CLI entry point (init/set/get/list/delete/run/status/version)
+├── index.ts        → Public API exports
+└── version.ts      → Package/git-derived version string
 
 docs/solutions/     # documented solutions (bugs, best practices, workflow patterns), organized by category with YAML frontmatter (module, tags, problem_type)
 ```
@@ -52,9 +42,8 @@ keyclasp run -- npm test # Inject secrets into a trusted command
 
 ## Key Decisions
 
-- **Process-boundary integration.** Coding agents work with safe project files; trusted commands receive real secrets only at runtime.
-- **CLI-first.** Vault, sandbox, guarded execution, aliases, TOTP, sharing, sync, audit, and backend operations share one local interface.
-- **Local-first core.** No dashboard or network service is required.
-- **Deterministic sandbox fakes** using HMAC-SHA256(project hash + key name) so git diffs stay clean.
-- **Machine-identity-bound key** — encryption key XOR-wrapped with machine fingerprint.
+- **Process-boundary integration.** Coding agents work with secret names only; trusted commands receive real secrets only at runtime via `keyclasp run`.
+- **Minimal surface, deliberately.** The CLI is intentionally small (init/set/get/list/delete/run/status) — every additional command is additional attack surface.
+- **Local-only.** No dashboard, backend, or network service. The vault lives at `~/.keyclasp/`, owner-only permissions.
+- **Machine-identity-bound key** — encryption key XOR-wrapped with a machine fingerprint before it's written to disk.
 - **Zero network, zero telemetry** — fully local, no cloud, no accounts.

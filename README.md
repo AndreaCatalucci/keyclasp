@@ -1,27 +1,24 @@
-# Keyclasp — Runtime Secrets for Coding Agents
+# Keyclasp — Local Encrypted Credential Vault for Coding Agents
 
-**Keep API keys out of coding-agent context and inject them only into trusted commands.**
+**Store credentials locally, encrypted. Let a coding agent run commands that need them — without the agent, its prompt, or its output ever seeing the plaintext.**
 
 [![npm version](https://img.shields.io/npm/v/keyclasp)](https://www.npmjs.com/package/keyclasp)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-Keyclasp is a local secrets manager and encrypted vault for AI coding agents such as Codex, Claude Code, Cursor, Cline, and GitHub Copilot. It lets an agent run tests, builds, API calls, cloud CLIs, and deployment tools without reading the real API keys, tokens, passwords, or credentials those commands need.
-
-If you are looking for a way to use secrets with an AI coding agent without putting them in `.env`, prompts, shell arguments, logs, or source files, Keyclasp is built for that problem.
+Keyclasp is a minimal local secrets vault and CLI for AI coding agents such as Codex, Claude Code, Cursor, Cline, and GitHub Copilot. It lets an agent run tests, builds, API calls, cloud CLIs, and deployment tools without reading the real API keys, tokens, passwords, or credentials those commands need.
 
 ## The Problem Keyclasp Solves
 
-Coding agents inspect project files, execute commands, collect logs, and keep context about what they read. A normal `.env` file places plaintext credentials directly inside that working set.
+Coding agents inspect project files, execute commands, collect logs, and keep context about what they read. Putting a credential in a `.env` file, a shell argument, or a prompt puts it directly inside that working set.
 
 Keyclasp separates what the agent can inspect from what a trusted process can receive:
 
 ```text
 coding agent          Keyclasp vault           trusted child process
 secret names only  -> encrypted values      -> runtime environment
-safe .env fakes    -> local storage         -> credentials when needed
 ```
 
-The agent can understand that a project expects `OPENAI_API_KEY` without seeing its value. When a command needs that key, `keyclasp run` injects it at the process boundary. Keyclasp watches the command's output, redacts a detected secret, and terminates the process if it leaks one.
+The agent can discover that a project expects `OPENAI_API_KEY` without ever seeing its value. When a command needs that key, `keyclasp run` injects it directly into the child process's environment — the value never passes through the agent's context, the CLI's own stdout, or the shell command line. Keyclasp also watches the command's own output, redacts a detected secret, and terminates the process if it leaks one.
 
 ## Why Use Keyclasp Instead of a Plain `.env` File?
 
@@ -30,9 +27,9 @@ The agent can understand that a project expects `OPENAI_API_KEY` without seeing 
 | Plain `.env` | Project file | Usually |
 | Shell argument | Shell history and process arguments | Often |
 | Pasted into a prompt | Conversation history | Yes |
-| `keyclasp run` | Encrypted vault and trusted child environment | No, unless the child process exposes it |
+| `keyclasp run` | Encrypted vault and trusted child environment only | No, unless the child process itself prints it |
 
-Keyclasp is local-first. The default vault needs no account, cloud service, network connection, dashboard, telemetry, or MCP server.
+Keyclasp is local-only by design: no account, cloud service, network connection, dashboard, or telemetry. The vault lives at `~/.keyclasp/`, encrypted with AES-256-GCM, in a directory and key file only your OS user can read.
 
 ## Quick Start
 
@@ -45,115 +42,65 @@ keyclasp init
 
 Keep the vault passphrase safe. Keyclasp cannot recover it for you.
 
-### 2. Store an API key without putting it in shell history
+### 2. Store a credential without putting it in shell history
 
 ```bash
 keyclasp set OPENAI_API_KEY -
 ```
 
-Paste the value at the secure prompt and press Ctrl+D.
+Paste the value at the secure prompt and press Enter.
 
-### 3. Replace real `.env` values before an agent reads the project
-
-```bash
-keyclasp import .env
-keyclasp sandbox .env
-```
-
-The sandbox replaces real values with deterministic fakes. The same variable receives the same fake, so repeated runs do not create noisy git diffs.
-
-### 4. Run a command with secrets injected at runtime
+### 3. Run a command with the credential injected at runtime
 
 ```bash
 keyclasp run --env OPENAI_API_KEY -- npm test
-keyclasp run --env STRIPE_SECRET_KEY -- npm start
 ```
 
-Use explicit `--env` options so each command receives only the secrets it needs. To inject every configured secret, use the shorter form:
+Use explicit `--env` options so each command receives only the secrets it needs. To inject every stored secret, use the shorter form:
 
 ```bash
 keyclasp run -- npm test
 ```
 
-### 5. Check the setup without revealing values
+### 4. Check the setup without revealing values
 
 ```bash
 keyclasp status
 keyclasp list
-keyclasp doctor
 ```
 
 `list` prints secret names only. It never prints their values.
 
-## Use Keyclasp With Codex and Other Coding Agents
+## Use Keyclasp With Coding Agents
 
 Tell the agent:
 
-> Use Keyclasp for commands that need credentials. Inspect secret names with `keyclasp list`, choose the minimum required `--env` mappings, and run the trusted command through `keyclasp run`. Never call `keyclasp get` or `keyclasp export --env`, and never print injected environment variables.
+> Use Keyclasp for commands that need credentials. Discover secret names with `keyclasp list`, choose the minimum required `--env` mappings, and run the trusted command through `keyclasp run`. Never call `keyclasp get`, and never print or paste injected environment variables.
 
-Keyclasp ships an agent skill at [`skills/keyclasp-agent`](skills/keyclasp-agent). Install that directory as a Codex skill, then invoke `$keyclasp-agent` or let Codex select it when a command needs credentials. The skill teaches the agent to discover secret names, apply least privilege, and avoid plaintext-revealing commands.
+Keyclasp ships an agent skill at [`skills/keyclasp-agent`](skills/keyclasp-agent) that encodes exactly this workflow, plus explicit safety rules. Install that directory as a skill for your agent tool, or point the agent at it directly. The npm package includes the skill so agent tooling can discover the same instructions from the installed package.
 
-The npm package includes the skill so agent tooling can discover the same instructions from the installed package.
+## Command Reference
 
-## Common Workflows
+| Command | Description |
+|---------|-------------|
+| `keyclasp init` | Initialize the encrypted vault |
+| `keyclasp set <name>` | Store a secret (also updates an existing one) |
+| `keyclasp get <name>` | Resolve and print a secret value (human use only — never call from an agent) |
+| `keyclasp list` | List stored secret names |
+| `keyclasp delete <name>` | Delete a secret |
+| `keyclasp run [--env SOURCE[:TARGET]] [--allow-unsafe] -- <command>` | Run a command with secrets injected and output leak-guarded |
+| `keyclasp status` | Show vault location, secret count, and a decryptability check |
 
-### Map a stored secret to the variable a command expects
-
-```bash
-keyclasp run --env OPENAI_KEY:OPENAI_API_KEY -- npm test
-```
-
-For a reusable local alias:
-
-```bash
-keyclasp alias OPENAI_KEY OPENAI_API_KEY
-keyclasp aliases
-```
-
-### Generate, rotate, and audit secrets
-
-```bash
-keyclasp generate SESSION_SECRET
-keyclasp rotate OPENAI_API_KEY
-keyclasp audit
-keyclasp check --expired
-```
-
-### Restore a sandboxed `.env`
-
-```bash
-keyclasp unsandbox .env
-```
-
-Restore plaintext only when a local workflow genuinely requires it. Sandbox the file again before a coding agent inspects the project.
-
-## Secret Backends
-
-The default backend stores AES-256-GCM encrypted values in a local SQLite vault. Optional adapters use provider CLIs and may require an account and network access.
-
-| Backend | Read | Write | Requirement |
-|---|---:|---:|---|
-| **local** | ✓ | ✓ | Nothing |
-| **1password** | ✓ | ✓ | `op` CLI |
-| **bitwarden** | ✓ | — | `bw` CLI |
-| **env** | ✓ | — | Environment variables |
-| **aws** | ✓ | ✓ | `aws` CLI |
-| **gcp** | ✓ | ✓ | `gcloud` CLI |
-| **azure** | ✓ | ✓ | `az` CLI |
-
-```bash
-keyclasp backends
-keyclasp config backend 1password
-```
+See the [full CLI reference](docs/commands.md).
 
 ## Security Boundaries
 
-- Secret values are encrypted individually with AES-256-GCM.
-- New local vaults live under `~/.keyclasp/` with owner-only permissions.
-- Secret names and some metadata remain plaintext so Keyclasp can query them.
-- A child process receiving a secret can still misuse or print it. `keyclasp run` reduces this risk but cannot make untrusted code safe.
-- `keyclasp get` and `keyclasp export --env` deliberately print plaintext. Their output may remain in terminal scrollback or logs.
-- Machine-identity binding makes copied vaults harder to decrypt, but affects machine migration and recovery.
+- Secret values are encrypted individually with AES-256-GCM; only secret names are stored in plaintext.
+- The vault lives under `~/.keyclasp/` with owner-only directory and file permissions (`0700`/`0600`).
+- `keyclasp run` is the only path from the vault to a process; it blocks obvious environment-dump commands and redacts/terminates on a detected output leak.
+- A child process that receives a secret can still misuse or print it. `keyclasp run` reduces this risk but cannot make untrusted code safe — only run trusted commands through it.
+- `keyclasp get` deliberately prints plaintext, for the human operator. Its output may remain in terminal scrollback; agents must never invoke it.
+- An empty ("machine-only") passphrase binds the key to the local machine's identity rather than to a secret you remember — set a real passphrase if you plan to move the vault.
 - Keyclasp has not received a professional third-party security audit.
 
 Read the [security design](docs/security.md) for the full threat model.
@@ -178,9 +125,7 @@ npm test
 
 ## Upstream Attribution
 
-Keyclasp began as a fork of [Keyblind](https://github.com/aarifmms/keyblind), created by Mohammed Aarif Shaikh. The original project established the encrypted local vault, deterministic sandbox values, CLI workflows, and many of the capabilities that Keyclasp continues to build on.
-
-Keyclasp has since diverged into a local, CLI-first process-boundary tool for coding agents. The upstream git history is preserved, the original MIT copyright notice remains in [LICENSE](LICENSE), and additional attribution is recorded in [NOTICE](NOTICE).
+Keyclasp began as a fork of [Keyblind](https://github.com/aarifmms/keyblind), created by Mohammed Aarif Shaikh. The original project established the encrypted local vault and CLI workflow that Keyclasp continues to build on. Keyclasp has since narrowed to a minimal, hardened local vault and guarded-run process boundary for coding agents. The upstream git history is preserved, the original MIT copyright notice remains in [LICENSE](LICENSE), and additional attribution is recorded in [NOTICE](NOTICE).
 
 ## License
 
