@@ -15,9 +15,10 @@
 
 ```
 src/
-├── vault.ts        → AES-256-GCM encryption + SQLite store, key management
+├── vault.ts        → AES-256-GCM encryption + SQLite store, key management, project/environment scoping
 ├── run.ts          → Guarded child-process execution with secret injection
-├── cli.ts          → CLI entry point (init/set/get/list/delete/run/status/version)
+├── context.ts      → --project/--environment flag parsing and precedence resolution (flag > env var > context.json > default)
+├── cli.ts          → CLI entry point (init/set/get/list/delete/use/projects/environments/rename/run/status/version)
 ├── index.ts        → Public API exports
 └── version.ts      → Package/git-derived version string
 
@@ -43,7 +44,8 @@ keyclasp run -- npm test # Inject secrets into a trusted command
 ## Key Decisions
 
 - **Process-boundary integration.** Coding agents work with secret names only; trusted commands receive real secrets only at runtime via `keyclasp run`.
-- **Minimal surface, deliberately.** The CLI is intentionally small (init/set/get/list/delete/run/status) — every additional command is additional attack surface.
+- **Small surface, justified.** Every command in the CLI is deliberate — additional commands (`use`/`projects`/`environments`/`rename`, `--bulk` delete) exist because retroactively scoping secrets by project/environment required them, not by default. Each is weighed against the attack surface it adds.
+- **Projects and environments are namespacing, not isolation.** Secrets live in one vault.db, keyed by `(project, environment, name)` — not per-project databases. Same secret name in two scopes is independent. Agents should always pass `--project`/`--environment` explicitly on every operation rather than relying on the persisted `keyclasp use` context, so parallel agent runs never race on shared mutable state.
 - **Local-only.** No dashboard, backend, or network service. The vault lives at `~/.keyclasp/`, owner-only permissions.
 - **Machine-identity-bound key** — encryption key XOR-wrapped with a machine fingerprint before it's written to disk.
 - **Zero network, zero telemetry** — fully local, no cloud, no accounts.
