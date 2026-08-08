@@ -30,6 +30,8 @@ import {
   deleteProject,
   deleteEnvironmentInProject,
   deleteEnvironmentAcrossAllProjects,
+  snapshotBulkDelete,
+  deleteBulkIfUnchanged,
   renameProject,
   renameEnvironmentInProject,
   renameEnvironmentAcrossAllProjects,
@@ -430,6 +432,25 @@ describe("bulk delete", () => {
     expect(deleteProject("nonexistent")).toEqual({ deleted: 0 });
     expect(deleteEnvironmentInProject("nonexistent", "prod")).toEqual({ deleted: 0 });
     expect(deleteEnvironmentAcrossAllProjects("nonexistent")).toEqual({ deleted: 0 });
+  });
+
+  it("aborts when the confirmed scope changes before deletion", () => {
+    storeSecret("app", "prod", "FIRST", "1");
+    const snapshot = snapshotBulkDelete("app", "prod");
+    storeSecret("app", "prod", "SECOND", "2");
+
+    expect(() => deleteBulkIfUnchanged("app", "prod", snapshot)).toThrow(/scope changed/);
+    expect(resolveSecret("app", "prod", "FIRST")).toBe("1");
+    expect(resolveSecret("app", "prod", "SECOND")).toBe("2");
+  });
+
+  it("deletes a confirmed unchanged scope", () => {
+    storeSecret("app", "prod", "FIRST", "1");
+    storeSecret("app", "prod", "SECOND", "2");
+    const snapshot = snapshotBulkDelete("app", "prod");
+
+    expect(deleteBulkIfUnchanged("app", "prod", snapshot)).toEqual({ deleted: 2 });
+    expect(listSecrets("app", "prod")).toEqual([]);
   });
 });
 

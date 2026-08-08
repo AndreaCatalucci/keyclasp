@@ -298,6 +298,22 @@ describe("CLI projects and environments scoping", () => {
     expect(result.stdout.trim()).toBe("ok");
   });
 
+  it("run preserves scope-like child flags in the separator-free form", () => {
+    const result = run([
+      "run",
+      process.execPath,
+      "-e",
+      "console.log(JSON.stringify(process.argv.slice(1)))",
+      "child",
+      "-p",
+      "3000",
+      "--environment",
+      "child-value",
+    ]);
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual(["child", "-p", "3000", "--environment", "child-value"]);
+  });
+
   it("run prints an informational note and still runs when the resolved scope has no secrets", () => {
     const result = run([
       "run",

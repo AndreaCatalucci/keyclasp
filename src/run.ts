@@ -10,6 +10,8 @@ export interface ParsedRunArgs {
   allowUnsafe: boolean;
   envSpecs: RunEnvSpec[];
   commandArgs: string[];
+  project?: string;
+  environment?: string;
 }
 
 export interface UnsafeCommand {
@@ -72,6 +74,8 @@ export function parseRunArgs(args: string[]): ParsedRunArgs {
   const commandArgs: string[] = [];
   const envSpecs: RunEnvSpec[] = [];
   let allowUnsafe = false;
+  let project: string | undefined;
+  let environment: string | undefined;
   let parsingKeyclaspOptions = true;
 
   for (let index = 0; index < args.length; index += 1) {
@@ -91,6 +95,28 @@ export function parseRunArgs(args: string[]): ParsedRunArgs {
       envSpecs.push(parseEnvSpec(arg.slice("--env=".length)));
       continue;
     }
+    if (parsingKeyclaspOptions && (arg === "--project" || arg === "-p")) {
+      const value = args[index + 1];
+      if (value === undefined) throw new Error("Missing value for --project.");
+      project = value;
+      index += 1;
+      continue;
+    }
+    if (parsingKeyclaspOptions && arg.startsWith("--project=")) {
+      project = arg.slice("--project=".length);
+      continue;
+    }
+    if (parsingKeyclaspOptions && (arg === "--environment" || arg === "-E")) {
+      const value = args[index + 1];
+      if (value === undefined) throw new Error("Missing value for --environment.");
+      environment = value;
+      index += 1;
+      continue;
+    }
+    if (parsingKeyclaspOptions && arg.startsWith("--environment=")) {
+      environment = arg.slice("--environment=".length);
+      continue;
+    }
     if (parsingKeyclaspOptions && arg === "--") {
       parsingKeyclaspOptions = false;
       continue;
@@ -99,7 +125,13 @@ export function parseRunArgs(args: string[]): ParsedRunArgs {
     commandArgs.push(arg);
   }
 
-  return { allowUnsafe, envSpecs, commandArgs };
+  return {
+    allowUnsafe,
+    envSpecs,
+    commandArgs,
+    ...(project === undefined ? {} : { project }),
+    ...(environment === undefined ? {} : { environment }),
+  };
 }
 
 function parseEnvSpec(spec: string): RunEnvSpec {

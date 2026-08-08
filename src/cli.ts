@@ -13,9 +13,8 @@ import {
   isNewProjectEnvironment,
   projects,
   environments,
-  deleteProject,
-  deleteEnvironmentInProject,
-  deleteEnvironmentAcrossAllProjects,
+  snapshotBulkDelete,
+  deleteBulkIfUnchanged,
   renameProject,
   renameEnvironmentInProject,
   renameEnvironmentAcrossAllProjects,
@@ -180,7 +179,7 @@ async function runBulkDelete(opts: { project?: string; environment?: string; all
       process.exit(1);
     }
     validateScopeName(environment, "environment");
-    const rows = listSecrets(undefined, environment) as ScopedSecret[];
+    const rows = snapshotBulkDelete(undefined, environment);
     if (rows.length === 0) {
       console.log(`No secrets found for environment "${environment}" in any project.`);
       return;
@@ -191,7 +190,7 @@ async function runBulkDelete(opts: { project?: string; environment?: string; all
       typedValue: environment,
       count: rows.length,
     });
-    const result = deleteEnvironmentAcrossAllProjects(environment);
+    const result = deleteBulkIfUnchanged(undefined, environment, rows);
     console.log(`Deleted ${result.deleted} secret(s) from environment "${environment}" across ${affectedProjects} project(s).`);
     return;
   }
@@ -203,25 +202,25 @@ async function runBulkDelete(opts: { project?: string; environment?: string; all
   validateScopeName(project, "project");
 
   if (environment === undefined) {
-    const rows = listSecrets(project) as ScopedSecret[];
+    const rows = snapshotBulkDelete(project);
     if (rows.length === 0) {
       console.log(`No secrets found for project "${project}".`);
       return;
     }
     await confirmBulkDelete({ description: `project "${project}" (all environments)`, typedValue: project, count: rows.length });
-    const result = deleteProject(project);
+    const result = deleteBulkIfUnchanged(project, undefined, rows);
     console.log(`Deleted ${result.deleted} secret(s) from project "${project}".`);
     return;
   }
 
   validateScopeName(environment, "environment");
-  const names = listSecrets(project, environment) as string[];
-  if (names.length === 0) {
+  const rows = snapshotBulkDelete(project, environment);
+  if (rows.length === 0) {
     console.log(`No secrets found for project "${project}" environment "${environment}".`);
     return;
   }
-  await confirmBulkDelete({ description: `project "${project}" environment "${environment}"`, typedValue: environment, count: names.length });
-  const result = deleteEnvironmentInProject(project, environment);
+  await confirmBulkDelete({ description: `project "${project}" environment "${environment}"`, typedValue: environment, count: rows.length });
+  const result = deleteBulkIfUnchanged(project, environment, rows);
   console.log(`Deleted ${result.deleted} secret(s) from project "${project}" environment "${environment}".`);
 }
 
@@ -559,20 +558,20 @@ async function main(): Promise<void> {
           process.exit(1);
         }
         const cmdArgs = args.slice(1);
-        const { project: pFlag, environment: eFlag, rest } = extractGlobalFlags(cmdArgs, "scan-until-terminator");
-        if (parseRunArgs(rest).commandArgs.length === 0) {
+        const parsed = parseRunArgs(cmdArgs);
+        if (parsed.commandArgs.length === 0) {
           console.error("Usage: keyclasp run [--allow-unsafe] [--env SOURCE[:TARGET]] <command...>");
           process.exit(1);
         }
 
-        const { project, environment } = resolveContext(pFlag, eFlag);
+        const { project, environment } = resolveContext(parsed.project, parsed.environment);
         const scopedNames = listSecrets(project, environment) as string[];
         if (scopedNames.length === 0) {
           console.error(`Note: no secrets stored yet for project "${project}" environment "${environment}"; running with zero secrets injected.`);
         }
 
         const result = await runCommandWithSecrets({
-          args: rest,
+          args: cmdArgs,
           baseEnv: process.env,
           secretNames: scopedNames,
           resolveSecret: (name) => resolveSecret(project, environment, name),

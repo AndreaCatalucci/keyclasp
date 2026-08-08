@@ -104,8 +104,8 @@ const authTag = cipher.getAuthTag();
 
 `keyclasp run` is the only supported way for a coding agent to cause a secret to reach a process. The agent itself never sees the plaintext value:
 
-1. Secret names (not values) are the only thing an agent can discover, via `keyclasp list`.
-2. `keyclasp run [--env SOURCE[:TARGET]] -- <command>` resolves and decrypts the requested secrets and injects them directly into the spawned child's environment — the value never passes through the CLI's own stdout, and never appears in the shell command line or process arguments.
+1. Secret names (not values) are the only thing an agent can discover, via `keyclasp list --project <project> --environment <environment>`.
+2. `keyclasp run --project <project> --environment <environment> [--env SOURCE[:TARGET]] -- <command>` resolves and decrypts the requested secrets in that explicit scope and injects them directly into the spawned child's environment — the value never passes through the CLI's own stdout, and never appears in the shell command line or process arguments.
 3. Before spawning, the command is checked against a small denylist of programs and shell one-liners known to dump the full environment (`env`, `printenv`, `export`, `bash -c 'env'`, etc.) and refused unless `--allow-unsafe` is passed explicitly.
 4. While the child runs, its stdout and stderr are scanned for any injected value at least 8 characters long. A match is redacted in the stream and the child is terminated (`SIGTERM`, then `SIGKILL` after a grace period) so a partial leak cannot continue.
 

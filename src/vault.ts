@@ -658,6 +658,54 @@ export function deleteEnvironmentAcrossAllProjects(environment: string): { delet
   return { deleted: result.changes };
 }
 
+function bulkDeletePredicate(project?: string, environment?: string): { where: string; params: string[] } {
+  if (project === undefined && environment === undefined) {
+    throw new Error("A project or environment is required for bulk deletion.");
+  }
+  if (project !== undefined) validateScopeName(project, "project");
+  if (environment !== undefined) validateScopeName(environment, "environment");
+
+  if (project !== undefined && environment !== undefined) {
+    return { where: "project = ? AND environment = ?", params: [project, environment] };
+  }
+  if (project !== undefined) return { where: "project = ?", params: [project] };
+  return { where: "environment = ?", params: [environment!] };
+}
+
+export function snapshotBulkDelete(project?: string, environment?: string): ScopedSecret[] {
+  const db = getDb();
+  const { where, params } = bulkDeletePredicate(project, environment);
+  return db.prepare(
+    `SELECT project, environment, name FROM secrets WHERE ${where} ORDER BY project, environment, name`,
+  ).all(...params) as ScopedSecret[];
+}
+
+function sameScopedSecrets(left: ScopedSecret[], right: ScopedSecret[]): boolean {
+  return left.length === right.length && left.every((row, index) => {
+    const other = right[index];
+    return row.project === other.project && row.environment === other.environment && row.name === other.name;
+  });
+}
+
+export function deleteBulkIfUnchanged(
+  project: string | undefined,
+  environment: string | undefined,
+  expected: ScopedSecret[],
+): { deleted: number } {
+  const db = getDb();
+  const { where, params } = bulkDeletePredicate(project, environment);
+  const tx = db.transaction(() => {
+    const current = db.prepare(
+      `SELECT project, environment, name FROM secrets WHERE ${where} ORDER BY project, environment, name`,
+    ).all(...params) as ScopedSecret[];
+    if (!sameScopedSecrets(expected, current)) {
+      throw new Error("Bulk delete aborted because the selected scope changed while awaiting confirmation. Review it and try again.");
+    }
+    return db.prepare(`DELETE FROM secrets WHERE ${where}`).run(...params).changes;
+  });
+  return { deleted: tx.immediate() };
+}
+
 function collisionMessage(scopeLabel: string, collisions: { environment?: string; name: string }[]): string {
   const list = collisions
     .map((c) => (c.environment !== undefined ? `${c.environment}/${c.name}` : c.name))
