@@ -66,11 +66,17 @@ describe("removed CLI surface", () => {
     expect(help).toContain("keyclasp get");
     expect(help).toContain("keyclasp list");
     expect(help).toContain("keyclasp delete");
+    expect(help).toContain("keyclasp use");
+    expect(help).toContain("keyclasp projects");
+    expect(help).toContain("keyclasp environments");
+    expect(help).toContain("keyclasp rename");
     expect(help).toContain("keyclasp run");
     expect(help).toContain("keyclasp status");
+    // --project/--environment scoping is an intentional, current feature —
+    // distinct from the removed features above, so it's expected here.
+    expect(help).toContain("--project");
     expect(help).not.toContain("keyclasp sandbox");
     expect(help).not.toContain("keyclasp totp");
     expect(help).not.toContain("keyclasp share");
-    expect(help).not.toContain("--project");
   });
 });

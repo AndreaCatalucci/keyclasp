@@ -45,7 +45,7 @@ Keep the vault passphrase safe. Keyclasp cannot recover it for you.
 ### 2. Store a credential without putting it in shell history
 
 ```bash
-keyclasp set OPENAI_API_KEY -
+keyclasp set OPENAI_API_KEY - --project myapp --environment prod
 ```
 
 Paste the value at the secure prompt and press Enter.
@@ -53,20 +53,20 @@ Paste the value at the secure prompt and press Enter.
 ### 3. Run a command with the credential injected at runtime
 
 ```bash
-keyclasp run --env OPENAI_API_KEY -- npm test
+keyclasp run --project myapp --environment prod --env OPENAI_API_KEY -- npm test
 ```
 
 Use explicit `--env` options so each command receives only the secrets it needs. To inject every stored secret, use the shorter form:
 
 ```bash
-keyclasp run -- npm test
+keyclasp run --project myapp --environment prod -- npm test
 ```
 
 ### 4. Check the setup without revealing values
 
 ```bash
-keyclasp status
-keyclasp list
+keyclasp status --project myapp --environment prod
+keyclasp list --project myapp --environment prod
 ```
 
 `list` prints secret names only. It never prints their values.
@@ -75,7 +75,7 @@ keyclasp list
 
 Tell the agent:
 
-> Use Keyclasp for commands that need credentials. Discover secret names with `keyclasp list`, choose the minimum required `--env` mappings, and run the trusted command through `keyclasp run`. Never call `keyclasp get`, and never print or paste injected environment variables.
+> Use Keyclasp for commands that need credentials. Always pass the intended `--project` and `--environment` explicitly to `keyclasp list`, `keyclasp status`, and `keyclasp run`; do not rely on `keyclasp use` or ambient context. Choose the minimum required `--env` mappings. Never call `keyclasp get`, and never print or paste injected environment variables.
 
 Keyclasp ships an agent skill at [`skills/keyclasp-agent`](skills/keyclasp-agent) that encodes exactly this workflow, plus explicit safety rules. Install that directory as a skill for your agent tool, or point the agent at it directly. The npm package includes the skill so agent tooling can discover the same instructions from the installed package.
 
@@ -88,8 +88,14 @@ Keyclasp ships an agent skill at [`skills/keyclasp-agent`](skills/keyclasp-agent
 | `keyclasp get <name>` | Resolve and print a secret value (human use only — never call from an agent) |
 | `keyclasp list` | List stored secret names |
 | `keyclasp delete <name>` | Delete a secret |
+| `keyclasp use <project> <environment>` | Persist an interactive human context |
+| `keyclasp projects` / `keyclasp environments` | List scope names in use |
+| `keyclasp rename ...` | Rename a project, environment, or exact scope |
+| `keyclasp delete --bulk ...` | Delete a scope after typed interactive confirmation |
 | `keyclasp run [--env SOURCE[:TARGET]] [--allow-unsafe] -- <command>` | Run a command with secrets injected and output leak-guarded |
 | `keyclasp status` | Show vault location, secret count, and a decryptability check |
+
+Secret operations accept `--project`/`-p` and `--environment`/`-E`. Each field resolves independently through explicit flag, `KEYCLASP_PROJECT`/`KEYCLASP_ENVIRONMENT`, persisted context, then `default`. Scripts and coding agents should always pass both flags explicitly.
 
 See the [full CLI reference](docs/commands.md).
 

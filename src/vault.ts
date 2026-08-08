@@ -36,6 +36,20 @@ export interface DecryptabilityCheck {
   failures: { name: string; error: string }[];
 }
 
+export const SCOPE_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+export function validateScopeName(value: string, label: "project" | "environment"): void {
+  if (!value || value.includes("\0") || !SCOPE_NAME_PATTERN.test(value)) {
+    throw new Error(`Invalid ${label} name "${value}".`);
+  }
+}
+
+export interface ScopedSecret {
+  project: string;
+  environment: string;
+  name: string;
+}
+
 type EncryptedVaultRow = { encrypted_value: Buffer; iv: Buffer; auth_tag: Buffer };
 type NamedEncryptedVaultRow = EncryptedVaultRow & { name: string };
 type FileStamp = { mtimeMs: number; size: number } | null;
@@ -440,6 +454,54 @@ export function isInitialized(): boolean {
   return fs.existsSync(getKeyPath());
 }
 
+const CREATE_SECRETS_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS secrets (
+    project TEXT NOT NULL,
+    environment TEXT NOT NULL,
+    name TEXT NOT NULL,
+    encrypted_value BLOB NOT NULL,
+    iv BLOB NOT NULL,
+    auth_tag BLOB NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (project, environment, name)
+  )
+`;
+
+function secretsTableColumns(db: Database.Database): string[] {
+  return (db.pragma("table_info(secrets)") as { name: string }[]).map((r) => r.name);
+}
+
+// Retrofits the pre-project/environment schema (single "name" primary key)
+// into the composite (project, environment, name) schema, backfilling
+// existing rows under project="default", environment="default". Runs lazily
+// on every getDb() call but no-ops once migrated. Uses an IMMEDIATE
+// transaction so a second process racing to open the same legacy vault
+// blocks on the write lock (busy_timeout=5000) rather than double-migrating.
+function ensureSecretsSchema(db: Database.Database): void {
+  if (secretsTableColumns(db).includes("project")) return;
+
+  const migrate = db.transaction(() => {
+    if (secretsTableColumns(db).includes("project")) return;
+
+    if (!tableExists(db, "secrets")) {
+      db.exec(CREATE_SECRETS_TABLE_SQL);
+      return;
+    }
+
+    db.exec(`ALTER TABLE secrets RENAME TO secrets_legacy_migrate`);
+    db.exec(CREATE_SECRETS_TABLE_SQL);
+    db.exec(`
+      INSERT INTO secrets (project, environment, name, encrypted_value, iv, auth_tag, created_at, updated_at)
+      SELECT 'default', 'default', name, encrypted_value, iv, auth_tag, created_at, updated_at
+      FROM secrets_legacy_migrate
+    `);
+    db.exec(`DROP TABLE secrets_legacy_migrate`);
+  });
+
+  migrate.immediate();
+}
+
 export function getDb(): Database.Database {
   const dbPath = getVaultPath();
   if (_db && _dbPath === dbPath) return _db;
@@ -455,44 +517,39 @@ export function getDb(): Database.Database {
     // when the DB file is newly created. This is non-fatal — the
     // vault is fully functional with the default journal mode.
   }
-  _db.exec(`
-    CREATE TABLE IF NOT EXISTS secrets (
-      name TEXT PRIMARY KEY,
-      encrypted_value BLOB NOT NULL,
-      iv BLOB NOT NULL,
-      auth_tag BLOB NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-    )
-  `);
+  ensureSecretsSchema(_db);
   return _db;
 }
 
-export function storeSecret(name: string, value: string): void {
+export function storeSecret(project: string, environment: string, name: string, value: string): void {
+  validateScopeName(project, "project");
+  validateScopeName(environment, "environment");
   const db = getDb();
   const key = getKey();
   assertKeyUnlocksVault(key);
   const { encrypted, iv, authTag } = encrypt(value, key);
 
   const stmt = db.prepare(`
-    INSERT INTO secrets (name, encrypted_value, iv, auth_tag, updated_at)
-    VALUES (?, ?, ?, ?, datetime('now'))
-    ON CONFLICT(name) DO UPDATE SET
+    INSERT INTO secrets (project, environment, name, encrypted_value, iv, auth_tag, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+    ON CONFLICT(project, environment, name) DO UPDATE SET
       encrypted_value = excluded.encrypted_value,
       iv = excluded.iv,
       auth_tag = excluded.auth_tag,
       updated_at = datetime('now')
   `);
-  stmt.run(name, encrypted, iv, authTag);
+  stmt.run(project, environment, name, encrypted, iv, authTag);
   rememberKeyValidation();
 }
 
-export function resolveSecret(name: string): string | null {
+export function resolveSecret(project: string, environment: string, name: string): string | null {
   if (REMOVED_INTERNAL_SECRET_NAMES.has(name)) return null;
 
   const db = getDb();
   const key = getKey();
-  const row = db.prepare("SELECT encrypted_value, iv, auth_tag FROM secrets WHERE name = ?").get(name) as
+  const row = db.prepare(
+    "SELECT encrypted_value, iv, auth_tag FROM secrets WHERE project = ? AND environment = ? AND name = ?"
+  ).get(project, environment, name) as
     | { encrypted_value: Buffer; iv: Buffer; auth_tag: Buffer }
     | undefined;
 
@@ -500,11 +557,46 @@ export function resolveSecret(name: string): string | null {
   return decrypt(row.encrypted_value, row.iv, row.auth_tag, key);
 }
 
-export function listSecrets(): string[] {
+export function isNewProjectEnvironment(project: string, environment: string): boolean {
   const db = getDb();
-  // Internal rows use a "__" prefix (escaped below); hide them from listings.
-  const rows = db.prepare("SELECT name FROM secrets WHERE name NOT LIKE '@_@_%' ESCAPE '@' ORDER BY name").all() as { name: string }[];
-  return rows.map((r) => r.name).filter((name) => !REMOVED_INTERNAL_SECRET_NAMES.has(name));
+  const row = db.prepare("SELECT 1 FROM secrets WHERE project = ? AND environment = ? LIMIT 1").get(project, environment);
+  return row === undefined;
+}
+
+export function projects(): string[] {
+  const db = getDb();
+  const rows = db.prepare("SELECT DISTINCT project FROM secrets ORDER BY project").all() as { project: string }[];
+  return rows.map((r) => r.project);
+}
+
+export function environments(): string[] {
+  const db = getDb();
+  const rows = db.prepare("SELECT DISTINCT environment FROM secrets ORDER BY environment").all() as { environment: string }[];
+  return rows.map((r) => r.environment);
+}
+
+export function listSecrets(project?: string, environment?: string): string[] | ScopedSecret[] {
+  const db = getDb();
+  const conditions: string[] = ["name NOT LIKE '@_@_%' ESCAPE '@'"];
+  const params: string[] = [];
+  if (project !== undefined) {
+    conditions.push("project = ?");
+    params.push(project);
+  }
+  if (environment !== undefined) {
+    conditions.push("environment = ?");
+    params.push(environment);
+  }
+
+  const rows = db.prepare(
+    `SELECT project, environment, name FROM secrets WHERE ${conditions.join(" AND ")} ORDER BY project, environment, name`
+  ).all(...params) as ScopedSecret[];
+  const filtered = rows.filter((r) => !REMOVED_INTERNAL_SECRET_NAMES.has(r.name));
+
+  if (project !== undefined && environment !== undefined) {
+    return filtered.map((r) => r.name);
+  }
+  return filtered;
 }
 
 export function checkVaultDecryptability(): DecryptabilityCheck {
@@ -538,10 +630,183 @@ export function checkVaultDecryptability(): DecryptabilityCheck {
   return { checked, failures };
 }
 
-export function deleteSecret(name: string): boolean {
+export function deleteSecret(project: string, environment: string, name: string): boolean {
   const db = getDb();
-  const result = db.prepare("DELETE FROM secrets WHERE name = ?").run(name);
+  const result = db.prepare("DELETE FROM secrets WHERE project = ? AND environment = ? AND name = ?").run(project, environment, name);
   return result.changes > 0;
+}
+
+export function deleteProject(project: string): { deleted: number } {
+  validateScopeName(project, "project");
+  const db = getDb();
+  const result = db.prepare("DELETE FROM secrets WHERE project = ?").run(project);
+  return { deleted: result.changes };
+}
+
+export function deleteEnvironmentInProject(project: string, environment: string): { deleted: number } {
+  validateScopeName(project, "project");
+  validateScopeName(environment, "environment");
+  const db = getDb();
+  const result = db.prepare("DELETE FROM secrets WHERE project = ? AND environment = ?").run(project, environment);
+  return { deleted: result.changes };
+}
+
+export function deleteEnvironmentAcrossAllProjects(environment: string): { deleted: number } {
+  validateScopeName(environment, "environment");
+  const db = getDb();
+  const result = db.prepare("DELETE FROM secrets WHERE environment = ?").run(environment);
+  return { deleted: result.changes };
+}
+
+function bulkDeletePredicate(project?: string, environment?: string): { where: string; params: string[] } {
+  if (project === undefined && environment === undefined) {
+    throw new Error("A project or environment is required for bulk deletion.");
+  }
+  if (project !== undefined) validateScopeName(project, "project");
+  if (environment !== undefined) validateScopeName(environment, "environment");
+
+  if (project !== undefined && environment !== undefined) {
+    return { where: "project = ? AND environment = ?", params: [project, environment] };
+  }
+  if (project !== undefined) return { where: "project = ?", params: [project] };
+  return { where: "environment = ?", params: [environment!] };
+}
+
+export function snapshotBulkDelete(project?: string, environment?: string): ScopedSecret[] {
+  const db = getDb();
+  const { where, params } = bulkDeletePredicate(project, environment);
+  return db.prepare(
+    `SELECT project, environment, name FROM secrets WHERE ${where} ORDER BY project, environment, name`,
+  ).all(...params) as ScopedSecret[];
+}
+
+function sameScopedSecrets(left: ScopedSecret[], right: ScopedSecret[]): boolean {
+  return left.length === right.length && left.every((row, index) => {
+    const other = right[index];
+    return row.project === other.project && row.environment === other.environment && row.name === other.name;
+  });
+}
+
+export function deleteBulkIfUnchanged(
+  project: string | undefined,
+  environment: string | undefined,
+  expected: ScopedSecret[],
+): { deleted: number } {
+  const db = getDb();
+  const { where, params } = bulkDeletePredicate(project, environment);
+  const tx = db.transaction(() => {
+    const current = db.prepare(
+      `SELECT project, environment, name FROM secrets WHERE ${where} ORDER BY project, environment, name`,
+    ).all(...params) as ScopedSecret[];
+    if (!sameScopedSecrets(expected, current)) {
+      throw new Error("Bulk delete aborted because the selected scope changed while awaiting confirmation. Review it and try again.");
+    }
+    return db.prepare(`DELETE FROM secrets WHERE ${where}`).run(...params).changes;
+  });
+  return { deleted: tx.immediate() };
+}
+
+function collisionMessage(scopeLabel: string, collisions: { environment?: string; name: string }[]): string {
+  const list = collisions
+    .map((c) => (c.environment !== undefined ? `${c.environment}/${c.name}` : c.name))
+    .join("\n  ");
+  return `Rename aborted — ${collisions.length} secret(s) already exist in ${scopeLabel}:\n  ${list}`;
+}
+
+export function renameProject(fromProject: string, toProject: string): { moved: number } {
+  validateScopeName(fromProject, "project");
+  validateScopeName(toProject, "project");
+  const db = getDb();
+  const tx = db.transaction(() => {
+    const collisions = db.prepare(`
+      SELECT s1.environment as environment, s1.name as name
+      FROM secrets s1
+      JOIN secrets s2 ON s2.project = ? AND s2.environment = s1.environment AND s2.name = s1.name
+      WHERE s1.project = ?
+      ORDER BY s1.environment, s1.name
+    `).all(toProject, fromProject) as { environment: string; name: string }[];
+    if (collisions.length > 0) {
+      throw new Error(collisionMessage(`"${toProject}"`, collisions));
+    }
+    return db.prepare("UPDATE secrets SET project = ?, updated_at = datetime('now') WHERE project = ?")
+      .run(toProject, fromProject).changes;
+  });
+  return { moved: tx.immediate() };
+}
+
+export function renameEnvironmentInProject(project: string, fromEnvironment: string, toEnvironment: string): { moved: number } {
+  validateScopeName(project, "project");
+  validateScopeName(fromEnvironment, "environment");
+  validateScopeName(toEnvironment, "environment");
+  const db = getDb();
+  const tx = db.transaction(() => {
+    const collisions = db.prepare(`
+      SELECT s1.name as name
+      FROM secrets s1
+      JOIN secrets s2 ON s2.project = ? AND s2.environment = ? AND s2.name = s1.name
+      WHERE s1.project = ? AND s1.environment = ?
+      ORDER BY s1.name
+    `).all(project, toEnvironment, project, fromEnvironment) as { name: string }[];
+    if (collisions.length > 0) {
+      throw new Error(collisionMessage(`"${project}/${toEnvironment}"`, collisions));
+    }
+    return db.prepare("UPDATE secrets SET environment = ?, updated_at = datetime('now') WHERE project = ? AND environment = ?")
+      .run(toEnvironment, project, fromEnvironment).changes;
+  });
+  return { moved: tx.immediate() };
+}
+
+export function renameEnvironmentAcrossAllProjects(fromEnvironment: string, toEnvironment: string): { moved: number; projectsAffected: number } {
+  validateScopeName(fromEnvironment, "environment");
+  validateScopeName(toEnvironment, "environment");
+  const db = getDb();
+  const tx = db.transaction(() => {
+    const collisions = db.prepare(`
+      SELECT s1.project as project, s1.name as name
+      FROM secrets s1
+      JOIN secrets s2 ON s2.project = s1.project AND s2.environment = ? AND s2.name = s1.name
+      WHERE s1.environment = ?
+      ORDER BY s1.project, s1.name
+    `).all(toEnvironment, fromEnvironment) as { project: string; name: string }[];
+    if (collisions.length > 0) {
+      const list = collisions.map((c) => `${c.project}/${c.name}`).join("\n  ");
+      throw new Error(`Rename aborted — ${collisions.length} secret(s) already exist in environment "${toEnvironment}":\n  ${list}`);
+    }
+    const affectedProjects = db.prepare("SELECT DISTINCT project FROM secrets WHERE environment = ?").all(fromEnvironment) as { project: string }[];
+    const moved = db.prepare("UPDATE secrets SET environment = ?, updated_at = datetime('now') WHERE environment = ?")
+      .run(toEnvironment, fromEnvironment).changes;
+    return { moved, projectsAffected: affectedProjects.length };
+  });
+  return tx.immediate();
+}
+
+export function renameScope(
+  fromProject: string,
+  fromEnvironment: string,
+  toProject: string,
+  toEnvironment: string,
+): { moved: number } {
+  validateScopeName(fromProject, "project");
+  validateScopeName(fromEnvironment, "environment");
+  validateScopeName(toProject, "project");
+  validateScopeName(toEnvironment, "environment");
+  const db = getDb();
+  const tx = db.transaction(() => {
+    const collisions = db.prepare(`
+      SELECT s1.name as name
+      FROM secrets s1
+      JOIN secrets s2 ON s2.project = ? AND s2.environment = ? AND s2.name = s1.name
+      WHERE s1.project = ? AND s1.environment = ?
+      ORDER BY s1.name
+    `).all(toProject, toEnvironment, fromProject, fromEnvironment) as { name: string }[];
+    if (collisions.length > 0) {
+      throw new Error(collisionMessage(`"${toProject}/${toEnvironment}"`, collisions));
+    }
+    return db.prepare(
+      "UPDATE secrets SET project = ?, environment = ?, updated_at = datetime('now') WHERE project = ? AND environment = ?"
+    ).run(toProject, toEnvironment, fromProject, fromEnvironment).changes;
+  });
+  return { moved: tx.immediate() };
 }
 
 export function closeDb(): void {
