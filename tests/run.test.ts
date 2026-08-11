@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { requireBiometricAuthentication } from "../src/biometric.js";
 import {
   buildRunEnvironment,
   checkUnsafeCommand,
@@ -6,6 +7,16 @@ import {
   parseRunArgs,
   runCommandWithSecrets,
 } from "../src/run.js";
+
+vi.mock("../src/biometric.js", () => ({
+  requireBiometricAuthentication: vi.fn(),
+}));
+
+const biometricMock = vi.mocked(requireBiometricAuthentication);
+
+beforeEach(() => {
+  biometricMock.mockReset();
+});
 
 describe("run argument parsing", () => {
   it("removes separators and preserves a safe command", () => {
@@ -56,6 +67,43 @@ describe("run argument parsing", () => {
     expect(() => parseRunArgs(["--env", ":WORLD"])).toThrow(/Invalid source/);
     expect(() => parseRunArgs(["--env", "HELLO:"])).toThrow(/Invalid target/);
     expect(() => parseRunArgs(["--env", "HELLO:BAD-NAME"])).toThrow(/Invalid target/);
+  });
+
+  it("parses project and environment before the child command", () => {
+    expect(parseRunArgs([
+      "--project",
+      "footnote",
+      "--environment",
+      "prod",
+      "--env",
+      "API_KEY",
+      "--",
+      "node",
+    ])).toEqual({
+      allowUnsafe: false,
+      project: "footnote",
+      environment: "prod",
+      envSpecs: [{ sourceName: "API_KEY", targetName: "API_KEY" }],
+      commandArgs: ["node"],
+    });
+  });
+
+  it("supports short and equals scope flags while preserving child scope flags", () => {
+    expect(parseRunArgs([
+      "-p",
+      "footnote",
+      "--environment=prod",
+      "--",
+      "node",
+      "--project",
+      "child-project",
+    ])).toEqual({
+      allowUnsafe: false,
+      project: "footnote",
+      environment: "prod",
+      envSpecs: [],
+      commandArgs: ["node", "--project", "child-project"],
+    });
   });
 });
 
@@ -204,6 +252,114 @@ describe("secret redaction", () => {
 });
 
 describe("guarded command execution", () => {
+  it("requires biometrics before resolving a whole-scope injection", async () => {
+    const events: string[] = [];
+    const resolvedNames: string[] = [];
+    biometricMock.mockImplementationOnce(() => { events.push("biometric"); });
+    const result = await runCommandWithSecrets({
+      args: [process.execPath, "-e", "process.exit(0)"],
+      baseEnv: {},
+      secretNames: ["API_KEY"],
+      resolveSecret: (name) => {
+        events.push("resolve");
+        resolvedNames.push(name);
+        return "sk-test-secret";
+      },
+      stdout: () => {},
+      stderr: () => {},
+    });
+
+    expect(result.kind).toBe("exit");
+    expect(biometricMock).toHaveBeenCalledOnce();
+    expect(resolvedNames).toEqual(["API_KEY"]);
+    expect(events).toEqual(["biometric", "resolve"]);
+  });
+
+  it("does not resolve any secret when whole-scope biometric authentication fails", async () => {
+    biometricMock.mockImplementationOnce(() => {
+      throw new Error("Biometric authentication failed or was cancelled.");
+    });
+    const resolveSecret = vi.fn(() => "sk-test-secret");
+    let stderr = "";
+
+    const result = await runCommandWithSecrets({
+      args: [process.execPath, "-e", "process.exit(0)"],
+      baseEnv: {},
+      secretNames: ["API_KEY"],
+      resolveSecret,
+      stdout: () => {},
+      stderr: (chunk) => { stderr += chunk; },
+    });
+
+    expect(result.kind).toBe("blocked");
+    expect(result.exitCode).toBe(2);
+    expect(resolveSecret).not.toHaveBeenCalled();
+    expect(stderr).toContain("Biometric authentication failed or was cancelled.");
+  });
+
+  it("keeps explicit least-privilege injection non-interactive", async () => {
+    const result = await runCommandWithSecrets({
+      args: ["--env", "API_KEY", "--", process.execPath, "-e", "process.exit(0)"],
+      baseEnv: {},
+      secretNames: ["API_KEY"],
+      resolveSecret: () => "sk-test-secret",
+      stdout: () => {},
+      stderr: () => {},
+    });
+
+    expect(result.kind).toBe("exit");
+    expect(biometricMock).not.toHaveBeenCalled();
+  });
+
+  it("reports a child executable that cannot be started", async () => {
+    let stderr = "";
+    const result = await runCommandWithSecrets({
+      args: ["--env", "API_KEY", "--", "keyclasp-command-that-does-not-exist"],
+      baseEnv: {},
+      secretNames: ["API_KEY"],
+      resolveSecret: () => "sk-test-secret",
+      stdout: () => {},
+      stderr: (chunk) => { stderr += chunk; },
+    });
+
+    expect(result.kind).toBe("error");
+    expect(result.exitCode).toBe(1);
+    expect(stderr).toBe("Failed to start child command (ENOENT).\n");
+  });
+
+  it("reports raw spawn failures without reflecting terminal control characters", async () => {
+    let stderr = "";
+    const result = await runCommandWithSecrets({
+      args: ["--env", "API_KEY", "--", "missing\n\u001b[31m-command"],
+      baseEnv: {},
+      secretNames: ["API_KEY"],
+      resolveSecret: () => "sk-test-secret",
+      stdout: () => {},
+      stderr: (chunk) => { stderr += chunk; },
+    });
+
+    expect(result.kind).toBe("error");
+    expect(stderr).toBe("Failed to start child command (ENOENT).\n");
+    expect(stderr).not.toContain("sk-test-secret");
+    expect(stderr).not.toContain("\u001b");
+  });
+
+  it("reports spawn failures when unsafe mode is explicitly enabled", async () => {
+    let stderr = "";
+    const result = await runCommandWithSecrets({
+      args: ["--allow-unsafe", "--env", "API_KEY", "--", "keyclasp-command-that-does-not-exist"],
+      baseEnv: {},
+      secretNames: ["API_KEY"],
+      resolveSecret: () => "sk-test-secret",
+      stdout: () => {},
+      stderr: (chunk) => { stderr += chunk; },
+    });
+
+    expect(result.kind).toBe("error");
+    expect(stderr).toContain("WARNING:");
+    expect(stderr).toContain("Failed to start child command (ENOENT).");
+  });
+
   it("blocks unsafe commands before spawn unless overridden", async () => {
     const resolvedNames: string[] = [];
     let blockedStderr = "";

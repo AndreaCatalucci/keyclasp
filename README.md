@@ -45,7 +45,7 @@ Keep the vault passphrase safe. Keyclasp cannot recover it for you.
 ### 2. Store a credential without putting it in shell history
 
 ```bash
-keyclasp set OPENAI_API_KEY -
+keyclasp set --project my-app --environment dev OPENAI_API_KEY -
 ```
 
 Paste the value at the secure prompt and press Enter.
@@ -53,20 +53,22 @@ Paste the value at the secure prompt and press Enter.
 ### 3. Run a command with the credential injected at runtime
 
 ```bash
-keyclasp run --env OPENAI_API_KEY -- npm test
+keyclasp run --project my-app --environment dev --env OPENAI_API_KEY -- npm test
 ```
 
-Use explicit `--env` options so each command receives only the secrets it needs. To inject every stored secret, use the shorter form:
+Use explicit `--env` options so each command receives only the secrets it needs. This is the form coding agents should use.
+
+An operator on macOS can inject every secret in the selected scope with the shorter form, but Keyclasp requires Touch ID before resolving any value:
 
 ```bash
-keyclasp run -- npm test
+keyclasp run --project my-app --environment dev -- npm test
 ```
 
 ### 4. Check the setup without revealing values
 
 ```bash
-keyclasp status
-keyclasp list
+keyclasp status --project my-app --environment dev
+keyclasp list --project my-app --environment dev
 ```
 
 `list` prints secret names only. It never prints their values.
@@ -75,7 +77,7 @@ keyclasp list
 
 Tell the agent:
 
-> Use Keyclasp for commands that need credentials. Discover secret names with `keyclasp list`, choose the minimum required `--env` mappings, and run the trusted command through `keyclasp run`. Never call `keyclasp get`, and never print or paste injected environment variables.
+> Use Keyclasp for commands that need credentials. Always pass explicit `--project` and `--environment` flags. Discover secret names with scoped `keyclasp list`, choose the minimum required `--env` mappings, and run the trusted command through scoped `keyclasp run`. Never call `keyclasp get`, never request whole-scope injection, and never print or paste injected environment variables.
 
 Keyclasp ships an agent skill at [`skills/keyclasp-agent`](skills/keyclasp-agent) that encodes exactly this workflow, plus explicit safety rules. Install that directory as a skill for your agent tool, or point the agent at it directly. The npm package includes the skill so agent tooling can discover the same instructions from the installed package.
 
@@ -84,22 +86,23 @@ Keyclasp ships an agent skill at [`skills/keyclasp-agent`](skills/keyclasp-agent
 | Command | Description |
 |---------|-------------|
 | `keyclasp init` | Initialize the encrypted vault |
-| `keyclasp set <name>` | Store a secret (also updates an existing one) |
-| `keyclasp get <name>` | Resolve and print a secret value (human use only — never call from an agent) |
-| `keyclasp list` | List stored secret names |
-| `keyclasp delete <name>` | Delete a secret |
-| `keyclasp run [--env SOURCE[:TARGET]] [--allow-unsafe] -- <command>` | Run a command with secrets injected and output leak-guarded |
-| `keyclasp status` | Show vault location, secret count, and a decryptability check |
+| `keyclasp set [scope] <name>` | Store a secret in a project/environment (also updates an existing one) |
+| `keyclasp get [scope] <name>` | Resolve and print a scoped secret after macOS Touch ID approval (human use only) |
+| `keyclasp list [scope]` | List secret names in a project/environment |
+| `keyclasp delete [scope] <name>` | Delete a scoped secret |
+| `keyclasp run [scope] [--env SOURCE[:TARGET]] [--allow-unsafe] -- <command>` | Run a command with scoped secrets injected and output leak-guarded |
+| `keyclasp status [scope]` | Show vault location, scoped secret count, and a decryptability check |
 
 See the [full CLI reference](docs/commands.md).
 
 ## Security Boundaries
 
-- Secret values are encrypted individually with AES-256-GCM; only secret names are stored in plaintext.
+- Secret values are encrypted individually with AES-256-GCM; project, environment, and secret names are stored in plaintext.
 - The vault lives under `~/.keyclasp/` with owner-only directory and file permissions (`0700`/`0600`).
 - `keyclasp run` is the only path from the vault to a process; it blocks obvious environment-dump commands and redacts/terminates on a detected output leak.
+- `keyclasp get` and whole-scope `keyclasp run` require a fresh macOS Touch ID approval before any secret value is resolved. There is no password fallback.
 - A child process that receives a secret can still misuse or print it. `keyclasp run` reduces this risk but cannot make untrusted code safe — only run trusted commands through it.
-- `keyclasp get` deliberately prints plaintext, for the human operator. Its output may remain in terminal scrollback; agents must never invoke it.
+- `keyclasp get` deliberately prints plaintext after biometric approval. Its output may remain in terminal scrollback; agents must never invoke it.
 - An empty ("machine-only") passphrase binds the key to the local machine's identity rather than to a secret you remember — set a real passphrase if you plan to move the vault.
 - Keyclasp has not received a professional third-party security audit.
 

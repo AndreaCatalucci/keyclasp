@@ -5,25 +5,29 @@
 | Command | Description |
 |---------|-------------|
 | `keyclasp init` | Initialize a new vault |
-| `keyclasp set <name>` | Store a secret (reads value from stdin) |
-| `keyclasp set <name> -` | Store a secret (prompts securely) |
-| `keyclasp get <name>` | Retrieve a secret |
-| `keyclasp list` | List all secret names |
-| `keyclasp delete <name>` | Delete a secret |
-| `keyclasp status` | Show vault location, secret count, and decryptability check |
+| `keyclasp set [scope] <name>` | Store a secret (reads value from stdin) |
+| `keyclasp set [scope] <name> -` | Store a secret (prompts securely) |
+| `keyclasp get [scope] <name>` | Retrieve a secret after macOS Touch ID approval |
+| `keyclasp list [scope]` | List secret names in one scope |
+| `keyclasp delete [scope] <name>` | Delete a secret from one scope |
+| `keyclasp status [scope]` | Show vault location, scoped secret count, and decryptability check |
 
 `keyclasp set` overwrites an existing name, so it doubles as an update/rotate command.
+
+`[scope]` means `--project <name> --environment <name>`. The short forms are `-p` and `-E`; `--project=<name>` and `--environment=<name>` are also accepted. If omitted, each dimension defaults to `default` (or `KEYCLASP_PROJECT` / `KEYCLASP_ENVIRONMENT` when set). Coding agents should always pass both flags explicitly and never depend on ambient scope.
 
 ## Run with Secrets
 
 ```bash
-keyclasp run -- npm start       # Run command with all secrets as env vars and guarded output
-keyclasp run -- npm test        # Secrets injected; detected output leaks are redacted and terminated
-keyclasp run --env HELLO:WORLD -- printenv WORLD  # Transient per-command env mapping
-keyclasp run --allow-unsafe -- env  # Disable preflight and output leak protection for this command
+keyclasp run --project app --environment prod --env API_KEY -- npm test
+keyclasp run --project app --environment prod -- npm start  # Operator-only whole-scope injection
+keyclasp run -p app -E dev --env HELLO:WORLD -- npm test
+keyclasp run -p app -E dev --allow-unsafe -- env  # Disable both output safeguards
 ```
 
-By default, `keyclasp run` injects every stored secret under its own name. `--env SOURCE[:TARGET]` (repeatable) restricts injection to specific secrets and can rename them for the child process.
+`--env SOURCE[:TARGET]` (repeatable) restricts injection to specific secrets and can rename them for the child process. Coding agents must always use this form.
+
+With no `--env`, `keyclasp run` would inject every secret in the selected project/environment under its own name. Keyclasp therefore requires a fresh macOS Touch ID approval before resolving any value. The operation fails closed on non-macOS systems or when biometrics are unavailable, denied, or cancelled.
 
 ## Utilities
 

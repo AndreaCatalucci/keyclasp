@@ -2,6 +2,8 @@
 import { initializeVault, getKey, getVaultLocation, storeSecret, listSecrets, resolveSecret, deleteSecret, isInitialized, closeDb, checkVaultDecryptability } from "./vault.js";
 import { parseRunArgs, runCommandWithSecrets } from "./run.js";
 import { getDisplayVersion } from "./version.js";
+import { resolveSecretForOperator } from "./biometric.js";
+import { extractScopeFlags, resolveScope } from "./scope.js";
 import readline from "node:readline";
 import { stdin, stdout } from "node:process";
 
@@ -22,27 +24,34 @@ function printHelp(): void {
 
 Usage:
   keyclasp init                Initialize the encrypted vault
-  keyclasp set <name>          Store a secret (value read from stdin)
-  keyclasp set <name> -        Store a secret (prompts securely)
-  keyclasp get <name>          Resolve and print a secret value
-  keyclasp list                List all stored secret names
-  keyclasp delete <name>       Delete a secret
-  keyclasp run [--allow-unsafe] [--env SOURCE[:TARGET]] <command...>
+  keyclasp set [scope] <name>  Store a secret (value read from stdin)
+  keyclasp set [scope] <name> -
+                              Store a secret (prompts securely)
+  keyclasp get [scope] <name>  Print a secret after macOS Touch ID approval
+  keyclasp list [scope]        List secret names in the selected scope
+  keyclasp delete [scope] <name>
+                              Delete a secret in the selected scope
+  keyclasp run [scope] [--allow-unsafe] [--env SOURCE[:TARGET]] <command...>
                               Run a guarded command with secrets as env vars
-  keyclasp status               Show vault status
+  keyclasp status [scope]       Show vault status
   keyclasp version              Show Keyclasp version
   keyclasp help                 Show this help
 
-Global flags:
+Scope flags (after command):
+  --project, -p <name>        Select project (default: default)
+  --environment, -E <name>    Select environment (default: default)
+
+Version flag:
   --version, -v               Show Keyclasp version
 
 Examples:
   keyclasp init
-  echo "sk-abc123" | keyclasp set OPENAI_API_KEY
-  keyclasp set DATABASE_URL -
-  keyclasp list
-  keyclasp run -- npm test
-  keyclasp run --env OPENAI_API_KEY:AI_KEY -- npm start
+  echo "sk-abc123" | keyclasp set --project app --environment dev OPENAI_API_KEY
+  keyclasp set --project app --environment prod DATABASE_URL -
+  keyclasp list --project app --environment prod
+  keyclasp run --project app --environment prod -- npm test
+                              # Whole-scope injection requires Touch ID
+  keyclasp run --project app --environment prod --env OPENAI_API_KEY:AI_KEY -- npm start
                               # Run with a one-off env mapping and leak-guarded output
   `);
 }
@@ -125,7 +134,7 @@ async function main(): Promise<void> {
         initializeVault(passphrase);
         getKey(); // Verify key works
         console.log(`Keyclasp vault created at ${getVaultLocation()}`);
-        console.log("Next: store a secret with `keyclasp set <name>`, then use it with `keyclasp run`.");
+        console.log("Next: store a scoped secret with `keyclasp set --project <name> --environment <name> <secret>`, then use it with `keyclasp run`.");
         break;
       }
 
@@ -134,14 +143,16 @@ async function main(): Promise<void> {
           console.error("Keyclasp not initialized. Run: keyclasp init");
           process.exit(1);
         }
-        const name = args[1];
+        const extracted = extractScopeFlags(args.slice(1));
+        const scope = resolveScope(extracted.project, extracted.environment);
+        const name = extracted.rest[0];
         if (!name) {
-          console.error("Usage: keyclasp set <name>  OR  echo <value> | keyclasp set <name>");
+          console.error("Usage: keyclasp set [--project NAME] [--environment NAME] <name>");
           process.exit(1);
         }
 
         let value: string;
-        if (args[2] === "-") {
+        if (extracted.rest[1] === "-") {
           value = await promptSecret(`Enter value for ${name}: `);
         } else if (!stdin.isTTY) {
           // Read from pipe
@@ -159,8 +170,8 @@ async function main(): Promise<void> {
           process.exit(1);
         }
 
-        storeSecret(name, value);
-        console.log(`Stored "${name}"`);
+        storeSecret(scope.project, scope.environment, name, value);
+        console.log(`Stored "${name}" in ${scope.project}/${scope.environment}`);
         break;
       }
 
@@ -169,12 +180,17 @@ async function main(): Promise<void> {
           console.error("Keyclasp not initialized. Run: keyclasp init");
           process.exit(1);
         }
-        const secretName = args[1];
+        const extracted = extractScopeFlags(args.slice(1));
+        const scope = resolveScope(extracted.project, extracted.environment);
+        const secretName = extracted.rest[0];
         if (!secretName) {
-          console.error("Usage: keyclasp get <name>");
+          console.error("Usage: keyclasp get [--project NAME] [--environment NAME] <name>");
           process.exit(1);
         }
-        const val = resolveSecret(secretName);
+        const val = resolveSecretForOperator(
+          `${scope.project}/${scope.environment}/${secretName}`,
+          () => resolveSecret(scope.project, scope.environment, secretName),
+        );
         if (val === null) {
           console.error(`Secret "${secretName}" not found.`);
           process.exit(1);
@@ -188,7 +204,9 @@ async function main(): Promise<void> {
           console.error("Keyclasp not initialized. Run: keyclasp init");
           process.exit(1);
         }
-        const names = listSecrets();
+        const extracted = extractScopeFlags(args.slice(1));
+        const scope = resolveScope(extracted.project, extracted.environment);
+        const names = listSecrets(scope.project, scope.environment);
         if (names.length === 0) {
           console.log("(no secrets stored)");
         } else {
@@ -202,12 +220,14 @@ async function main(): Promise<void> {
           console.error("Keyclasp not initialized. Run: keyclasp init");
           process.exit(1);
         }
-        const delName = args[1];
+        const extracted = extractScopeFlags(args.slice(1));
+        const scope = resolveScope(extracted.project, extracted.environment);
+        const delName = extracted.rest[0];
         if (!delName) {
-          console.error("Usage: keyclasp delete <name>");
+          console.error("Usage: keyclasp delete [--project NAME] [--environment NAME] <name>");
           process.exit(1);
         }
-        const deleted = deleteSecret(delName);
+        const deleted = deleteSecret(scope.project, scope.environment, delName);
         console.log(deleted ? `Deleted "${delName}"` : `"${delName}" not found.`);
         break;
       }
@@ -218,9 +238,12 @@ async function main(): Promise<void> {
           console.log("Run 'keyclasp init' to get started.");
           process.exit(1);
         }
-        const names = listSecrets();
+        const extracted = extractScopeFlags(args.slice(1));
+        const scope = resolveScope(extracted.project, extracted.environment);
+        const names = listSecrets(scope.project, scope.environment);
         console.log("Keyclasp Status");
         console.log("───────────────");
+        console.log(`  Scope:      ${scope.project}/${scope.environment}`);
         console.log(`  Secrets:    ${names.length}`);
         console.log(`  Vault:      ${getVaultLocation()}`);
         try {
@@ -246,18 +269,21 @@ async function main(): Promise<void> {
           process.exit(1);
         }
         const cmdArgs = args.slice(1);
-        if (parseRunArgs(cmdArgs).commandArgs.length === 0) {
-          console.error("Usage: keyclasp run [--allow-unsafe] [--env SOURCE[:TARGET]] <command...>");
+        const parsed = parseRunArgs(cmdArgs);
+        const scope = resolveScope(parsed.project, parsed.environment);
+        if (parsed.commandArgs.length === 0) {
+          console.error("Usage: keyclasp run [--project NAME] [--environment NAME] [--allow-unsafe] [--env SOURCE[:TARGET]] <command...>");
           process.exit(1);
         }
 
         const result = await runCommandWithSecrets({
           args: cmdArgs,
           baseEnv: process.env,
-          secretNames: listSecrets(),
-          resolveSecret: (name) => resolveSecret(name),
+          secretNames: listSecrets(scope.project, scope.environment),
+          resolveSecret: (name) => resolveSecret(scope.project, scope.environment, name),
           stdout: (chunk) => process.stdout.write(chunk),
           stderr: (chunk) => process.stderr.write(chunk),
+          scopeLabel: `${scope.project}/${scope.environment}`,
         });
         process.exit(result.exitCode);
         break;

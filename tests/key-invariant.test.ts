@@ -16,6 +16,7 @@ import {
   setMachineIdentityForTests,
   storeSecret,
   getVaultLocation,
+  getDb,
 } from "../src/vault.js";
 
 const previousKeyclaspHome = process.env.KEYCLASP_HOME;
@@ -154,6 +155,9 @@ describe("vault key invariants", () => {
 
     restartRuntime();
     expect(resolveSecret("LEGACY_V2")).toBe("still-readable");
+    expect(resolveSecret("default", "default", "LEGACY_V2")).toBe("still-readable");
+    expect((getDb().pragma("table_info(secrets)") as { name: string }[]).map((column) => column.name))
+      .toEqual(expect.arrayContaining(["project", "environment", "name"]));
   });
 
   it("round-trips many secrets after a fresh runtime reload for every read", () => {

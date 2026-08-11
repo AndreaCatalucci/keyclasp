@@ -4,6 +4,9 @@ import path from "node:path";
 import os from "node:os";
 import fs from "node:fs";
 import { execFileSync } from "node:child_process";
+import { validateScopeName } from "./scope.js";
+
+export { SCOPE_NAME_PATTERN, validateScopeName } from "./scope.js";
 
 const ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 12;
@@ -440,6 +443,47 @@ export function isInitialized(): boolean {
   return fs.existsSync(getKeyPath());
 }
 
+const CREATE_SECRETS_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS secrets (
+    project TEXT NOT NULL,
+    environment TEXT NOT NULL,
+    name TEXT NOT NULL,
+    encrypted_value BLOB NOT NULL,
+    iv BLOB NOT NULL,
+    auth_tag BLOB NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (project, environment, name)
+  )
+`;
+
+function secretsTableColumns(db: Database.Database): string[] {
+  return (db.pragma("table_info(secrets)") as { name: string }[]).map((row) => row.name);
+}
+
+function ensureSecretsSchema(db: Database.Database): void {
+  if (secretsTableColumns(db).includes("project")) return;
+
+  const migrate = db.transaction(() => {
+    if (secretsTableColumns(db).includes("project")) return;
+    if (!tableExists(db, "secrets")) {
+      db.exec(CREATE_SECRETS_TABLE_SQL);
+      return;
+    }
+
+    db.exec("ALTER TABLE secrets RENAME TO secrets_legacy_migrate");
+    db.exec(CREATE_SECRETS_TABLE_SQL);
+    db.exec(`
+      INSERT INTO secrets (project, environment, name, encrypted_value, iv, auth_tag, created_at, updated_at)
+      SELECT 'default', 'default', name, encrypted_value, iv, auth_tag, created_at, updated_at
+      FROM secrets_legacy_migrate
+    `);
+    db.exec("DROP TABLE secrets_legacy_migrate");
+  });
+
+  migrate.immediate();
+}
+
 export function getDb(): Database.Database {
   const dbPath = getVaultPath();
   if (_db && _dbPath === dbPath) return _db;
@@ -455,44 +499,57 @@ export function getDb(): Database.Database {
     // when the DB file is newly created. This is non-fatal — the
     // vault is fully functional with the default journal mode.
   }
-  _db.exec(`
-    CREATE TABLE IF NOT EXISTS secrets (
-      name TEXT PRIMARY KEY,
-      encrypted_value BLOB NOT NULL,
-      iv BLOB NOT NULL,
-      auth_tag BLOB NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-    )
-  `);
+  ensureSecretsSchema(_db);
   return _db;
 }
 
-export function storeSecret(name: string, value: string): void {
+export function storeSecret(name: string, value: string): void;
+export function storeSecret(project: string, environment: string, name: string, value: string): void;
+export function storeSecret(
+  projectOrName: string,
+  environmentOrValue: string,
+  scopedName?: string,
+  scopedValue?: string,
+): void {
+  const project = scopedName === undefined ? "default" : projectOrName;
+  const environment = scopedName === undefined ? "default" : environmentOrValue;
+  const name = scopedName === undefined ? projectOrName : scopedName;
+  const value = scopedName === undefined ? environmentOrValue : scopedValue!;
+  validateScopeName(project, "project");
+  validateScopeName(environment, "environment");
   const db = getDb();
   const key = getKey();
   assertKeyUnlocksVault(key);
   const { encrypted, iv, authTag } = encrypt(value, key);
 
   const stmt = db.prepare(`
-    INSERT INTO secrets (name, encrypted_value, iv, auth_tag, updated_at)
-    VALUES (?, ?, ?, ?, datetime('now'))
-    ON CONFLICT(name) DO UPDATE SET
+    INSERT INTO secrets (project, environment, name, encrypted_value, iv, auth_tag, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+    ON CONFLICT(project, environment, name) DO UPDATE SET
       encrypted_value = excluded.encrypted_value,
       iv = excluded.iv,
       auth_tag = excluded.auth_tag,
       updated_at = datetime('now')
   `);
-  stmt.run(name, encrypted, iv, authTag);
+  stmt.run(project, environment, name, encrypted, iv, authTag);
   rememberKeyValidation();
 }
 
-export function resolveSecret(name: string): string | null {
+export function resolveSecret(name: string): string | null;
+export function resolveSecret(project: string, environment: string, name: string): string | null;
+export function resolveSecret(projectOrName: string, scopedEnvironment?: string, scopedName?: string): string | null {
+  const project = scopedName === undefined ? "default" : projectOrName;
+  const environment = scopedName === undefined ? "default" : scopedEnvironment!;
+  const name = scopedName === undefined ? projectOrName : scopedName;
+  validateScopeName(project, "project");
+  validateScopeName(environment, "environment");
   if (REMOVED_INTERNAL_SECRET_NAMES.has(name)) return null;
 
   const db = getDb();
   const key = getKey();
-  const row = db.prepare("SELECT encrypted_value, iv, auth_tag FROM secrets WHERE name = ?").get(name) as
+  const row = db.prepare(
+    "SELECT encrypted_value, iv, auth_tag FROM secrets WHERE project = ? AND environment = ? AND name = ?",
+  ).get(project, environment, name) as
     | { encrypted_value: Buffer; iv: Buffer; auth_tag: Buffer }
     | undefined;
 
@@ -500,10 +557,16 @@ export function resolveSecret(name: string): string | null {
   return decrypt(row.encrypted_value, row.iv, row.auth_tag, key);
 }
 
-export function listSecrets(): string[] {
+export function listSecrets(): string[];
+export function listSecrets(project: string, environment: string): string[];
+export function listSecrets(project = "default", environment = "default"): string[] {
+  validateScopeName(project, "project");
+  validateScopeName(environment, "environment");
   const db = getDb();
   // Internal rows use a "__" prefix (escaped below); hide them from listings.
-  const rows = db.prepare("SELECT name FROM secrets WHERE name NOT LIKE '@_@_%' ESCAPE '@' ORDER BY name").all() as { name: string }[];
+  const rows = db.prepare(
+    "SELECT name FROM secrets WHERE project = ? AND environment = ? AND name NOT LIKE '@_@_%' ESCAPE '@' ORDER BY name",
+  ).all(project, environment) as { name: string }[];
   return rows.map((r) => r.name).filter((name) => !REMOVED_INTERNAL_SECRET_NAMES.has(name));
 }
 
@@ -538,9 +601,18 @@ export function checkVaultDecryptability(): DecryptabilityCheck {
   return { checked, failures };
 }
 
-export function deleteSecret(name: string): boolean {
+export function deleteSecret(name: string): boolean;
+export function deleteSecret(project: string, environment: string, name: string): boolean;
+export function deleteSecret(projectOrName: string, scopedEnvironment?: string, scopedName?: string): boolean {
+  const project = scopedName === undefined ? "default" : projectOrName;
+  const environment = scopedName === undefined ? "default" : scopedEnvironment!;
+  const name = scopedName === undefined ? projectOrName : scopedName;
+  validateScopeName(project, "project");
+  validateScopeName(environment, "environment");
   const db = getDb();
-  const result = db.prepare("DELETE FROM secrets WHERE name = ?").run(name);
+  const result = db.prepare(
+    "DELETE FROM secrets WHERE project = ? AND environment = ? AND name = ?",
+  ).run(project, environment, name);
   return result.changes > 0;
 }
 

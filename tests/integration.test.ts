@@ -3,6 +3,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 const cliPath = path.join(process.cwd(), "dist", "cli.js");
 let vaultHome: string;
@@ -37,23 +38,19 @@ describe("CLI end-to-end flow", () => {
     }
   });
 
-  it("initializes, stores, lists, resolves, and deletes a secret", () => {
+  it("initializes, stores, lists, and deletes a secret", () => {
     expect(run(["init"], { input: "test-passphrase\n" }).status).toBe(0);
 
     const set = run(["set", "API_KEY"], { input: "sk-test-value-123\n" });
     expect(set.status).toBe(0);
     expect(set.stdout).toContain('Stored "API_KEY"');
 
-    const get = run(["get", "API_KEY"]);
-    expect(get.status).toBe(0);
-    expect(get.stdout.trim()).toBe("sk-test-value-123");
-
     const list = run(["list"]);
     expect(list.stdout).toContain("API_KEY");
 
     const del = run(["delete", "API_KEY"]);
     expect(del.status).toBe(0);
-    expect(run(["get", "API_KEY"]).status).toBe(1);
+    expect(run(["list"]).stdout).not.toContain("API_KEY");
   });
 
   it("passes the vault status check for a healthy vault", () => {
@@ -74,6 +71,8 @@ describe("CLI run — secret injection stays out of the agent's view", () => {
   it("injects the stored secret into the child process environment", () => {
     const result = run([
       "run",
+      "--env",
+      "INJECTED_SECRET",
       "--",
       process.execPath,
       "-e",
@@ -84,7 +83,7 @@ describe("CLI run — secret injection stays out of the agent's view", () => {
   });
 
   it("never prints the secret value to the parent's own stdout for the run command itself", () => {
-    const result = run(["run", "--", "node", "-e", "0"]);
+    const result = run(["run", "--env", "INJECTED_SECRET", "--", "node", "-e", "0"]);
     expect(result.stdout).not.toContain("sk-super-secret-value");
     expect(result.stderr).not.toContain("sk-super-secret-value");
   });
@@ -92,6 +91,8 @@ describe("CLI run — secret injection stays out of the agent's view", () => {
   it("redacts and blocks a child command that leaks the secret to stdout", () => {
     const result = run([
       "run",
+      "--env",
+      "INJECTED_SECRET",
       "--",
       process.execPath,
       "-e",
@@ -122,5 +123,70 @@ describe("CLI run — secret injection stays out of the agent's view", () => {
     ]);
     expect(result.status).toBe(0);
     expect(result.stdout.trim()).toBe("ok");
+  });
+
+  it("selects only the requested project and environment", () => {
+    expect(run([
+      "set",
+      "--project",
+      "footnote",
+      "--environment",
+      "prod",
+      "SCOPED_SECRET",
+    ], { input: "prod-secret-value\n" }).status).toBe(0);
+    expect(run([
+      "set",
+      "--project",
+      "footnote",
+      "--environment",
+      "dev",
+      "SCOPED_SECRET",
+    ], { input: "dev-secret-value\n" }).status).toBe(0);
+
+    const result = run([
+      "run",
+      "--project",
+      "footnote",
+      "--environment",
+      "prod",
+      "--env",
+      "SCOPED_SECRET",
+      "--",
+      process.execPath,
+      "-e",
+      "console.log(process.env.SCOPED_SECRET === 'prod-secret-value' ? 'prod-ok' : 'wrong-scope')",
+    ]);
+
+    expect(result.status).toBe(0);
+    expect(result.stdout.trim()).toBe("prod-ok");
+    expect(result.stdout).not.toContain("prod-secret-value");
+    expect(result.stdout).not.toContain("dev-secret-value");
+  });
+
+  it("lists and deletes within the selected scope", () => {
+    run(["set", "--project=footnote", "--environment=prod", "ONLY_PROD"], { input: "prod-value\n" });
+    run(["set", "--project=footnote", "--environment=dev", "ONLY_DEV"], { input: "dev-value\n" });
+
+    const prodList = run(["list", "--project", "footnote", "--environment", "prod"]);
+    expect(prodList.stdout).toContain("ONLY_PROD");
+    expect(prodList.stdout).not.toContain("ONLY_DEV");
+
+    expect(run(["delete", "--project", "footnote", "--environment", "prod", "ONLY_PROD"]).status).toBe(0);
+    expect(run(["list", "--project", "footnote", "--environment", "prod"]).stdout).not.toContain("ONLY_PROD");
+    expect(run(["list", "--project", "footnote", "--environment", "dev"]).stdout).toContain("ONLY_DEV");
+  });
+
+  it("resolves the biometric helper from the built package layout", async () => {
+    const biometricUrl = pathToFileURL(path.join(process.cwd(), "dist", "biometric.js")).href;
+    const { requireBiometricAuthentication } = await import(biometricUrl);
+
+    requireBiometricAuthentication("package-layout-test", {
+      platform: "darwin",
+      runner: (_command: string, args: string[]) => {
+        expect(args[2]).toBe(path.join(process.cwd(), "native", "macos-biometric.js"));
+        expect(fs.existsSync(args[2])).toBe(true);
+        return { status: 0 };
+      },
+    });
   });
 });

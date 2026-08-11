@@ -71,6 +71,7 @@ describe("removed CLI surface", () => {
     expect(help).not.toContain("keyclasp sandbox");
     expect(help).not.toContain("keyclasp totp");
     expect(help).not.toContain("keyclasp share");
-    expect(help).not.toContain("--project");
+    expect(help).toContain("--project");
+    expect(help).toContain("--environment");
   });
 });

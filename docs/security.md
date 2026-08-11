@@ -97,23 +97,33 @@ const authTag = cipher.getAuthTag();
 - **Location**: `~/.keyclasp/vault.db` and `~/.keyclasp/.keyclasp.key`
 - **Directory permissions**: `0700` (owner-only)
 - **File permissions**: `0600` (owner read/write only) on both the database and the key file
-- **What's stored in plaintext**: secret names only (needed to list and query)
+- **What's stored in plaintext**: project, environment, and secret names (needed to scope, list, and query)
 - **What's encrypted**: every secret value, individually, with its own IV
 
 ## `keyclasp run` — the Process Boundary
 
-`keyclasp run` is the only supported way for a coding agent to cause a secret to reach a process. The agent itself never sees the plaintext value:
+`keyclasp run` with explicit `--env` mappings is the only supported way for a coding agent to cause a secret to reach a process. The agent itself never sees the plaintext value:
 
-1. Secret names (not values) are the only thing an agent can discover, via `keyclasp list`.
-2. `keyclasp run [--env SOURCE[:TARGET]] -- <command>` resolves and decrypts the requested secrets and injects them directly into the spawned child's environment — the value never passes through the CLI's own stdout, and never appears in the shell command line or process arguments.
+1. Project, environment, and secret names (not values) are the only vault metadata an agent can discover, via scoped `keyclasp list`.
+2. `keyclasp run --project P --environment E [--env SOURCE[:TARGET]] -- <command>` selects the namespace, resolves and decrypts the requested secrets, and injects them directly into the spawned child's environment — the value never passes through the CLI's own stdout, and never appears in the shell command line or process arguments.
 3. Before spawning, the command is checked against a small denylist of programs and shell one-liners known to dump the full environment (`env`, `printenv`, `export`, `bash -c 'env'`, etc.) and refused unless `--allow-unsafe` is passed explicitly.
 4. While the child runs, its stdout and stderr are scanned for any injected value at least 8 characters long. A match is redacted in the stream and the child is terminated (`SIGTERM`, then `SIGKILL` after a grace period) so a partial leak cannot continue.
+
+## Operator Biometric Gates
+
+Two broad plaintext-access paths require a fresh macOS Touch ID approval before Keyclasp resolves any secret value:
+
+- `keyclasp get [scope] <name>`, which prints plaintext for a human operator.
+- `keyclasp run [scope]` without `--env`, which injects every secret in the selected scope.
+
+Keyclasp asks macOS LocalAuthentication to evaluate the biometric-only device-owner policy. It does not permit password fallback. The operation fails closed when Touch ID is unavailable, not enrolled, denied, cancelled, or when the platform is not macOS. Agents must never invoke either operator-only path.
 
 ## Attack Surface Analysis
 
 | Attack Vector | Risk | Mitigation |
 |---------------|------|------------|
-| Agent asks for a secret value directly | **HIGH** | There is no CLI path that returns a value to an agent's own context; `keyclasp get` is a human-facing command the agent skill instructs agents never to invoke |
+| Agent asks for a secret value directly | **HIGH** | `keyclasp get` requires fresh macOS Touch ID before resolving the value, and the agent skill prohibits invoking it |
+| Agent requests every secret in a scope | **HIGH** | Whole-scope `keyclasp run` requires fresh macOS Touch ID; agent workflows must use explicit scope and `--env` mappings |
 | Child process reads injected secrets | **HIGH** | Run only trusted commands; guarded execution reduces accidental disclosure but does not make malicious software safe |
 | Injected command prints secrets to its own output | **HIGH** | `keyclasp run` blocks obvious environment dumps, redacts detected injected values from stdout/stderr, and terminates the child process by default; `--allow-unsafe` disables this and must be explicit |
 | Vault.db stolen + passphrase known | **MEDIUM** | Machine-identity-bound key file prevents unwrapping on different hardware |
@@ -128,9 +138,9 @@ const authTag = cipher.getAuthTag();
 1. **Never commit `.keyclasp/`** to version control.
 2. **Set a real passphrase at `keyclasp init`** unless you specifically want a machine-bound vault with no passphrase to remember.
 3. **Use `keyclasp run`** instead of printing secrets into the shell or pasting them into an agent prompt.
-4. **Prefer `--env SOURCE[:TARGET]`** to inject only the specific secrets a command needs, not the entire vault.
+4. **Always use explicit `--project`, `--environment`, and `--env SOURCE[:TARGET]` for agent commands** so both the namespace and requested secrets are unambiguous. Whole-scope injection is operator-only and biometric-gated.
 5. **Run only trusted child processes** with injected credentials.
-6. **Rotate affected secrets** (`keyclasp set <name>` again) if you suspect compromise.
+6. **Rotate affected secrets** (`keyclasp set --project P --environment E <name>` again) if you suspect compromise.
 
 ## Cryptographic Inventory
 

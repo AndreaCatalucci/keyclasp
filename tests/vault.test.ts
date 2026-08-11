@@ -103,6 +103,21 @@ describe("vault CRUD", () => {
     expect(resolveSecret("TEST_KEY")).toBe("test-value-123");
   });
 
+  it("isolates the same secret name by project and environment", () => {
+    storeSecret("footnote", "dev", "DATABASE_URL", "dev-database");
+    storeSecret("footnote", "prod", "DATABASE_URL", "prod-database");
+    storeSecret("other", "prod", "DATABASE_URL", "other-database");
+
+    expect(resolveSecret("footnote", "dev", "DATABASE_URL")).toBe("dev-database");
+    expect(resolveSecret("footnote", "prod", "DATABASE_URL")).toBe("prod-database");
+    expect(resolveSecret("other", "prod", "DATABASE_URL")).toBe("other-database");
+    expect(listSecrets("footnote", "prod")).toContain("DATABASE_URL");
+
+    expect(deleteSecret("footnote", "prod", "DATABASE_URL")).toBe(true);
+    expect(resolveSecret("footnote", "prod", "DATABASE_URL")).toBeNull();
+    expect(resolveSecret("footnote", "dev", "DATABASE_URL")).toBe("dev-database");
+  });
+
   it("uses the newly initialized key after another vault key was cached", () => {
     const originalHome = process.env.KEYCLASP_HOME;
     const firstHome = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "keyclasp-first-")), ".keyclasp");

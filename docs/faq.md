@@ -22,7 +22,7 @@ There is no recovery email, backdoor, or "forgot password" flow. If you initiali
 
 ## Can a coding agent safely use Keyclasp?
 
-Yes, when the agent works with secret names only and runs commands through `keyclasp run` instead of requesting plaintext. See the bundled [agent skill](../skills/keyclasp-agent/SKILL.md) for the exact workflow and safety rules.
+Yes, when the agent works with secret names only and uses explicit `keyclasp run --project ... --environment ... --env ...` mappings instead of requesting plaintext. Agents must never call `keyclasp get` or omit `--env`; those paths are operator-only and require macOS Touch ID. See the bundled [agent skill](../skills/keyclasp-agent/SKILL.md) for the exact workflow and safety rules.
 
 ## Does `keyclasp run` make any program safe?
 
