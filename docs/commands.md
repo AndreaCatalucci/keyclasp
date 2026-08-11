@@ -7,7 +7,7 @@
 | `keyclasp init` | Initialize a new vault |
 | `keyclasp set <name>` | Store a secret (reads value from stdin) |
 | `keyclasp set <name> -` | Store a secret (prompts securely) |
-| `keyclasp get <name>` | Retrieve a secret |
+| `keyclasp get <name>` | Retrieve a secret after macOS Touch ID approval |
 | `keyclasp list` | List secret names in the resolved scope |
 | `keyclasp list --all` | List project/environment/name triples vault-wide |
 | `keyclasp delete <name>` | Delete a secret |
@@ -61,12 +61,15 @@ keyclasp delete --bulk --environment ENV --all-projects
 ## Run with Secrets
 
 ```bash
-keyclasp run --project myapp --environment prod -- npm start
+keyclasp run --project myapp --environment prod --env API_KEY -- npm test
+keyclasp run --project myapp --environment prod -- npm start  # Operator-only whole-scope injection
 keyclasp run --project myapp --environment prod --env HELLO:WORLD -- npm test
 keyclasp run --project myapp --environment prod --allow-unsafe -- env
 ```
 
-By default, `keyclasp run` injects every stored secret in the resolved scope under its own name. `--env SOURCE[:TARGET]` (repeatable) restricts injection to specific secrets and can rename them for the child process. `--allow-unsafe` disables command preflight and output leak protection for that invocation.
+`--env SOURCE[:TARGET]` (repeatable) restricts injection to specific secrets and can rename them for the child process. Coding agents must always use this form.
+
+With no `--env`, `keyclasp run` would inject every stored secret in the resolved scope under its own name. Keyclasp therefore requires a fresh macOS Touch ID approval before resolving any value. The operation fails closed on non-macOS systems or when biometrics are unavailable, denied, or cancelled. `--allow-unsafe` disables command preflight and output leak protection for that invocation, but it does not bypass biometric authorization.
 
 Use `--` before the child command when possible. Separator-free legacy forms remain supported; once the child command begins, its arguments are preserved even when they are named `--project`, `-p`, `--environment`, or `-E`.
 

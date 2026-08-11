@@ -30,6 +30,13 @@ export {
 } from "./vault.js";
 export { parseRunArgs, runCommandWithSecrets, buildRunEnvironment, checkUnsafeCommand, createSecretRedactor, type RunOutcome, type RunEnvSpec } from "./run.js";
 export {
+  requireBiometricAuthentication,
+  resolveSecretForOperator,
+  type BiometricAuthenticationOptions,
+  type BiometricRunner,
+  type BiometricRunnerResult,
+} from "./biometric.js";
+export {
   extractGlobalFlags,
   resolveContext,
   readContext,

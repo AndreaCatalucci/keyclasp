@@ -28,7 +28,7 @@ Every secret lives under a `(project, environment, name)` triple, not just a nam
 
 ```bash
 keyclasp list --project myapp --environment prod
-keyclasp run --project myapp --environment prod -- npm test
+keyclasp run --project myapp --environment prod --env OPENAI_API_KEY -- npm test
 ```
 
 Do not use `keyclasp use` (persisted project/environment context) or assume one is already set. It writes shared state to a context file meant for a human's interactive shell — a coding agent's invocations should never depend on it, since parallel or later invocations (this agent or another) could see a different persisted context than the one intended, silently resolving the wrong scope. If the project or environment isn't obvious from the task, ask rather than guess.
@@ -48,17 +48,14 @@ keyclasp run --project myapp --environment prod --env OPENAI_KEY:OPENAI_API_KEY 
 keyclasp run --project myapp --environment prod --env AWS_ACCESS_KEY_ID --env AWS_SECRET_ACCESS_KEY -- aws s3 ls
 ```
 
-Use the short form only when the command legitimately needs the full configured environment. With no `--env` option, Keyclasp injects every stored secret in the given scope under its own name.
-
-```bash
-keyclasp run --project myapp --environment prod -- npm test
-```
+Never omit `--env`. With no `--env` option, Keyclasp treats the request as operator-only whole-scope injection and requires macOS Touch ID. Agents must not request or attempt to satisfy that prompt.
 
 Always place Keyclasp options (including `--project`/`--environment`) before `--`; everything after `--` is the child command and its arguments.
 
 ## Safety Rules
 
 - Do not run `keyclasp get` or any other command that prints a plaintext secret.
+- Do not run `keyclasp run` without at least one explicit `--env` mapping. Whole-scope injection is a biometric-gated operator action.
 - Do not inspect injected values with `env`, `printenv`, shell expansion, debug logging, or equivalent commands. Verify behavior through the target command instead.
 - Do not paste secret values into prompts, source files, command arguments, logs, test snapshots, commits, or summaries.
 - Treat the child command as trusted code: it can read every secret injected into it. Use explicit `--env` mappings for least privilege when possible.

@@ -19,6 +19,38 @@ function run(args: string[], opts: { input?: string; env?: NodeJS.ProcessEnv } =
   });
 }
 
+function runSecretCheck(
+  name: string,
+  expectedValue: string,
+  scopeArgs: string[] = [],
+  opts: { env?: NodeJS.ProcessEnv } = {},
+) {
+  const script = `process.stdout.write(process.env[${JSON.stringify(name)}] === ${JSON.stringify(expectedValue)} ? "ok" : "wrong")`;
+  return run([
+    "run",
+    ...scopeArgs,
+    "--env",
+    name,
+    "--",
+    process.execPath,
+    "-e",
+    script,
+  ], opts);
+}
+
+function runMissingSecret(name: string, scopeArgs: string[] = [], opts: { env?: NodeJS.ProcessEnv } = {}) {
+  return run([
+    "run",
+    ...scopeArgs,
+    "--env",
+    name,
+    "--",
+    process.execPath,
+    "-e",
+    "process.exit(0)",
+  ], opts);
+}
+
 function runAsync(args: string[], env: NodeJS.ProcessEnv): Promise<{ status: number | null; stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [cliPath, ...args], {
@@ -55,23 +87,23 @@ describe("CLI end-to-end flow", () => {
     }
   });
 
-  it("initializes, stores, lists, resolves, and deletes a secret", () => {
+  it("initializes, stores, lists, injects, and deletes a secret", () => {
     expect(run(["init"], { input: "test-passphrase\n" }).status).toBe(0);
 
     const set = run(["set", "API_KEY"], { input: "sk-test-value-123\n" });
     expect(set.status).toBe(0);
     expect(set.stdout).toContain('Stored "API_KEY"');
 
-    const get = run(["get", "API_KEY"]);
-    expect(get.status).toBe(0);
-    expect(get.stdout.trim()).toBe("sk-test-value-123");
+    const injected = runSecretCheck("API_KEY", "sk-test-value-123");
+    expect(injected.status).toBe(0);
+    expect(injected.stdout.trim()).toBe("ok");
 
     const list = run(["list"]);
     expect(list.stdout).toContain("API_KEY");
 
     const del = run(["delete", "API_KEY"]);
     expect(del.status).toBe(0);
-    expect(run(["get", "API_KEY"]).status).toBe(1);
+    expect(runMissingSecret("API_KEY").status).toBe(1);
   });
 
   it("passes the vault status check for a healthy vault", () => {
@@ -92,6 +124,8 @@ describe("CLI run — secret injection stays out of the agent's view", () => {
   it("injects the stored secret into the child process environment", () => {
     const result = run([
       "run",
+      "--env",
+      "INJECTED_SECRET",
       "--",
       process.execPath,
       "-e",
@@ -102,7 +136,7 @@ describe("CLI run — secret injection stays out of the agent's view", () => {
   });
 
   it("never prints the secret value to the parent's own stdout for the run command itself", () => {
-    const result = run(["run", "--", "node", "-e", "0"]);
+    const result = run(["run", "--env", "INJECTED_SECRET", "--", "node", "-e", "0"]);
     expect(result.stdout).not.toContain("sk-super-secret-value");
     expect(result.stderr).not.toContain("sk-super-secret-value");
   });
@@ -110,6 +144,8 @@ describe("CLI run — secret injection stays out of the agent's view", () => {
   it("redacts and blocks a child command that leaks the secret to stdout", () => {
     const result = run([
       "run",
+      "--env",
+      "INJECTED_SECRET",
       "--",
       process.execPath,
       "-e",
@@ -122,7 +158,7 @@ describe("CLI run — secret injection stays out of the agent's view", () => {
   });
 
   it("blocks commands that would dump the whole environment", () => {
-    const result = run(["run", "--", "env"]);
+    const result = run(["run", "--env", "INJECTED_SECRET", "--", "env"]);
     expect(result.status).toBe(2);
     expect(result.stderr).toContain("BLOCKED");
     expect(result.stdout).not.toContain("sk-super-secret-value");
@@ -150,11 +186,11 @@ describe("CLI projects and environments scoping", () => {
 
   it("keeps unscoped usage working exactly as before, under default/default", () => {
     run(["set", "PLAIN_KEY"], { input: "plain-value\n" });
-    const get = run(["get", "PLAIN_KEY"]);
-    expect(get.stdout.trim()).toBe("plain-value");
+    const injected = runSecretCheck("PLAIN_KEY", "plain-value");
+    expect(injected.stdout.trim()).toBe("ok");
 
-    const scoped = run(["get", "PLAIN_KEY", "--project", "default", "--environment", "default"]);
-    expect(scoped.stdout.trim()).toBe("plain-value");
+    const scoped = runSecretCheck("PLAIN_KEY", "plain-value", ["--project", "default", "--environment", "default"]);
+    expect(scoped.stdout.trim()).toBe("ok");
   });
 
   it("round-trips a secret through explicit --project/--environment flags", () => {
@@ -162,20 +198,20 @@ describe("CLI projects and environments scoping", () => {
     expect(set.status).toBe(0);
     expect(set.stdout).toContain("myapp/prod");
 
-    const get = run(["get", "DB_URL", "--project", "myapp", "--environment", "prod"]);
-    expect(get.status).toBe(0);
-    expect(get.stdout.trim()).toBe("postgres://prod");
+    const injected = runSecretCheck("DB_URL", "postgres://prod", ["--project", "myapp", "--environment", "prod"]);
+    expect(injected.status).toBe(0);
+    expect(injected.stdout.trim()).toBe("ok");
 
     // Same name, different scope, is a distinct secret.
-    const missing = run(["get", "DB_URL", "--project", "myapp", "--environment", "staging"]);
+    const missing = runMissingSecret("DB_URL", ["--project", "myapp", "--environment", "staging"]);
     expect(missing.status).toBe(1);
-    expect(missing.stderr).toContain('not found in project "myapp" environment "staging"');
+    expect(missing.stderr).toContain('Secret "DB_URL" not found');
   });
 
   it("supports -p/-E short flags and flags appearing after the name", () => {
     run(["set", "SHORT_FLAG_KEY", "-p", "shortapp", "-E", "prod"], { input: "value\n" });
-    const get = run(["get", "SHORT_FLAG_KEY", "-p", "shortapp", "-E", "prod"]);
-    expect(get.stdout.trim()).toBe("value");
+    const injected = runSecretCheck("SHORT_FLAG_KEY", "value", ["-p", "shortapp", "-E", "prod"]);
+    expect(injected.stdout.trim()).toBe("ok");
   });
 
   it("prints a note the first time a project/environment combo is used, but not the second", () => {
@@ -229,8 +265,8 @@ describe("CLI projects and environments scoping", () => {
     const useResult = run(["use", "ctxapp", "ctxenv"]);
     expect(useResult.status).toBe(0);
 
-    const get = run(["get", "CONTEXT_KEY"]);
-    expect(get.stdout.trim()).toBe("ctx-value");
+    const injected = runSecretCheck("CONTEXT_KEY", "ctx-value");
+    expect(injected.stdout.trim()).toBe("ok");
 
     const status = run(["status"]);
     expect(status.stdout).toContain("ctxapp/ctxenv");
@@ -238,7 +274,7 @@ describe("CLI projects and environments scoping", () => {
 
     const clear = run(["use", "--clear"]);
     expect(clear.status).toBe(0);
-    const afterClear = run(["get", "CONTEXT_KEY"]);
+    const afterClear = runMissingSecret("CONTEXT_KEY");
     expect(afterClear.status).toBe(1);
   });
 
@@ -248,16 +284,16 @@ describe("CLI projects and environments scoping", () => {
     run(["set", "LAYER_KEY", "--project", "fileapp", "--environment", "fileenv"], { input: "file-value\n" });
     run(["use", "fileapp", "fileenv"]);
 
-    const viaContextFile = run(["get", "LAYER_KEY"]);
-    expect(viaContextFile.stdout.trim()).toBe("file-value");
+    const viaContextFile = runSecretCheck("LAYER_KEY", "file-value");
+    expect(viaContextFile.stdout.trim()).toBe("ok");
 
-    const viaEnvVar = run(["get", "LAYER_KEY"], { env: { KEYCLASP_PROJECT: "envapp", KEYCLASP_ENVIRONMENT: "envenv" } });
-    expect(viaEnvVar.stdout.trim()).toBe("env-value");
+    const viaEnvVar = runSecretCheck("LAYER_KEY", "env-value", [], { env: { KEYCLASP_PROJECT: "envapp", KEYCLASP_ENVIRONMENT: "envenv" } });
+    expect(viaEnvVar.stdout.trim()).toBe("ok");
 
-    const viaFlag = run(["get", "LAYER_KEY", "--project", "flagapp", "--environment", "flagenv"], {
+    const viaFlag = runSecretCheck("LAYER_KEY", "flag-value", ["--project", "flagapp", "--environment", "flagenv"], {
       env: { KEYCLASP_PROJECT: "envapp", KEYCLASP_ENVIRONMENT: "envenv" },
     });
-    expect(viaFlag.stdout.trim()).toBe("flag-value");
+    expect(viaFlag.stdout.trim()).toBe("ok");
   });
 
   it("run injects only the resolved scope's secrets and ignores other scopes", () => {
@@ -270,6 +306,8 @@ describe("CLI projects and environments scoping", () => {
       "runapp",
       "--environment",
       "prod",
+      "--env",
+      "SCOPED_SECRET",
       "--",
       process.execPath,
       "-e",
@@ -289,6 +327,8 @@ describe("CLI projects and environments scoping", () => {
       "orderapp",
       "--environment",
       "prod",
+      "--env",
+      "ORDER_SECRET",
       "--",
       process.execPath,
       "-e",
@@ -344,14 +384,14 @@ describe("CLI bulk delete", () => {
     expect(result.status).toBe(1);
     expect(result.stderr.toLowerCase()).toContain("interactive");
 
-    expect(run(["get", "BULK_ONE", "--project", "bulkapp", "--environment", "prod"]).stdout.trim()).toBe("1");
-    expect(run(["get", "BULK_TWO", "--project", "bulkapp", "--environment", "prod"]).stdout.trim()).toBe("2");
+    expect(runSecretCheck("BULK_ONE", "1", ["--project", "bulkapp", "--environment", "prod"]).stdout.trim()).toBe("ok");
+    expect(runSecretCheck("BULK_TWO", "2", ["--project", "bulkapp", "--environment", "prod"]).stdout.trim()).toBe("ok");
   });
 
   it("rejects a --bulk delete combined with a secret name as a usage error", () => {
     const result = run(["delete", "--bulk", "BULK_ONE", "--project", "bulkapp"], { input: "" });
     expect(result.status).toBe(1);
-    expect(run(["get", "BULK_ONE", "--project", "bulkapp", "--environment", "prod"]).stdout.trim()).toBe("1");
+    expect(runSecretCheck("BULK_ONE", "1", ["--project", "bulkapp", "--environment", "prod"]).stdout.trim()).toBe("ok");
   });
 
   it("rejects an ambiguous --bulk --environment without --project or --all-projects", () => {
@@ -362,7 +402,7 @@ describe("CLI bulk delete", () => {
   it("single-secret delete is unaffected — no confirmation required", () => {
     const result = run(["delete", "BULK_ONE", "--project", "bulkapp", "--environment", "prod"]);
     expect(result.status).toBe(0);
-    expect(run(["get", "BULK_ONE", "--project", "bulkapp", "--environment", "prod"]).status).toBe(1);
+    expect(runMissingSecret("BULK_ONE", ["--project", "bulkapp", "--environment", "prod"]).status).toBe(1);
   });
 });
 
@@ -378,9 +418,9 @@ describe("CLI rename", () => {
     const result = run(["rename", "--project", "old-app", "--to-project", "new-app"]);
     expect(result.status).toBe(0);
 
-    expect(run(["get", "ONE", "--project", "new-app", "--environment", "prod"]).stdout.trim()).toBe("1");
-    expect(run(["get", "TWO", "--project", "new-app", "--environment", "staging"]).stdout.trim()).toBe("2");
-    expect(run(["get", "ONE", "--project", "old-app", "--environment", "prod"]).status).toBe(1);
+    expect(runSecretCheck("ONE", "1", ["--project", "new-app", "--environment", "prod"]).stdout.trim()).toBe("ok");
+    expect(runSecretCheck("TWO", "2", ["--project", "new-app", "--environment", "staging"]).stdout.trim()).toBe("ok");
+    expect(runMissingSecret("ONE", ["--project", "old-app", "--environment", "prod"]).status).toBe(1);
   });
 
   it("renames one environment within one project", () => {
@@ -388,7 +428,7 @@ describe("CLI rename", () => {
 
     const result = run(["rename", "--project", "app", "--environment", "stagng", "--to-environment", "staging"]);
     expect(result.status).toBe(0);
-    expect(run(["get", "ONE", "--project", "app", "--environment", "staging"]).stdout.trim()).toBe("1");
+    expect(runSecretCheck("ONE", "1", ["--project", "app", "--environment", "staging"]).stdout.trim()).toBe("ok");
   });
 
   it("renames one environment across every project with --all-projects", () => {
@@ -397,8 +437,8 @@ describe("CLI rename", () => {
 
     const result = run(["rename", "--all-projects", "--environment", "stagng", "--to-environment", "staging"]);
     expect(result.status).toBe(0);
-    expect(run(["get", "ONE", "--project", "app-a", "--environment", "staging"]).stdout.trim()).toBe("1");
-    expect(run(["get", "TWO", "--project", "app-b", "--environment", "staging"]).stdout.trim()).toBe("2");
+    expect(runSecretCheck("ONE", "1", ["--project", "app-a", "--environment", "staging"]).stdout.trim()).toBe("ok");
+    expect(runSecretCheck("TWO", "2", ["--project", "app-b", "--environment", "staging"]).stdout.trim()).toBe("ok");
   });
 
   it("renames an exact project/environment pair to a different pair", () => {
@@ -409,7 +449,7 @@ describe("CLI rename", () => {
       "--to-project", "app2", "--to-environment", "staging",
     ]);
     expect(result.status).toBe(0);
-    expect(run(["get", "ONE", "--project", "app2", "--environment", "staging"]).stdout.trim()).toBe("1");
+    expect(runSecretCheck("ONE", "1", ["--project", "app2", "--environment", "staging"]).stdout.trim()).toBe("ok");
   });
 
   it("aborts entirely on a name collision and leaves both scopes unchanged", () => {
@@ -421,8 +461,8 @@ describe("CLI rename", () => {
     expect(result.stderr).toContain("already exist");
     expect(result.stderr).toContain("SAME_NAME");
 
-    expect(run(["get", "SAME_NAME", "--project", "old-app", "--environment", "prod"]).stdout.trim()).toBe("old-value");
-    expect(run(["get", "SAME_NAME", "--project", "new-app", "--environment", "prod"]).stdout.trim()).toBe("existing-value");
+    expect(runSecretCheck("SAME_NAME", "old-value", ["--project", "old-app", "--environment", "prod"]).stdout.trim()).toBe("ok");
+    expect(runSecretCheck("SAME_NAME", "existing-value", ["--project", "new-app", "--environment", "prod"]).stdout.trim()).toBe("ok");
   });
 });
 

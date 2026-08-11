@@ -28,8 +28,8 @@ keyclasp status --project myapp --environment prod
 ## Run Commands With Secrets
 
 ```bash
-keyclasp run --project myapp --environment prod -- npm test
-keyclasp run --project myapp --environment prod -- npm start
+keyclasp run --project myapp --environment prod --env OPENAI_API_KEY -- npm test
+keyclasp run --project myapp --environment prod --env OPENAI_API_KEY -- npm start
 ```
 
 Keyclasp injects stored secrets into the child process environment. It blocks obvious environment-dump commands by default and watches stdout and stderr for injected values. If it detects a leak, it redacts the value and terminates the child process.
@@ -45,6 +45,8 @@ Or restrict injection to only what's needed:
 ```bash
 keyclasp run --project myapp --environment prod --env OPENAI_API_KEY -- npm test
 ```
+
+Omitting `--env` requests whole-scope injection. That operator-only path requires a fresh macOS Touch ID approval and is unavailable on systems without macOS biometrics. Coding agents must always use explicit scope flags and explicit `--env` mappings.
 
 ## Next Steps
 

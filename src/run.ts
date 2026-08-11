@@ -2,6 +2,8 @@ import { spawn } from "node:child_process";
 import os from "node:os";
 import { StringDecoder } from "node:string_decoder";
 import path from "node:path";
+import { requireBiometricAuthentication } from "./biometric.js";
+import { validateScopeName } from "./vault.js";
 
 export const REDACTION = "[KEYCLASP_REDACTED]";
 export const MIN_LEAK_VALUE_LENGTH = 8;
@@ -51,6 +53,7 @@ export interface RunCommandOptions {
   resolveSecret: (name: string) => string | null;
   stdout: (chunk: string) => void;
   stderr: (chunk: string) => void;
+  scopeLabel?: string;
 }
 
 interface RedactorResult {
@@ -98,23 +101,27 @@ export function parseRunArgs(args: string[]): ParsedRunArgs {
     if (parsingKeyclaspOptions && (arg === "--project" || arg === "-p")) {
       const value = args[index + 1];
       if (value === undefined) throw new Error("Missing value for --project.");
+      validateScopeName(value, "project");
       project = value;
       index += 1;
       continue;
     }
     if (parsingKeyclaspOptions && arg.startsWith("--project=")) {
       project = arg.slice("--project=".length);
+      validateScopeName(project, "project");
       continue;
     }
     if (parsingKeyclaspOptions && (arg === "--environment" || arg === "-E")) {
       const value = args[index + 1];
       if (value === undefined) throw new Error("Missing value for --environment.");
+      validateScopeName(value, "environment");
       environment = value;
       index += 1;
       continue;
     }
     if (parsingKeyclaspOptions && arg.startsWith("--environment=")) {
       environment = arg.slice("--environment=".length);
+      validateScopeName(environment, "environment");
       continue;
     }
     if (parsingKeyclaspOptions && arg === "--") {
@@ -271,7 +278,7 @@ export async function runCommandWithSecrets(options: RunCommandOptions): Promise
     return { kind: "error", exitCode: 1 };
   }
   if (parsed.commandArgs.length === 0) {
-    options.stderr("Usage: keyclasp run [--allow-unsafe] [--env SOURCE[:TARGET]] <command...>\n");
+    options.stderr("Usage: keyclasp run [--project NAME] [--environment NAME] [--allow-unsafe] [--env SOURCE[:TARGET]] <command...>\n");
     return { kind: "error", exitCode: 1 };
   }
 
@@ -282,13 +289,23 @@ export async function runCommandWithSecrets(options: RunCommandOptions): Promise
     return { kind: "blocked", exitCode: 2 };
   }
 
+  const envSpecs = parsed.envSpecs.length > 0 ? parsed.envSpecs : options.envSpecs;
+  if ((!envSpecs || envSpecs.length === 0) && options.secretNames.length > 0) {
+    try {
+      requireBiometricAuthentication(`Inject every Keyclasp secret in ${options.scopeLabel ?? "the selected scope"}`);
+    } catch (err: any) {
+      options.stderr(`BLOCKED: ${err.message}\n`);
+      return { kind: "blocked", exitCode: 2 };
+    }
+  }
+
   let env: NodeJS.ProcessEnv;
   let leakValues: string[];
   try {
     ({ env, leakValues } = buildRunEnvironment({
       baseEnv: options.baseEnv,
       secretNames: options.secretNames,
-      envSpecs: parsed.envSpecs.length > 0 ? parsed.envSpecs : options.envSpecs,
+      envSpecs,
       resolveSecret: options.resolveSecret,
     }));
   } catch (err: any) {
@@ -298,10 +315,21 @@ export async function runCommandWithSecrets(options: RunCommandOptions): Promise
 
   if (parsed.allowUnsafe) {
     options.stderr("WARNING: keyclasp run exfiltration protection disabled by --allow-unsafe.\n");
-    return spawnRaw(parsed.commandArgs, env);
+    const outcome = await spawnRaw(parsed.commandArgs, env);
+    reportSpawnError(outcome, options.stderr);
+    return outcome;
   }
 
-  return spawnGuarded(parsed.commandArgs, env, leakValues, options.stdout, options.stderr);
+  const outcome = await spawnGuarded(parsed.commandArgs, env, leakValues, options.stdout, options.stderr);
+  reportSpawnError(outcome, options.stderr);
+  return outcome;
+}
+
+function reportSpawnError(outcome: RunOutcome, writeStderr: (chunk: string) => void): void {
+  if (outcome.kind !== "error" || !outcome.error) return;
+  const code = (outcome.error as NodeJS.ErrnoException).code;
+  const suffix = typeof code === "string" ? ` (${code})` : "";
+  writeStderr(`Failed to start child command${suffix}.\n`);
 }
 
 function shellCommandString(commandArgs: string[]): string | null {

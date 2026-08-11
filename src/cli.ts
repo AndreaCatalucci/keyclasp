@@ -25,6 +25,7 @@ import {
 import { parseRunArgs, runCommandWithSecrets } from "./run.js";
 import { getDisplayVersion } from "./version.js";
 import { extractGlobalFlags, resolveContext, writeContext, clearContext } from "./context.js";
+import { resolveSecretForOperator } from "./biometric.js";
 import readline from "node:readline";
 import { stdin, stdout } from "node:process";
 
@@ -47,7 +48,7 @@ Usage:
   keyclasp init                Initialize the encrypted vault
   keyclasp set <name>          Store a secret (value read from stdin)
   keyclasp set <name> -        Store a secret (prompts securely)
-  keyclasp get <name>          Resolve and print a secret value
+  keyclasp get <name>          Print a secret after macOS Touch ID approval
   keyclasp list [--all]        List stored secret names
   keyclasp delete <name>       Delete a secret
   keyclasp delete --bulk ...   Delete every secret in a project/environment
@@ -87,7 +88,8 @@ Examples:
   keyclasp set DATABASE_URL - --project myapp --environment staging
   keyclasp list --project myapp
   keyclasp run --project myapp --environment prod -- npm test
-  keyclasp run --env OPENAI_API_KEY:AI_KEY -- npm start
+                              # Whole-scope injection requires Touch ID
+  keyclasp run --project myapp --environment prod --env OPENAI_API_KEY:AI_KEY -- npm start
                               # Run with a one-off env mapping and leak-guarded output
   `);
 }
@@ -398,7 +400,10 @@ async function main(): Promise<void> {
           process.exit(1);
         }
         const { project, environment } = resolveContext(pFlag, eFlag);
-        const val = resolveSecret(project, environment, secretName);
+        const val = resolveSecretForOperator(
+          `${project}/${environment}/${secretName}`,
+          () => resolveSecret(project, environment, secretName),
+        );
         if (val === null) {
           console.error(`Secret "${secretName}" not found in project "${project}" environment "${environment}".`);
           process.exit(1);
@@ -560,7 +565,7 @@ async function main(): Promise<void> {
         const cmdArgs = args.slice(1);
         const parsed = parseRunArgs(cmdArgs);
         if (parsed.commandArgs.length === 0) {
-          console.error("Usage: keyclasp run [--allow-unsafe] [--env SOURCE[:TARGET]] <command...>");
+          console.error("Usage: keyclasp run [--project NAME] [--environment NAME] [--allow-unsafe] [--env SOURCE[:TARGET]] <command...>");
           process.exit(1);
         }
 
@@ -577,6 +582,7 @@ async function main(): Promise<void> {
           resolveSecret: (name) => resolveSecret(project, environment, name),
           stdout: (chunk) => process.stdout.write(chunk),
           stderr: (chunk) => process.stderr.write(chunk),
+          scopeLabel: `${project}/${environment}`,
         });
         process.exit(result.exitCode);
         break;
