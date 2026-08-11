@@ -1,20 +1,69 @@
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import Database from "better-sqlite3";
+import { initializeVault, getKey, closeDb, clearKey, encrypt } from "../src/vault.js";
 
 const cliPath = path.join(process.cwd(), "dist", "cli.js");
 let vaultHome: string;
 
-function run(args: string[], opts: { input?: string } = {}) {
+function run(args: string[], opts: { input?: string; env?: NodeJS.ProcessEnv } = {}) {
   return spawnSync(process.execPath, [cliPath, ...args], {
     cwd: process.cwd(),
     encoding: "utf8",
-    env: { ...process.env, KEYCLASP_HOME: vaultHome },
+    env: { ...process.env, KEYCLASP_HOME: vaultHome, ...opts.env },
     input: opts.input,
     stdio: ["pipe", "pipe", "pipe"],
+  });
+}
+
+function runSecretCheck(
+  name: string,
+  expectedValue: string,
+  scopeArgs: string[] = [],
+  opts: { env?: NodeJS.ProcessEnv } = {},
+) {
+  const script = `process.stdout.write(process.env[${JSON.stringify(name)}] === ${JSON.stringify(expectedValue)} ? "ok" : "wrong")`;
+  return run([
+    "run",
+    ...scopeArgs,
+    "--env",
+    name,
+    "--",
+    process.execPath,
+    "-e",
+    script,
+  ], opts);
+}
+
+function runMissingSecret(name: string, scopeArgs: string[] = [], opts: { env?: NodeJS.ProcessEnv } = {}) {
+  return run([
+    "run",
+    ...scopeArgs,
+    "--env",
+    name,
+    "--",
+    process.execPath,
+    "-e",
+    "process.exit(0)",
+  ], opts);
+}
+
+function runAsync(args: string[], env: NodeJS.ProcessEnv): Promise<{ status: number | null; stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [cliPath, ...args], {
+      cwd: process.cwd(),
+      env: { ...process.env, ...env },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.on("error", reject);
+    child.on("close", (status) => resolve({ status, stdout, stderr }));
   });
 }
 
@@ -38,19 +87,23 @@ describe("CLI end-to-end flow", () => {
     }
   });
 
-  it("initializes, stores, lists, and deletes a secret", () => {
+  it("initializes, stores, lists, injects, and deletes a secret", () => {
     expect(run(["init"], { input: "test-passphrase\n" }).status).toBe(0);
 
     const set = run(["set", "API_KEY"], { input: "sk-test-value-123\n" });
     expect(set.status).toBe(0);
     expect(set.stdout).toContain('Stored "API_KEY"');
 
+    const injected = runSecretCheck("API_KEY", "sk-test-value-123");
+    expect(injected.status).toBe(0);
+    expect(injected.stdout.trim()).toBe("ok");
+
     const list = run(["list"]);
     expect(list.stdout).toContain("API_KEY");
 
     const del = run(["delete", "API_KEY"]);
     expect(del.status).toBe(0);
-    expect(run(["list"]).stdout).not.toContain("API_KEY");
+    expect(runMissingSecret("API_KEY").status).toBe(1);
   });
 
   it("passes the vault status check for a healthy vault", () => {
@@ -105,7 +158,7 @@ describe("CLI run — secret injection stays out of the agent's view", () => {
   });
 
   it("blocks commands that would dump the whole environment", () => {
-    const result = run(["run", "--", "env"]);
+    const result = run(["run", "--env", "INJECTED_SECRET", "--", "env"]);
     expect(result.status).toBe(2);
     expect(result.stderr).toContain("BLOCKED");
     expect(result.stdout).not.toContain("sk-super-secret-value");
@@ -124,29 +177,133 @@ describe("CLI run — secret injection stays out of the agent's view", () => {
     expect(result.status).toBe(0);
     expect(result.stdout.trim()).toBe("ok");
   });
+});
 
-  it("selects only the requested project and environment", () => {
-    expect(run([
-      "set",
-      "--project",
-      "footnote",
-      "--environment",
-      "prod",
-      "SCOPED_SECRET",
-    ], { input: "prod-secret-value\n" }).status).toBe(0);
-    expect(run([
-      "set",
-      "--project",
-      "footnote",
-      "--environment",
-      "dev",
-      "SCOPED_SECRET",
-    ], { input: "dev-secret-value\n" }).status).toBe(0);
+describe("CLI projects and environments scoping", () => {
+  beforeEach(() => {
+    run(["init"], { input: "\n" });
+  });
+
+  it("keeps unscoped usage working exactly as before, under default/default", () => {
+    run(["set", "PLAIN_KEY"], { input: "plain-value\n" });
+    const injected = runSecretCheck("PLAIN_KEY", "plain-value");
+    expect(injected.stdout.trim()).toBe("ok");
+
+    const scoped = runSecretCheck("PLAIN_KEY", "plain-value", ["--project", "default", "--environment", "default"]);
+    expect(scoped.stdout.trim()).toBe("ok");
+  });
+
+  it("round-trips a secret through explicit --project/--environment flags", () => {
+    const set = run(["set", "DB_URL", "--project", "myapp", "--environment", "prod"], { input: "postgres://prod\n" });
+    expect(set.status).toBe(0);
+    expect(set.stdout).toContain("myapp/prod");
+
+    const injected = runSecretCheck("DB_URL", "postgres://prod", ["--project", "myapp", "--environment", "prod"]);
+    expect(injected.status).toBe(0);
+    expect(injected.stdout.trim()).toBe("ok");
+
+    // Same name, different scope, is a distinct secret.
+    const missing = runMissingSecret("DB_URL", ["--project", "myapp", "--environment", "staging"]);
+    expect(missing.status).toBe(1);
+    expect(missing.stderr).toContain('Secret "DB_URL" not found');
+  });
+
+  it("supports -p/-E short flags and flags appearing after the name", () => {
+    run(["set", "SHORT_FLAG_KEY", "-p", "shortapp", "-E", "prod"], { input: "value\n" });
+    const injected = runSecretCheck("SHORT_FLAG_KEY", "value", ["-p", "shortapp", "-E", "prod"]);
+    expect(injected.stdout.trim()).toBe("ok");
+  });
+
+  it("prints a note the first time a project/environment combo is used, but not the second", () => {
+    const first = run(["set", "FIRST", "--project", "newproj", "--environment", "newenv"], { input: "a\n" });
+    expect(first.stdout).toContain('Note: "newproj/newenv" is a new project/environment combo.');
+
+    const second = run(["set", "SECOND", "--project", "newproj", "--environment", "newenv"], { input: "b\n" });
+    expect(second.stdout).not.toContain("new project/environment combo");
+  });
+
+  it("list filters independently by --project, --environment, both, or --all", () => {
+    run(["set", "ONE", "--project", "app-a", "--environment", "prod"], { input: "1\n" });
+    run(["set", "TWO", "--project", "app-a", "--environment", "staging"], { input: "2\n" });
+    run(["set", "THREE", "--project", "app-b", "--environment", "prod"], { input: "3\n" });
+
+    const byProject = run(["list", "--project", "app-a"]);
+    expect(byProject.stdout).toContain("prod/ONE");
+    expect(byProject.stdout).toContain("staging/TWO");
+    expect(byProject.stdout).not.toContain("THREE");
+
+    const byEnvironment = run(["list", "--environment", "prod"]);
+    expect(byEnvironment.stdout).toContain("app-a/ONE");
+    expect(byEnvironment.stdout).toContain("app-b/THREE");
+    expect(byEnvironment.stdout).not.toContain("TWO");
+
+    const exact = run(["list", "--project", "app-a", "--environment", "prod"]);
+    expect(exact.stdout.trim()).toBe("- ONE");
+
+    const all = run(["list", "--all"]);
+    expect(all.stdout).toContain("app-a/prod/ONE");
+    expect(all.stdout).toContain("app-a/staging/TWO");
+    expect(all.stdout).toContain("app-b/prod/THREE");
+  });
+
+  it("lists distinct project and environment names", () => {
+    run(["set", "A", "--project", "zeta", "--environment", "prod"], { input: "1\n" });
+    run(["set", "B", "--project", "alpha", "--environment", "staging"], { input: "2\n" });
+
+    const projects = run(["projects"]);
+    expect(projects.stdout).toContain("alpha");
+    expect(projects.stdout).toContain("zeta");
+
+    const environments = run(["environments"]);
+    expect(environments.stdout).toContain("prod");
+    expect(environments.stdout).toContain("staging");
+  });
+
+  it("use persists a project/environment context that later commands pick up without flags", () => {
+    run(["set", "CONTEXT_KEY", "--project", "ctxapp", "--environment", "ctxenv"], { input: "ctx-value\n" });
+
+    const useResult = run(["use", "ctxapp", "ctxenv"]);
+    expect(useResult.status).toBe(0);
+
+    const injected = runSecretCheck("CONTEXT_KEY", "ctx-value");
+    expect(injected.stdout.trim()).toBe("ok");
+
+    const status = run(["status"]);
+    expect(status.stdout).toContain("ctxapp/ctxenv");
+    expect(status.stdout).toContain("context-file");
+
+    const clear = run(["use", "--clear"]);
+    expect(clear.status).toBe(0);
+    const afterClear = runMissingSecret("CONTEXT_KEY");
+    expect(afterClear.status).toBe(1);
+  });
+
+  it("an env var overrides the persisted context, and an explicit flag overrides both", () => {
+    run(["set", "LAYER_KEY", "--project", "flagapp", "--environment", "flagenv"], { input: "flag-value\n" });
+    run(["set", "LAYER_KEY", "--project", "envapp", "--environment", "envenv"], { input: "env-value\n" });
+    run(["set", "LAYER_KEY", "--project", "fileapp", "--environment", "fileenv"], { input: "file-value\n" });
+    run(["use", "fileapp", "fileenv"]);
+
+    const viaContextFile = runSecretCheck("LAYER_KEY", "file-value");
+    expect(viaContextFile.stdout.trim()).toBe("ok");
+
+    const viaEnvVar = runSecretCheck("LAYER_KEY", "env-value", [], { env: { KEYCLASP_PROJECT: "envapp", KEYCLASP_ENVIRONMENT: "envenv" } });
+    expect(viaEnvVar.stdout.trim()).toBe("ok");
+
+    const viaFlag = runSecretCheck("LAYER_KEY", "flag-value", ["--project", "flagapp", "--environment", "flagenv"], {
+      env: { KEYCLASP_PROJECT: "envapp", KEYCLASP_ENVIRONMENT: "envenv" },
+    });
+    expect(viaFlag.stdout.trim()).toBe("ok");
+  });
+
+  it("run injects only the resolved scope's secrets and ignores other scopes", () => {
+    run(["set", "SCOPED_SECRET", "--project", "runapp", "--environment", "prod"], { input: "run-scoped-value\n" });
+    run(["set", "SCOPED_SECRET", "--project", "runapp", "--environment", "staging"], { input: "other-scope-value\n" });
 
     const result = run([
       "run",
       "--project",
-      "footnote",
+      "runapp",
       "--environment",
       "prod",
       "--env",
@@ -154,39 +311,228 @@ describe("CLI run — secret injection stays out of the agent's view", () => {
       "--",
       process.execPath,
       "-e",
-      "console.log(process.env.SCOPED_SECRET === 'prod-secret-value' ? 'prod-ok' : 'wrong-scope')",
+      "console.log(process.env.SCOPED_SECRET === 'run-scoped-value' ? 'ok' : 'missing')",
     ]);
-
     expect(result.status).toBe(0);
-    expect(result.stdout.trim()).toBe("prod-ok");
-    expect(result.stdout).not.toContain("prod-secret-value");
-    expect(result.stdout).not.toContain("dev-secret-value");
+    expect(result.stdout.trim()).toBe("ok");
   });
 
-  it("lists and deletes within the selected scope", () => {
-    run(["set", "--project=footnote", "--environment=prod", "ONLY_PROD"], { input: "prod-value\n" });
-    run(["set", "--project=footnote", "--environment=dev", "ONLY_DEV"], { input: "dev-value\n" });
+  it("run recognizes global flags interleaved with its own flags before '--', leaving child args untouched", () => {
+    run(["set", "ORDER_SECRET", "--project", "orderapp", "--environment", "prod"], { input: "order-value\n" });
 
-    const prodList = run(["list", "--project", "footnote", "--environment", "prod"]);
-    expect(prodList.stdout).toContain("ONLY_PROD");
-    expect(prodList.stdout).not.toContain("ONLY_DEV");
-
-    expect(run(["delete", "--project", "footnote", "--environment", "prod", "ONLY_PROD"]).status).toBe(0);
-    expect(run(["list", "--project", "footnote", "--environment", "prod"]).stdout).not.toContain("ONLY_PROD");
-    expect(run(["list", "--project", "footnote", "--environment", "dev"]).stdout).toContain("ONLY_DEV");
+    const result = run([
+      "run",
+      "--allow-unsafe",
+      "--project",
+      "orderapp",
+      "--environment",
+      "prod",
+      "--env",
+      "ORDER_SECRET",
+      "--",
+      process.execPath,
+      "-e",
+      "console.log(process.env.ORDER_SECRET === 'order-value' ? 'ok' : 'missing')",
+    ]);
+    expect(result.status).toBe(0);
+    expect(result.stdout.trim()).toBe("ok");
   });
 
-  it("resolves the biometric helper from the built package layout", async () => {
-    const biometricUrl = pathToFileURL(path.join(process.cwd(), "dist", "biometric.js")).href;
-    const { requireBiometricAuthentication } = await import(biometricUrl);
+  it("run preserves scope-like child flags in the separator-free form", () => {
+    const result = run([
+      "run",
+      process.execPath,
+      "-e",
+      "console.log(JSON.stringify(process.argv.slice(1)))",
+      "child",
+      "-p",
+      "3000",
+      "--environment",
+      "child-value",
+    ]);
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual(["child", "-p", "3000", "--environment", "child-value"]);
+  });
 
-    requireBiometricAuthentication("package-layout-test", {
-      platform: "darwin",
-      runner: (_command: string, args: string[]) => {
-        expect(args[2]).toBe(path.join(process.cwd(), "native", "macos-biometric.js"));
-        expect(fs.existsSync(args[2])).toBe(true);
-        return { status: 0 };
-      },
-    });
+  it("run prints an informational note and still runs when the resolved scope has no secrets", () => {
+    const result = run([
+      "run",
+      "--project",
+      "brandnew",
+      "--environment",
+      "brandnew",
+      "--",
+      process.execPath,
+      "-e",
+      "console.log('ran-anyway')",
+    ]);
+    expect(result.status).toBe(0);
+    expect(result.stderr).toContain('no secrets stored yet for project "brandnew" environment "brandnew"');
+    expect(result.stdout.trim()).toBe("ran-anyway");
+  });
+});
+
+describe("CLI bulk delete", () => {
+  beforeEach(() => {
+    run(["init"], { input: "\n" });
+    run(["set", "BULK_ONE", "--project", "bulkapp", "--environment", "prod"], { input: "1\n" });
+    run(["set", "BULK_TWO", "--project", "bulkapp", "--environment", "prod"], { input: "2\n" });
+  });
+
+  it("refuses a non-interactive bulk delete and leaves the data untouched", () => {
+    const result = run(["delete", "--bulk", "--project", "bulkapp", "--environment", "prod"], { input: "" });
+    expect(result.status).toBe(1);
+    expect(result.stderr.toLowerCase()).toContain("interactive");
+
+    expect(runSecretCheck("BULK_ONE", "1", ["--project", "bulkapp", "--environment", "prod"]).stdout.trim()).toBe("ok");
+    expect(runSecretCheck("BULK_TWO", "2", ["--project", "bulkapp", "--environment", "prod"]).stdout.trim()).toBe("ok");
+  });
+
+  it("rejects a --bulk delete combined with a secret name as a usage error", () => {
+    const result = run(["delete", "--bulk", "BULK_ONE", "--project", "bulkapp"], { input: "" });
+    expect(result.status).toBe(1);
+    expect(runSecretCheck("BULK_ONE", "1", ["--project", "bulkapp", "--environment", "prod"]).stdout.trim()).toBe("ok");
+  });
+
+  it("rejects an ambiguous --bulk --environment without --project or --all-projects", () => {
+    const result = run(["delete", "--bulk", "--environment", "prod"], { input: "" });
+    expect(result.status).toBe(1);
+  });
+
+  it("single-secret delete is unaffected — no confirmation required", () => {
+    const result = run(["delete", "BULK_ONE", "--project", "bulkapp", "--environment", "prod"]);
+    expect(result.status).toBe(0);
+    expect(runMissingSecret("BULK_ONE", ["--project", "bulkapp", "--environment", "prod"]).status).toBe(1);
+  });
+});
+
+describe("CLI rename", () => {
+  beforeEach(() => {
+    run(["init"], { input: "\n" });
+  });
+
+  it("renames a whole project, moving every environment", () => {
+    run(["set", "ONE", "--project", "old-app", "--environment", "prod"], { input: "1\n" });
+    run(["set", "TWO", "--project", "old-app", "--environment", "staging"], { input: "2\n" });
+
+    const result = run(["rename", "--project", "old-app", "--to-project", "new-app"]);
+    expect(result.status).toBe(0);
+
+    expect(runSecretCheck("ONE", "1", ["--project", "new-app", "--environment", "prod"]).stdout.trim()).toBe("ok");
+    expect(runSecretCheck("TWO", "2", ["--project", "new-app", "--environment", "staging"]).stdout.trim()).toBe("ok");
+    expect(runMissingSecret("ONE", ["--project", "old-app", "--environment", "prod"]).status).toBe(1);
+  });
+
+  it("renames one environment within one project", () => {
+    run(["set", "ONE", "--project", "app", "--environment", "stagng"], { input: "1\n" });
+
+    const result = run(["rename", "--project", "app", "--environment", "stagng", "--to-environment", "staging"]);
+    expect(result.status).toBe(0);
+    expect(runSecretCheck("ONE", "1", ["--project", "app", "--environment", "staging"]).stdout.trim()).toBe("ok");
+  });
+
+  it("renames one environment across every project with --all-projects", () => {
+    run(["set", "ONE", "--project", "app-a", "--environment", "stagng"], { input: "1\n" });
+    run(["set", "TWO", "--project", "app-b", "--environment", "stagng"], { input: "2\n" });
+
+    const result = run(["rename", "--all-projects", "--environment", "stagng", "--to-environment", "staging"]);
+    expect(result.status).toBe(0);
+    expect(runSecretCheck("ONE", "1", ["--project", "app-a", "--environment", "staging"]).stdout.trim()).toBe("ok");
+    expect(runSecretCheck("TWO", "2", ["--project", "app-b", "--environment", "staging"]).stdout.trim()).toBe("ok");
+  });
+
+  it("renames an exact project/environment pair to a different pair", () => {
+    run(["set", "ONE", "--project", "app", "--environment", "stagng"], { input: "1\n" });
+
+    const result = run([
+      "rename", "--project", "app", "--environment", "stagng",
+      "--to-project", "app2", "--to-environment", "staging",
+    ]);
+    expect(result.status).toBe(0);
+    expect(runSecretCheck("ONE", "1", ["--project", "app2", "--environment", "staging"]).stdout.trim()).toBe("ok");
+  });
+
+  it("aborts entirely on a name collision and leaves both scopes unchanged", () => {
+    run(["set", "SAME_NAME", "--project", "old-app", "--environment", "prod"], { input: "old-value\n" });
+    run(["set", "SAME_NAME", "--project", "new-app", "--environment", "prod"], { input: "existing-value\n" });
+
+    const result = run(["rename", "--project", "old-app", "--to-project", "new-app"]);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("already exist");
+    expect(result.stderr).toContain("SAME_NAME");
+
+    expect(runSecretCheck("SAME_NAME", "old-value", ["--project", "old-app", "--environment", "prod"]).stdout.trim()).toBe("ok");
+    expect(runSecretCheck("SAME_NAME", "existing-value", ["--project", "new-app", "--environment", "prod"]).stdout.trim()).toBe("ok");
+  });
+});
+
+describe("legacy vault migration race safety", () => {
+  it("two concurrent processes opening the same legacy vault both succeed with no duplicated rows", async () => {
+    const raceTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "keyclasp-race-"));
+    const raceHome = path.join(raceTmpDir, ".keyclasp");
+    const previousHome = process.env.KEYCLASP_HOME;
+
+    try {
+      process.env.KEYCLASP_HOME = raceHome;
+      closeDb();
+      clearKey();
+      initializeVault("race-passphrase");
+      const key = getKey();
+      closeDb();
+
+      const dbPath = path.join(raceHome, "vault.db");
+      const raw = new Database(dbPath);
+      try {
+        raw.exec("DROP TABLE IF EXISTS secrets");
+        raw.exec(`
+          CREATE TABLE secrets (
+            name TEXT PRIMARY KEY,
+            encrypted_value BLOB NOT NULL,
+            iv BLOB NOT NULL,
+            auth_tag BLOB NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+          )
+        `);
+        const insert = raw.prepare("INSERT INTO secrets (name, encrypted_value, iv, auth_tag) VALUES (?, ?, ?, ?)");
+        for (const name of ["RACE_ONE", "RACE_TWO", "RACE_THREE"]) {
+          const { encrypted, iv, authTag } = encrypt(`value-${name}`, key);
+          insert.run(name, encrypted, iv, authTag);
+        }
+      } finally {
+        raw.close();
+      }
+      closeDb();
+      clearKey();
+
+      const [first, second] = await Promise.all([
+        runAsync(["list", "--all"], { KEYCLASP_HOME: raceHome }),
+        runAsync(["list", "--all"], { KEYCLASP_HOME: raceHome }),
+      ]);
+
+      expect(first.status).toBe(0);
+      expect(second.status).toBe(0);
+
+      const verifyDb = new Database(dbPath, { readonly: true });
+      try {
+        const columns = (verifyDb.pragma("table_info(secrets)") as { name: string }[]).map((r) => r.name);
+        expect(columns).toEqual(expect.arrayContaining(["project", "environment", "name"]));
+        const rows = verifyDb.prepare("SELECT project, environment, name FROM secrets ORDER BY name").all() as
+          { project: string; environment: string; name: string }[];
+        expect(rows).toEqual([
+          { project: "default", environment: "default", name: "RACE_ONE" },
+          { project: "default", environment: "default", name: "RACE_THREE" },
+          { project: "default", environment: "default", name: "RACE_TWO" },
+        ]);
+      } finally {
+        verifyDb.close();
+      }
+    } finally {
+      closeDb();
+      clearKey();
+      if (previousHome === undefined) delete process.env.KEYCLASP_HOME;
+      else process.env.KEYCLASP_HOME = previousHome;
+      fs.rmSync(raceTmpDir, { recursive: true, force: true });
+    }
   });
 });

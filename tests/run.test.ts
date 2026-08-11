@@ -62,6 +62,26 @@ describe("run argument parsing", () => {
     });
   });
 
+  it("parses scoped Keyclasp options before the child command", () => {
+    expect(parseRunArgs([
+      "--project", "myapp", "-E", "prod", "--env", "HELLO:WORLD", "--", "npm", "test",
+    ])).toEqual({
+      allowUnsafe: false,
+      envSpecs: [{ sourceName: "HELLO", targetName: "WORLD" }],
+      commandArgs: ["npm", "test"],
+      project: "myapp",
+      environment: "prod",
+    });
+  });
+
+  it("preserves scope-like child arguments when no separator is used", () => {
+    expect(parseRunArgs(["node", "server.js", "-p", "3000", "--environment", "child-value"])).toEqual({
+      allowUnsafe: false,
+      envSpecs: [],
+      commandArgs: ["node", "server.js", "-p", "3000", "--environment", "child-value"],
+    });
+  });
+
   it("rejects malformed env mappings", () => {
     expect(() => parseRunArgs(["--env"])).toThrow(/Missing value/);
     expect(() => parseRunArgs(["--env", ":WORLD"])).toThrow(/Invalid source/);

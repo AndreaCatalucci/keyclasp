@@ -5,29 +5,73 @@
 | Command | Description |
 |---------|-------------|
 | `keyclasp init` | Initialize a new vault |
-| `keyclasp set [scope] <name>` | Store a secret (reads value from stdin) |
-| `keyclasp set [scope] <name> -` | Store a secret (prompts securely) |
-| `keyclasp get [scope] <name>` | Retrieve a secret after macOS Touch ID approval |
-| `keyclasp list [scope]` | List secret names in one scope |
-| `keyclasp delete [scope] <name>` | Delete a secret from one scope |
-| `keyclasp status [scope]` | Show vault location, scoped secret count, and decryptability check |
+| `keyclasp set <name>` | Store a secret (reads value from stdin) |
+| `keyclasp set <name> -` | Store a secret (prompts securely) |
+| `keyclasp get <name>` | Retrieve a secret after macOS Touch ID approval |
+| `keyclasp list` | List secret names in the resolved scope |
+| `keyclasp list --all` | List project/environment/name triples vault-wide |
+| `keyclasp delete <name>` | Delete a secret |
+| `keyclasp status` | Show vault location, secret count, and decryptability check |
+| `keyclasp projects` | List distinct project names in use |
+| `keyclasp environments` | List distinct environment names in use |
 
 `keyclasp set` overwrites an existing name, so it doubles as an update/rotate command.
 
-`[scope]` means `--project <name> --environment <name>`. The short forms are `-p` and `-E`; `--project=<name>` and `--environment=<name>` are also accepted. If omitted, each dimension defaults to `default` (or `KEYCLASP_PROJECT` / `KEYCLASP_ENVIRONMENT` when set). Coding agents should always pass both flags explicitly and never depend on ambient scope.
+## Projects and environments
+
+Secrets are keyed by `(project, environment, name)`. Secret operations accept `--project`/`-p` and `--environment`/`-E`. Each field resolves independently in this order:
+
+1. Explicit command flag
+2. `KEYCLASP_PROJECT` or `KEYCLASP_ENVIRONMENT`
+3. The context saved by `keyclasp use`
+4. `default`
+
+```bash
+keyclasp set DATABASE_URL - --project myapp --environment prod
+keyclasp get DATABASE_URL --project myapp --environment prod
+keyclasp list --project myapp --environment prod
+keyclasp status --project myapp --environment prod
+```
+
+Passing only `--project` to `list` shows every environment in that project. Passing only `--environment` shows that environment across projects. Scripts and coding agents should pass both flags explicitly so shared context cannot change their scope.
+
+`keyclasp use <project> <environment>` saves an interactive convenience context. Clear it with `keyclasp use --clear`. Coding agents should not use persisted context.
+
+## Rename scopes
+
+Renames are atomic and abort without changes if the destination already contains any colliding secret name.
+
+```bash
+keyclasp rename --project OLD --to-project NEW
+keyclasp rename --project APP --environment OLD --to-environment NEW
+keyclasp rename --all-projects --environment OLD --to-environment NEW
+keyclasp rename --project APP --environment ENV --to-project NEW_APP --to-environment NEW_ENV
+```
+
+## Bulk delete
+
+Bulk deletion has no non-interactive bypass. It requires a TTY and typed project or environment confirmation. If the selected scope changes while the prompt is open, Keyclasp aborts so newly added secrets are not deleted unseen.
+
+```bash
+keyclasp delete --bulk --project APP
+keyclasp delete --bulk --project APP --environment ENV
+keyclasp delete --bulk --environment ENV --all-projects
+```
 
 ## Run with Secrets
 
 ```bash
-keyclasp run --project app --environment prod --env API_KEY -- npm test
-keyclasp run --project app --environment prod -- npm start  # Operator-only whole-scope injection
-keyclasp run -p app -E dev --env HELLO:WORLD -- npm test
-keyclasp run -p app -E dev --allow-unsafe -- env  # Disable both output safeguards
+keyclasp run --project myapp --environment prod --env API_KEY -- npm test
+keyclasp run --project myapp --environment prod -- npm start  # Operator-only whole-scope injection
+keyclasp run --project myapp --environment prod --env HELLO:WORLD -- npm test
+keyclasp run --project myapp --environment prod --allow-unsafe -- env
 ```
 
 `--env SOURCE[:TARGET]` (repeatable) restricts injection to specific secrets and can rename them for the child process. Coding agents must always use this form.
 
-With no `--env`, `keyclasp run` would inject every secret in the selected project/environment under its own name. Keyclasp therefore requires a fresh macOS Touch ID approval before resolving any value. The operation fails closed on non-macOS systems or when biometrics are unavailable, denied, or cancelled.
+With no `--env`, `keyclasp run` would inject every stored secret in the resolved scope under its own name. Keyclasp therefore requires a fresh macOS Touch ID approval before resolving any value. The operation fails closed on non-macOS systems or when biometrics are unavailable, denied, or cancelled. `--allow-unsafe` disables command preflight and output leak protection for that invocation, but it does not bypass biometric authorization.
+
+Use `--` before the child command when possible. Separator-free legacy forms remain supported; once the child command begins, its arguments are preserved even when they are named `--project`, `-p`, `--environment`, or `-E`.
 
 ## Utilities
 

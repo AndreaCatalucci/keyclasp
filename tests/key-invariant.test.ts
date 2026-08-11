@@ -16,7 +16,6 @@ import {
   setMachineIdentityForTests,
   storeSecret,
   getVaultLocation,
-  getDb,
 } from "../src/vault.js";
 
 const previousKeyclaspHome = process.env.KEYCLASP_HOME;
@@ -154,10 +153,7 @@ describe("vault key invariants", () => {
     writeKeyblindV2Vault("LEGACY_V2", "still-readable", stableIdentity);
 
     restartRuntime();
-    expect(resolveSecret("LEGACY_V2")).toBe("still-readable");
     expect(resolveSecret("default", "default", "LEGACY_V2")).toBe("still-readable");
-    expect((getDb().pragma("table_info(secrets)") as { name: string }[]).map((column) => column.name))
-      .toEqual(expect.arrayContaining(["project", "environment", "name"]));
   });
 
   it("round-trips many secrets after a fresh runtime reload for every read", () => {
@@ -174,14 +170,14 @@ describe("vault key invariants", () => {
     ] as const;
 
     for (const [name, value] of fixtures) {
-      storeSecret(name, value);
+      storeSecret("default", "default", name, value);
       restartRuntime();
-      expect(resolveSecret(name)).toBe(value);
+      expect(resolveSecret("default", "default", name)).toBe(value);
     }
 
     restartRuntime();
     for (const [name, value] of fixtures) {
-      expect(resolveSecret(name)).toBe(value);
+      expect(resolveSecret("default", "default", name)).toBe(value);
     }
   });
 
@@ -190,15 +186,15 @@ describe("vault key invariants", () => {
 
     for (let i = 0; i < 75; i++) {
       const value = `version-${i}-${crypto.randomBytes(512).toString("hex")}`;
-      storeSecret("ROTATING_SECRET", value);
+      storeSecret("default", "default", "ROTATING_SECRET", value);
       restartRuntime();
-      expect(resolveSecret("ROTATING_SECRET")).toBe(value);
+      expect(resolveSecret("default", "default", "ROTATING_SECRET")).toBe(value);
     }
   });
 
   it("does not rewrite the key file when init is called on an initialized vault", () => {
     initializeVault("stable-passphrase");
-    storeSecret("SURVIVES_REINIT", "stable-value");
+    storeSecret("default", "default", "SURVIVES_REINIT", "stable-value");
     const before = fs.readFileSync(keyPath());
 
     restartRuntime();
@@ -209,7 +205,7 @@ describe("vault key invariants", () => {
     expect(after.equals(before)).toBe(true);
 
     restartRuntime();
-    expect(resolveSecret("SURVIVES_REINIT")).toBe("stable-value");
+    expect(resolveSecret("default", "default", "SURVIVES_REINIT")).toBe("stable-value");
   });
 
   it("does not let a cached key from one vault poison a newly initialized vault", () => {
@@ -218,23 +214,23 @@ describe("vault key invariants", () => {
 
     process.env.KEYCLASP_HOME = firstHome;
     initializeVault("first-passphrase");
-    storeSecret("FIRST_SECRET", "first-value");
-    expect(resolveSecret("FIRST_SECRET")).toBe("first-value");
+    storeSecret("default", "default", "FIRST_SECRET", "first-value");
+    expect(resolveSecret("default", "default", "FIRST_SECRET")).toBe("first-value");
     const firstKey = fs.readFileSync(path.join(firstHome, ".keyclasp.key"));
 
     process.env.KEYCLASP_HOME = secondHome;
     initializeVault("second-passphrase");
-    storeSecret("SECOND_SECRET", "second-value");
-    expect(resolveSecret("SECOND_SECRET")).toBe("second-value");
+    storeSecret("default", "default", "SECOND_SECRET", "second-value");
+    expect(resolveSecret("default", "default", "SECOND_SECRET")).toBe("second-value");
     const secondKey = fs.readFileSync(path.join(secondHome, ".keyclasp.key"));
     expect(secondKey.equals(firstKey)).toBe(false);
 
     restartRuntime();
-    expect(resolveSecret("SECOND_SECRET")).toBe("second-value");
+    expect(resolveSecret("default", "default", "SECOND_SECRET")).toBe("second-value");
 
     process.env.KEYCLASP_HOME = firstHome;
     restartRuntime();
-    expect(resolveSecret("FIRST_SECRET")).toBe("first-value");
+    expect(resolveSecret("default", "default", "FIRST_SECRET")).toBe("first-value");
   });
 
   it("switches vault homes in one process without reusing the previous key or database", () => {
@@ -243,19 +239,19 @@ describe("vault key invariants", () => {
 
     process.env.KEYCLASP_HOME = homeA;
     initializeVault("a-passphrase");
-    storeSecret("ONLY_A", "a-value");
+    storeSecret("default", "default", "ONLY_A", "a-value");
 
     process.env.KEYCLASP_HOME = homeB;
     initializeVault("b-passphrase");
-    storeSecret("ONLY_B", "b-value");
+    storeSecret("default", "default", "ONLY_B", "b-value");
 
     process.env.KEYCLASP_HOME = homeA;
-    expect(resolveSecret("ONLY_A")).toBe("a-value");
-    expect(resolveSecret("ONLY_B")).toBeNull();
+    expect(resolveSecret("default", "default", "ONLY_A")).toBe("a-value");
+    expect(resolveSecret("default", "default", "ONLY_B")).toBeNull();
 
     process.env.KEYCLASP_HOME = homeB;
-    expect(resolveSecret("ONLY_B")).toBe("b-value");
-    expect(resolveSecret("ONLY_A")).toBeNull();
+    expect(resolveSecret("default", "default", "ONLY_B")).toBe("b-value");
+    expect(resolveSecret("default", "default", "ONLY_A")).toBeNull();
   });
 
   it("writes stable v2 key files that survive legacy machine identity changes", () => {
@@ -264,7 +260,7 @@ describe("vault key invariants", () => {
       legacy: Buffer.from("legacy-before-change-32-byte-val"),
     });
     initializeVault("stable-machine-passphrase");
-    storeSecret("STABLE_MACHINE", "survives-platform-drift");
+    storeSecret("default", "default", "STABLE_MACHINE", "survives-platform-drift");
     expect(fs.readFileSync(keyPath()).subarray(0, keyFileMagic.length).equals(keyFileMagic)).toBe(true);
 
     restartRuntime();
@@ -273,7 +269,7 @@ describe("vault key invariants", () => {
       legacy: Buffer.from("legacy-after-change-32-byte-valu"),
     });
 
-    expect(resolveSecret("STABLE_MACHINE")).toBe("survives-platform-drift");
+    expect(resolveSecret("default", "default", "STABLE_MACHINE")).toBe("survives-platform-drift");
   });
 
   it("adds a Keyclasp key beside a headerless Keyblind key without breaking rollback", () => {
@@ -286,7 +282,7 @@ describe("vault key invariants", () => {
       stable: stableIdentity,
       legacy: originalLegacyIdentity,
     });
-    expect(resolveSecret("LEGACY_SECRET")).toBe("legacy-still-readable");
+    expect(resolveSecret("default", "default", "LEGACY_SECRET")).toBe("legacy-still-readable");
     expect(fs.readFileSync(keyPath()).subarray(0, keyFileMagic.length).equals(keyFileMagic)).toBe(true);
     expect(fs.readFileSync(legacyKeyPath()).equals(legacyKeyFile)).toBe(true);
 
@@ -295,7 +291,7 @@ describe("vault key invariants", () => {
       stable: stableIdentity,
       legacy: Buffer.from("legacy-migration-after-change!"),
     });
-    expect(resolveSecret("LEGACY_SECRET")).toBe("legacy-still-readable");
+    expect(resolveSecret("default", "default", "LEGACY_SECRET")).toBe("legacy-still-readable");
 
     fs.unlinkSync(keyPath());
     restartRuntime();
@@ -303,7 +299,7 @@ describe("vault key invariants", () => {
       stable: stableIdentity,
       legacy: originalLegacyIdentity,
     });
-    expect(resolveSecret("LEGACY_SECRET")).toBe("legacy-still-readable");
+    expect(resolveSecret("default", "default", "LEGACY_SECRET")).toBe("legacy-still-readable");
     expect(fs.readFileSync(legacyKeyPath()).equals(legacyKeyFile)).toBe(true);
   });
 
@@ -323,7 +319,7 @@ describe("vault key invariants", () => {
     restartRuntime();
 
     expect(getVaultLocation()).toBe(legacyHome);
-    expect(resolveSecret("LEGACY_HOME_SECRET")).toBe("legacy-home-value");
+    expect(resolveSecret("default", "default", "LEGACY_HOME_SECRET")).toBe("legacy-home-value");
   });
 
   it("requires an explicit home when both default homes contain vaults", () => {
@@ -345,7 +341,7 @@ describe("vault key invariants", () => {
 
   it("refuses to initialize a fresh key over an existing vault database", () => {
     initializeVault("original-passphrase");
-    storeSecret("ORPHAN_DB_SECRET", "do-not-overwrite");
+    storeSecret("default", "default", "ORPHAN_DB_SECRET", "do-not-overwrite");
     const originalKey = fs.readFileSync(keyPath());
     closeDb();
     clearKey();
@@ -356,7 +352,7 @@ describe("vault key invariants", () => {
 
     fs.writeFileSync(keyPath(), originalKey, { mode: 0o600 });
     restartRuntime();
-    expect(resolveSecret("ORPHAN_DB_SECRET")).toBe("do-not-overwrite");
+    expect(resolveSecret("default", "default", "ORPHAN_DB_SECRET")).toBe("do-not-overwrite");
   });
 
   it("blocks writes when the key file no longer unlocks existing vault data", () => {
@@ -365,7 +361,7 @@ describe("vault key invariants", () => {
 
     process.env.KEYCLASP_HOME = homeA;
     initializeVault("home-a");
-    storeSecret("EXISTING", "existing-value");
+    storeSecret("default", "default", "EXISTING", "existing-value");
     const originalKey = fs.readFileSync(path.join(homeA, ".keyclasp.key"));
 
     process.env.KEYCLASP_HOME = homeB;
@@ -376,12 +372,12 @@ describe("vault key invariants", () => {
     process.env.KEYCLASP_HOME = homeA;
     restartRuntime();
 
-    expect(() => storeSecret("NEW_AFTER_DRIFT", "new-value")).toThrow(/does not unlock this vault/);
+    expect(() => storeSecret("default", "default", "NEW_AFTER_DRIFT", "new-value")).toThrow(/does not unlock this vault/);
 
     fs.writeFileSync(path.join(homeA, ".keyclasp.key"), originalKey, { mode: 0o600 });
     restartRuntime();
-    expect(resolveSecret("EXISTING")).toBe("existing-value");
-    expect(resolveSecret("NEW_AFTER_DRIFT")).toBeNull();
+    expect(resolveSecret("default", "default", "EXISTING")).toBe("existing-value");
+    expect(resolveSecret("default", "default", "NEW_AFTER_DRIFT")).toBeNull();
   });
 
   it("detects key/vault drift when names are visible but values are unrecoverable", () => {
@@ -390,8 +386,8 @@ describe("vault key invariants", () => {
 
     process.env.KEYCLASP_HOME = homeA;
     initializeVault("");
-    storeSecret("REPRO_SECRET", "not-a-real-secret");
-    expect(resolveSecret("REPRO_SECRET")).toBe("not-a-real-secret");
+    storeSecret("default", "default", "REPRO_SECRET", "not-a-real-secret");
+    expect(resolveSecret("default", "default", "REPRO_SECRET")).toBe("not-a-real-secret");
 
     process.env.KEYCLASP_HOME = homeB;
     restartRuntime();
@@ -401,8 +397,8 @@ describe("vault key invariants", () => {
 
     process.env.KEYCLASP_HOME = homeA;
     restartRuntime();
-    expect(listSecrets()).toContain("REPRO_SECRET");
-    expect(() => resolveSecret("REPRO_SECRET")).toThrow(/does not unlock this vault|authenticate data|decrypt/i);
+    expect(listSecrets("default", "default")).toContain("REPRO_SECRET");
+    expect(() => resolveSecret("default", "default", "REPRO_SECRET")).toThrow(/does not unlock this vault|authenticate data|decrypt/i);
 
     const decryptability = checkVaultDecryptability();
     expect(decryptability.checked).toBe(1);

@@ -3,17 +3,17 @@ import os from "node:os";
 import { StringDecoder } from "node:string_decoder";
 import path from "node:path";
 import { requireBiometricAuthentication } from "./biometric.js";
-import { validateScopeName } from "./scope.js";
+import { validateScopeName } from "./vault.js";
 
 export const REDACTION = "[KEYCLASP_REDACTED]";
 export const MIN_LEAK_VALUE_LENGTH = 8;
 
 export interface ParsedRunArgs {
   allowUnsafe: boolean;
-  project?: string;
-  environment?: string;
   envSpecs: RunEnvSpec[];
   commandArgs: string[];
+  project?: string;
+  environment?: string;
 }
 
 export interface UnsafeCommand {
@@ -87,6 +87,17 @@ export function parseRunArgs(args: string[]): ParsedRunArgs {
       allowUnsafe = true;
       continue;
     }
+    if (parsingKeyclaspOptions && arg === "--env") {
+      const spec = args[index + 1];
+      if (!spec) throw new Error("Missing value for --env. Expected SOURCE or SOURCE:TARGET.");
+      envSpecs.push(parseEnvSpec(spec));
+      index += 1;
+      continue;
+    }
+    if (parsingKeyclaspOptions && arg.startsWith("--env=")) {
+      envSpecs.push(parseEnvSpec(arg.slice("--env=".length)));
+      continue;
+    }
     if (parsingKeyclaspOptions && (arg === "--project" || arg === "-p")) {
       const value = args[index + 1];
       if (value === undefined) throw new Error("Missing value for --project.");
@@ -113,23 +124,9 @@ export function parseRunArgs(args: string[]): ParsedRunArgs {
       validateScopeName(environment, "environment");
       continue;
     }
-    if (parsingKeyclaspOptions && arg === "--env") {
-      const spec = args[index + 1];
-      if (!spec) throw new Error("Missing value for --env. Expected SOURCE or SOURCE:TARGET.");
-      envSpecs.push(parseEnvSpec(spec));
-      index += 1;
-      continue;
-    }
-    if (parsingKeyclaspOptions && arg.startsWith("--env=")) {
-      envSpecs.push(parseEnvSpec(arg.slice("--env=".length)));
-      continue;
-    }
     if (parsingKeyclaspOptions && arg === "--") {
       parsingKeyclaspOptions = false;
       continue;
-    }
-    if (parsingKeyclaspOptions && arg.startsWith("-")) {
-      throw new Error(`Unknown keyclasp run option ${JSON.stringify(arg)}. Put child arguments after the command or after --.`);
     }
     parsingKeyclaspOptions = false;
     commandArgs.push(arg);
@@ -137,10 +134,10 @@ export function parseRunArgs(args: string[]): ParsedRunArgs {
 
   return {
     allowUnsafe,
-    ...(project === undefined ? {} : { project }),
-    ...(environment === undefined ? {} : { environment }),
     envSpecs,
     commandArgs,
+    ...(project === undefined ? {} : { project }),
+    ...(environment === undefined ? {} : { environment }),
   };
 }
 
@@ -328,10 +325,7 @@ export async function runCommandWithSecrets(options: RunCommandOptions): Promise
   return outcome;
 }
 
-function reportSpawnError(
-  outcome: RunOutcome,
-  writeStderr: (chunk: string) => void,
-): void {
+function reportSpawnError(outcome: RunOutcome, writeStderr: (chunk: string) => void): void {
   if (outcome.kind !== "error" || !outcome.error) return;
   const code = (outcome.error as NodeJS.ErrnoException).code;
   const suffix = typeof code === "string" ? ` (${code})` : "";
