@@ -18,7 +18,7 @@ coding agent          Keyclasp vault           trusted child process
 secret names only  -> encrypted values      -> runtime environment
 ```
 
-The agent can discover that a project expects `OPENAI_API_KEY` without ever seeing its value. When a command needs that key, `keyclasp run` injects it directly into the child process's environment — the value never passes through the agent's context, the CLI's own stdout, or the shell command line. Keyclasp also watches the command's own output, redacts a detected secret, and terminates the process if it leaks one.
+The agent can discover that a project expects `SECRET_API_KEY` without ever seeing its value. When a command needs that key, `keyclasp run` injects it directly into the child process's environment — the value never passes through the agent's context, the CLI's own stdout, or the shell command line. Keyclasp also watches the command's own output, redacts a detected secret, and terminates the process if it leaks one.
 
 ## Why Use Keyclasp Instead of a Plain `.env` File?
 
@@ -45,7 +45,7 @@ Keep the vault passphrase safe. Keyclasp cannot recover it for you.
 ### 2. Store a credential without putting it in shell history
 
 ```bash
-keyclasp set OPENAI_API_KEY - --project myapp --environment prod
+keyclasp set SECRET_API_KEY - --project myapp --environment prod
 ```
 
 Paste the value at the secure prompt and press Enter.
@@ -53,7 +53,7 @@ Paste the value at the secure prompt and press Enter.
 ### 3. Run a command with the credential injected at runtime
 
 ```bash
-keyclasp run --project myapp --environment prod --env OPENAI_API_KEY -- npm test
+keyclasp run --project myapp --environment prod --env SECRET_API_KEY -- npm test
 ```
 
 Use explicit `--env` options so each command receives only the secrets it needs. This is the form coding agents should use.
