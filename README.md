@@ -79,7 +79,13 @@ Tell the agent:
 
 > Use Keyclasp for commands that need credentials. Always pass the intended `--project` and `--environment` explicitly to `keyclasp list`, `keyclasp status`, and `keyclasp run`; do not rely on `keyclasp use` or ambient context. Choose the minimum required `--env` mappings and never omit `--env`. Never call `keyclasp get`, request whole-scope injection, or print or paste injected environment variables.
 
-Keyclasp ships an agent skill at [`skills/keyclasp-agent`](skills/keyclasp-agent) that encodes exactly this workflow, plus explicit safety rules. Install that directory as a skill for your agent tool, or point the agent at it directly. The npm package includes the skill so agent tooling can discover the same instructions from the installed package.
+Keyclasp ships an agent skill at [`skills/keyclasp-agent`](skills/keyclasp-agent) that encodes exactly this workflow, plus explicit safety rules. From the repository or npm package directory, install it for Codex with:
+
+```bash
+npm run install:codex-skill
+```
+
+The installer copies the skill to `$CODEX_HOME/skills/keyclasp-agent`, or `~/.codex/skills/keyclasp-agent` when `CODEX_HOME` is unset. For other agent tools, install the skill directory using that tool's skill mechanism or point the agent at it directly.
 
 ## Command Reference
 
