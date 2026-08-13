@@ -1,7 +1,7 @@
 ---
 title: "fix: Passphrase wraps the vault master key"
 type: fix
-status: active
+status: completed
 date: 2026-08-13
 deepened: 2026-08-13
 ---
