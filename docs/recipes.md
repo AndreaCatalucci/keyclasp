@@ -8,24 +8,24 @@ Run the vault-backed command through `keyclasp run` instead of exporting secrets
 
 ```bash
 keyclasp init <<< "$VAULT_PASSPHRASE"
-echo "$OPENAI_API_KEY" | keyclasp set OPENAI_API_KEY --project myapp --environment ci
-keyclasp run --project myapp --environment ci --env OPENAI_API_KEY -- npm test
+echo "$SECRET_API_KEY" | keyclasp set SECRET_API_KEY --project myapp --environment ci
+keyclasp run --project myapp --environment ci --env SECRET_API_KEY -- npm test
 ```
 
-Treat the CI job's own secret store (e.g. GitHub Actions secrets) as the source of truth; Keyclasp only narrows what the test/build process itself can see and print.
+Treat the CI job's own secret store as the source of truth; Keyclasp only narrows what the test/build process itself can see and print.
 
 ## Container Use
 
 ```dockerfile
 FROM node:24-slim
-RUN npm install -g keyclasp
+RUN npm install -g github:AndreaCatalucci/keyclasp
 ```
 
 Mount the vault at runtime instead of copying credentials into the image:
 
 ```bash
 docker run --mount type=bind,source="$HOME/.keyclasp",target=/root/.keyclasp your-image \
-  keyclasp run --project myapp --environment ci --env OPENAI_API_KEY -- npm test
+  keyclasp run --project myapp --environment ci --env SECRET_API_KEY -- npm test
 ```
 
 ## Least-Privilege Injection
@@ -33,7 +33,7 @@ docker run --mount type=bind,source="$HOME/.keyclasp",target=/root/.keyclasp you
 Prefer explicit `--env` mappings so a command only receives the secrets it actually needs:
 
 ```bash
-keyclasp run --project myapp --environment prod --env AWS_ACCESS_KEY_ID --env AWS_SECRET_ACCESS_KEY -- aws s3 ls
+keyclasp run --project myapp --environment prod --env SECRET_API_KEY --env DATABASE_URL -- npm test
 ```
 
 ## Moving a Vault to Another Machine

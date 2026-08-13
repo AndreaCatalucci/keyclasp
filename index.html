@@ -132,8 +132,8 @@
   <div class="hero">
     <h1>A Local Encrypted Vault for <span>Coding Agents</span></h1>
     <p>Store credentials locally, encrypted. Inject them into trusted commands only when needed — never into the agent's own context — and catch accidental output leaks.</p>
-    <div class="install">npm install -g keyclasp && keyclasp init</div>
-    <div class="note">Local vault. Guarded execution. Zero telemetry.</div>
+    <div class="install">npm install -g github:AndreaCatalucci/keyclasp && keyclasp init</div>
+    <div class="note">Node.js 24+. Local vault. Guarded execution. Zero telemetry.</div>
     <br>
     <a href="https://github.com/AndreaCatalucci/keyclasp" class="btn btn-outline">GitHub →</a>
   </div>
@@ -148,7 +148,7 @@
         <h3>Store Your Secrets</h3>
         <p>Encrypt API keys, tokens, and passwords into a local AES-256-GCM vault.</p>
         <br>
-        <code>echo "sk-abc123" | keyclasp set OPENAI_API_KEY</code>
+        <code>keyclasp set SECRET_API_KEY -</code>
       </div>
       <div class="step">
         <div class="num">2</div>
@@ -162,11 +162,11 @@
         <h3>Run With Secrets</h3>
         <p>Inject secrets into a trusted child process and stop detected output leaks.</p>
         <br>
-        <code>keyclasp run -- npm start</code>
+        <code>keyclasp run --env SECRET_API_KEY -- npm start</code>
       </div>
     </div>
     <div class="logos">
-      <span>Claude Code</span> <span>Cursor</span> <span>Copilot</span> <span>Windsurf</span> <span>Cline</span> <span>Zed</span>
+      <span>Works with local coding agents</span>
     </div>
   </div>
 
@@ -228,28 +228,12 @@
 
 </div>
 
-  <!-- Testimonials -->
-  <div class="container" style="margin-top:64px">
-    <h2 style="text-align:center;margin-bottom:32px">Trusted by Developers</h2>
-    <div class="testimonials">
-      <div class="card" style="text-align:center">
-        <p style="font-size:15px;color:#c9d1d9;line-height:1.6;font-style:italic">"Guarded run keeps credentials out of agent context, and the small command surface makes the safe path the only path."</p>
-        <p style="margin-top:12px;font-size:14px;color:#8b949e">Alex R., Senior Engineer</p>
-      </div>
-      <div class="card" style="text-align:center">
-        <p style="font-size:15px;color:#c9d1d9;line-height:1.6;font-style:italic">"We run Keyclasp in CI so credentials never touch the AI code review context. Real secrets never exposed. It's part of our standard dev setup now."</p>
-        <p style="margin-top:12px;font-size:14px;color:#8b949e">Jordan M., DevOps Lead</p>
-      </div>
-    </div>
-  </div>
-
 </div>
 
 <footer>
   <div class="container">
     <div class="links">
       <a href="https://github.com/AndreaCatalucci/keyclasp">GitHub</a>
-      <a href="https://www.npmjs.com/package/keyclasp">npm</a>
       <a href="https://github.com/AndreaCatalucci/keyclasp/tree/main/docs">Docs</a>
       <a href="/privacy.html">Privacy</a>
     </div>

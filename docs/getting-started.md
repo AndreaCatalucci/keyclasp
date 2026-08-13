@@ -1,26 +1,56 @@
 # Getting Started
 
+Requires **Node.js 24+**. `set`, `list`, `status`, and `keyclasp run --env ...` work on macOS, Linux, and Windows. `keyclasp get` and whole-scope `keyclasp run` (no `--env`) need macOS Touch ID.
+
 ## Install Keyclasp
 
 ```bash
-npm install -g keyclasp
+npm install -g github:AndreaCatalucci/keyclasp
 keyclasp init
 ```
 
-Choose a strong vault passphrase and store it safely. Keyclasp cannot recover a lost passphrase.
+Enter a passphrase, or press Enter for a machine-only key (that vault will not unlock on another machine). Keyclasp cannot recover a lost passphrase.
 
-## Store Your First Secret
+The install compiles a native SQLite binding. If it fails, install a C++ toolchain (Xcode Command Line Tools on macOS, `build-essential` plus Python on Linux) and retry.
 
-Use the secure prompt so the value does not enter shell history:
+Or clone, build, and link:
 
 ```bash
-keyclasp set OPENAI_API_KEY - --project myapp --environment prod
-# Paste the value, then press Ctrl+D
+git clone https://github.com/AndreaCatalucci/keyclasp.git
+cd keyclasp
+npm install
+npm run build
+npm link
+keyclasp init
 ```
 
-Confirm that the vault contains the name without printing its value:
+## Try It Without a Real API Key
+
+Use the secure prompt so the value does not enter shell history. Paste the value and press Enter — not Ctrl+D.
 
 ```bash
+keyclasp set DEMO_SECRET - --project demo --environment local
+# Paste any 8+ character string, then press Enter
+
+keyclasp list --project demo --environment local
+keyclasp status --project demo --environment local
+```
+
+`list` prints names only. Prove injection without printing the value:
+
+```bash
+keyclasp run --project demo --environment local --env DEMO_SECRET -- \
+  node -e 'const v = process.env.DEMO_SECRET; console.log(v ? "injected, " + v.length + " chars" : "missing")'
+```
+
+`env`, `printenv`, and `export` are blocked on purpose. If the child prints the secret, Keyclasp redacts it as `[KEYCLASP_REDACTED]` and terminates the process.
+
+## Store a Real Secret
+
+```bash
+keyclasp set SECRET_API_KEY - --project myapp --environment prod
+# Paste the value, then press Enter
+
 keyclasp list --project myapp --environment prod
 keyclasp status --project myapp --environment prod
 ```
@@ -28,8 +58,8 @@ keyclasp status --project myapp --environment prod
 ## Run Commands With Secrets
 
 ```bash
-keyclasp run --project myapp --environment prod --env OPENAI_API_KEY -- npm test
-keyclasp run --project myapp --environment prod --env OPENAI_API_KEY -- npm start
+keyclasp run --project myapp --environment prod --env SECRET_API_KEY -- npm test
+keyclasp run --project myapp --environment prod --env SECRET_API_KEY -- npm start
 ```
 
 Keyclasp injects stored secrets into the child process environment. It blocks obvious environment-dump commands by default and watches stdout and stderr for injected values. If it detects a leak, it redacts the value and terminates the child process.
@@ -37,16 +67,10 @@ Keyclasp injects stored secrets into the child process environment. It blocks ob
 When a command expects another variable name:
 
 ```bash
-keyclasp run --project myapp --environment prod --env OPENAI_API_KEY:AI_TOKEN -- npm test
+keyclasp run --project myapp --environment prod --env SECRET_API_KEY:API_TOKEN -- npm test
 ```
 
-Or restrict injection to only what's needed:
-
-```bash
-keyclasp run --project myapp --environment prod --env OPENAI_API_KEY -- npm test
-```
-
-Omitting `--env` requests whole-scope injection. That operator-only path requires a fresh macOS Touch ID approval and is unavailable on systems without macOS biometrics. Coding agents must always use explicit scope flags and explicit `--env` mappings.
+Omitting `--env` requests whole-scope injection. That operator-only path requires a fresh macOS Touch ID approval and is unavailable on Linux and Windows. Coding agents must always use explicit scope flags and explicit `--env` mappings.
 
 ## Next Steps
 

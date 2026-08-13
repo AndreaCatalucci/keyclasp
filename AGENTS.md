@@ -35,7 +35,7 @@ npx tsc --watch  # Dev mode
 ## New User Flow
 
 ```bash
-npm i -g keyclasp     # Install
+npm i -g github:AndreaCatalucci/keyclasp  # Install
 keyclasp init         # Create vault
 keyclasp set API_KEY - # Store a secret securely
 keyclasp run -- npm test # Inject secrets into a trusted command

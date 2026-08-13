@@ -2,10 +2,11 @@
 
 **Store credentials locally, encrypted. Let a coding agent run commands that need them — without the agent, its prompt, or its output ever seeing the plaintext.**
 
-[![npm version](https://img.shields.io/npm/v/keyclasp)](https://www.npmjs.com/package/keyclasp)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-Keyclasp is a minimal local secrets vault and CLI for AI coding agents such as Codex, Claude Code, Cursor, Cline, and GitHub Copilot. It lets an agent run tests, builds, API calls, cloud CLIs, and deployment tools without reading the real API keys, tokens, passwords, or credentials those commands need.
+Keyclasp is a minimal local secrets vault and CLI for AI coding agents. It lets an agent run tests, builds, API calls, cloud CLIs, and deployment tools without reading the real API keys, tokens, passwords, or credentials those commands need.
+
+Requires **Node.js 24+**. The vault, `set`/`list`/`status`, and `keyclasp run --env ...` work on macOS, Linux, and Windows. `keyclasp get` and whole-scope `keyclasp run` (no `--env`) need macOS Touch ID and fail closed elsewhere.
 
 ## The Problem Keyclasp Solves
 
@@ -33,45 +34,72 @@ Keyclasp is local-only by design: no account, cloud service, network connection,
 
 ## Quick Start
 
-### 1. Install and initialize
+### 1. Install
 
 ```bash
-npm install -g keyclasp
+npm install -g github:AndreaCatalucci/keyclasp
+```
+
+The install compiles a native SQLite binding (`better-sqlite3`). If that step fails, install a C++ toolchain (Xcode Command Line Tools on macOS, `build-essential` plus Python on Linux) and retry.
+
+Or clone, build, and link:
+
+```bash
+git clone https://github.com/AndreaCatalucci/keyclasp.git
+cd keyclasp
+npm install
+npm run build
+npm link
+```
+
+### 2. Initialize a local vault
+
+```bash
 keyclasp init
 ```
 
-Keep the vault passphrase safe. Keyclasp cannot recover it for you.
+Enter a passphrase, or press Enter for a machine-only key (that vault will not unlock on another machine). Keyclasp cannot recover a lost passphrase.
 
-### 2. Store a credential without putting it in shell history
+### 3. Try it with a dummy secret
+
+No real API key is required. `keyclasp set NAME -` prompts securely so the value does not enter shell history. Paste the value and press Enter (not Ctrl+D).
+
+```bash
+keyclasp set DEMO_SECRET - --project demo --environment local
+# Paste any 8+ character string, then press Enter
+
+keyclasp list --project demo --environment local
+```
+
+`list` prints names only. Prove injection without printing the value:
+
+```bash
+keyclasp run --project demo --environment local --env DEMO_SECRET -- \
+  node -e 'const v = process.env.DEMO_SECRET; console.log(v ? "injected, " + v.length + " chars" : "missing")'
+```
+
+`env`, `printenv`, and `export` are blocked on purpose. If the child process prints the secret itself, Keyclasp redacts it as `[KEYCLASP_REDACTED]` and terminates the process — that is the leak guard working, not a failed inject:
+
+```bash
+keyclasp run --project demo --environment local --env DEMO_SECRET -- \
+  node -e 'console.log(process.env.DEMO_SECRET)'
+```
+
+### 4. Use it with a real command
 
 ```bash
 keyclasp set SECRET_API_KEY - --project myapp --environment prod
-```
-
-Paste the value at the secure prompt and press Enter.
-
-### 3. Run a command with the credential injected at runtime
-
-```bash
 keyclasp run --project myapp --environment prod --env SECRET_API_KEY -- npm test
+keyclasp status --project myapp --environment prod
 ```
 
-Use explicit `--env` options so each command receives only the secrets it needs. This is the form coding agents should use.
+Use explicit `--env` options so each command receives only the secrets it needs. This is the form that works on every platform, and the form coding agents should use.
 
-An operator on macOS can inject every secret in the selected scope with the shorter form, but Keyclasp requires Touch ID before resolving any value:
+An operator on macOS can inject every secret in the selected scope by omitting `--env`. That path requires a fresh Touch ID approval and is unavailable on Linux and Windows:
 
 ```bash
 keyclasp run --project myapp --environment prod -- npm test
 ```
-
-### 4. Check the setup without revealing values
-
-```bash
-keyclasp status --project myapp --environment prod
-keyclasp list --project myapp --environment prod
-```
-
-`list` prints secret names only. It never prints their values.
 
 ## Use Keyclasp With Coding Agents
 
@@ -79,13 +107,13 @@ Tell the agent:
 
 > Use Keyclasp for commands that need credentials. Always pass the intended `--project` and `--environment` explicitly to `keyclasp list`, `keyclasp status`, and `keyclasp run`; do not rely on `keyclasp use` or ambient context. Choose the minimum required `--env` mappings and never omit `--env`. Never call `keyclasp get`, request whole-scope injection, or print or paste injected environment variables.
 
-Keyclasp ships an agent skill at [`skills/keyclasp-agent`](skills/keyclasp-agent) that encodes exactly this workflow, plus explicit safety rules. From the repository or npm package directory, install it for Codex with:
+Keyclasp ships an agent skill at [`skills/keyclasp-agent`](skills/keyclasp-agent) that encodes exactly this workflow, plus explicit safety rules. From a clone of this repository:
 
 ```bash
 npm run install:codex-skill
 ```
 
-The installer copies the skill to `$CODEX_HOME/skills/keyclasp-agent`, or `~/.codex/skills/keyclasp-agent` when `CODEX_HOME` is unset. For other agent tools, install the skill directory using that tool's skill mechanism or point the agent at it directly.
+That copies the skill into the local agent skills directory (`$CODEX_HOME/skills/keyclasp-agent`, or `~/.codex/skills/keyclasp-agent` when `CODEX_HOME` is unset). For other tools, install the skill directory using that tool's skill mechanism or point the agent at it directly.
 
 ## Command Reference
 

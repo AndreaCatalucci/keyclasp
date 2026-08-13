@@ -28,6 +28,38 @@ Yes, when the agent works with secret names only and uses explicit `keyclasp run
 
 No. A child process that receives a secret can still misuse it. Keyclasp blocks common environment-dump commands and scans output for injected values, terminating the process on a detected leak — these are safeguards, not a security boundary against malicious code.
 
+## What Node.js version do I need?
+
+Node.js 24 or newer. The package declares `"engines": { "node": ">=24" }`.
+
+## Does it work on Linux and Windows?
+
+Yes. The vault, `set`, `list`, `status`, and `keyclasp run --env ...` work on macOS, Linux, and Windows. `keyclasp get` and whole-scope `keyclasp run` (no `--env`) require macOS Touch ID and fail closed elsewhere. Use explicit `--env` mappings on every platform.
+
+## Why did `env` or `printenv` get blocked?
+
+Those commands dump the process environment, which would print injected secrets. That is intentional. Prove injection with the target command, or with a check that reports only whether the variable is set — not its value.
+
+## Why did my command print `[KEYCLASP_REDACTED]` and exit?
+
+The child process wrote an injected secret to stdout or stderr. Keyclasp redacts the value and terminates the child. Fix the command so it does not print the credential; do not pass `--allow-unsafe` to hide the leak.
+
+## How do I install Keyclasp?
+
+```bash
+npm install -g github:AndreaCatalucci/keyclasp
+```
+
+Or clone, build, and link:
+
+```bash
+git clone https://github.com/AndreaCatalucci/keyclasp.git
+cd keyclasp
+npm install
+npm run build
+npm link
+```
+
 ## How do I report a security issue?
 
 Open a [private GitHub security advisory](https://github.com/AndreaCatalucci/keyclasp/security/advisories/new). Do not open a public issue for security vulnerabilities.

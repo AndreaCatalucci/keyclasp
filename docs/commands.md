@@ -62,10 +62,11 @@ keyclasp delete --bulk --environment ENV --all-projects
 
 ```bash
 keyclasp run --project myapp --environment prod --env API_KEY -- npm test
-keyclasp run --project myapp --environment prod -- npm start  # Operator-only whole-scope injection
 keyclasp run --project myapp --environment prod --env HELLO:WORLD -- npm test
-keyclasp run --project myapp --environment prod --allow-unsafe -- env
+keyclasp run --project myapp --environment prod -- npm start  # Operator-only; requires macOS Touch ID
 ```
+
+`env`, `printenv`, and `export` are blocked by default because they dump injected secrets. `--allow-unsafe` disables that preflight and output leak protection; it does not bypass Touch ID.
 
 `--env SOURCE[:TARGET]` (repeatable) restricts injection to specific secrets and can rename them for the child process. Coding agents must always use this form.
 

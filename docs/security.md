@@ -17,7 +17,7 @@
 - Kernel-level attacks (rootkits)
 - Physical hardware keyloggers
 - Memory dumping from a running process that has unlocked the vault
-- Supply chain compromise of the `keyclasp` npm package itself
+- Supply chain compromise of the installed Keyclasp package itself
 - A trusted child process deliberately exfiltrating a secret it was intentionally given (e.g. via `--allow-unsafe`, or a network call it makes on purpose)
 
 ## Architecture Overview

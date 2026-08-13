@@ -24,6 +24,7 @@
     "dev": "tsc --watch",
     "install:codex-skill": "bash scripts/install-codex-skill.sh",
     "start": "node dist/cli.js",
+    "prepare": "npm run build",
     "prepublishOnly": "npm run build",
     "test": "vitest run",
     "test:watch": "vitest"

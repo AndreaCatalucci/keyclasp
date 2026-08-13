@@ -84,13 +84,10 @@ Global flags:
 
 Examples:
   keyclasp init
-  echo "sk-abc123" | keyclasp set OPENAI_API_KEY --project myapp --environment prod
   keyclasp set DATABASE_URL - --project myapp --environment staging
-  keyclasp list --project myapp
-  keyclasp run --project myapp --environment prod -- npm test
-                              # Whole-scope injection requires Touch ID
-  keyclasp run --project myapp --environment prod --env OPENAI_API_KEY:AI_KEY -- npm start
-                              # Run with a one-off env mapping and leak-guarded output
+  keyclasp list --project myapp --environment staging
+  keyclasp run --project myapp --environment prod --env SECRET_API_KEY -- npm test
+  keyclasp run --project myapp --environment prod --env SECRET_API_KEY:API_TOKEN -- npm start
   `);
 }
 
