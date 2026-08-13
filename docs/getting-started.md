@@ -9,7 +9,9 @@ npm install -g github:AndreaCatalucci/keyclasp
 keyclasp init
 ```
 
-Enter a passphrase, or press Enter for a machine-only key (that vault will not unlock on another machine). Keyclasp cannot recover a lost passphrase.
+Enter a passphrase, or press Enter for a machine-only key. A passphrase vault needs that passphrase again in each new terminal (`set`, `get`, `run`, `status`). A machine-only vault stays on this machine and is the mode agents and CI should use. Keyclasp cannot recover a lost passphrase.
+
+If a new CLI refuses an old XOR key file, clone this repository and run `scripts/migrate-vault-key-wrap.mjs` on the original machine.
 
 The install compiles a native SQLite binding. If it fails, install a C++ toolchain (Xcode Command Line Tools on macOS, `build-essential` plus Python on Linux) and retry.
 

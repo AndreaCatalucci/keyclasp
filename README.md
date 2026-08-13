@@ -58,7 +58,7 @@ npm link
 keyclasp init
 ```
 
-Enter a passphrase, or press Enter for a machine-only key (that vault will not unlock on another machine). Keyclasp cannot recover a lost passphrase.
+Enter a passphrase, or press Enter for a machine-only key. A passphrase vault asks for that passphrase again in each new process. Machine-only stays on this machine and is what agents and CI should use. Keyclasp cannot recover a lost passphrase.
 
 ### 3. Try it with a dummy secret
 

@@ -66,7 +66,7 @@ Always place Keyclasp options (including `--project`/`--environment`) before `--
 ## Handle Failures
 
 - If Keyclasp is unavailable, report that installation or PATH configuration is required. Do not fall back to asking for plaintext credentials.
-- If the vault is not initialized or cannot be unlocked, report the exact Keyclasp error and let the user complete the interactive setup or unlock step.
+- If the vault is not initialized, locked, or uses an old key-file format, report the exact Keyclasp error and let the user complete setup, enter the wrap passphrase in their own terminal, or run the migrate script. Do not treat `status` exit 0 as proof that `run --env` can inject. Do not prompt for or accept a vault passphrase.
 - If a secret is missing, run `keyclasp list --project <project> --environment <environment>` again with the same scope, compare names, and report the required name and scope. A "not found" error may mean the name is wrong, or the project/environment is — check both before assuming the secret was never stored. Do not invent a value or read one from an unsafe file.
 - If Keyclasp blocks a command as an environment dump, choose a narrower behavioral verification. Do not bypass the block.
 - If output leak detection terminates the command, report the redacted failure and fix the target command's logging before retrying.

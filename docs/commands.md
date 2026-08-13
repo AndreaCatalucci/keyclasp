@@ -4,18 +4,20 @@
 
 | Command | Description |
 |---------|-------------|
-| `keyclasp init` | Initialize a new vault |
+| `keyclasp init` | Initialize a new vault (passphrase wrap, or empty for machine-only) |
 | `keyclasp set <name>` | Store a secret (reads value from stdin) |
 | `keyclasp set <name> -` | Store a secret (prompts securely) |
 | `keyclasp get <name>` | Retrieve a secret after Touch ID or vault passphrase |
 | `keyclasp list` | List secret names in the resolved scope |
 | `keyclasp list --all` | List project/environment/name triples vault-wide |
 | `keyclasp delete <name>` | Delete a secret |
-| `keyclasp status` | Show vault location, secret count, and decryptability check |
+| `keyclasp status` | Show vault location, secret count, and decryptability (or `locked` if the wrap is not unlocked) |
 | `keyclasp projects` | List distinct project names in use |
 | `keyclasp environments` | List distinct environment names in use |
 
 `keyclasp set` overwrites an existing name, so it doubles as an update/rotate command.
+
+A passphrase vault is locked in each new process until you enter the wrap passphrase in a TTY. Non-TTY `set` / `run --env` fail locked instead of reading the passphrase from a pipe. `list`, `delete`, and `rename` still work while locked. `status` prints `locked` and exits 0; that is not proof that `run --env` can inject. Machine-only vaults do not prompt. Old XOR key files are refused; migrate with `scripts/migrate-vault-key-wrap.mjs` from a clone of this repo.
 
 ## Projects and environments
 
