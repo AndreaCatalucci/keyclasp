@@ -48,7 +48,7 @@ Usage:
   keyclasp init                Initialize the encrypted vault
   keyclasp set <name>          Store a secret (value read from stdin)
   keyclasp set <name> -        Store a secret (prompts securely)
-  keyclasp get <name>          Print a secret after macOS Touch ID approval
+  keyclasp get <name>          Print a secret after Touch ID or vault passphrase
   keyclasp list [--all]        List stored secret names
   keyclasp delete <name>       Delete a secret
   keyclasp delete --bulk ...   Delete every secret in a project/environment
@@ -397,7 +397,7 @@ async function main(): Promise<void> {
           process.exit(1);
         }
         const { project, environment } = resolveContext(pFlag, eFlag);
-        const val = resolveSecretForOperator(
+        const val = await resolveSecretForOperator(
           `${project}/${environment}/${secretName}`,
           () => resolveSecret(project, environment, secretName),
         );

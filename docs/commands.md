@@ -7,7 +7,7 @@
 | `keyclasp init` | Initialize a new vault |
 | `keyclasp set <name>` | Store a secret (reads value from stdin) |
 | `keyclasp set <name> -` | Store a secret (prompts securely) |
-| `keyclasp get <name>` | Retrieve a secret after macOS Touch ID approval |
+| `keyclasp get <name>` | Retrieve a secret after Touch ID or vault passphrase |
 | `keyclasp list` | List secret names in the resolved scope |
 | `keyclasp list --all` | List project/environment/name triples vault-wide |
 | `keyclasp delete <name>` | Delete a secret |
@@ -63,14 +63,14 @@ keyclasp delete --bulk --environment ENV --all-projects
 ```bash
 keyclasp run --project myapp --environment prod --env API_KEY -- npm test
 keyclasp run --project myapp --environment prod --env HELLO:WORLD -- npm test
-keyclasp run --project myapp --environment prod -- npm start  # Operator-only; requires macOS Touch ID
+keyclasp run --project myapp --environment prod -- npm start  # Operator-only; Touch ID or vault passphrase
 ```
 
-`env`, `printenv`, and `export` are blocked by default because they dump injected secrets. `--allow-unsafe` disables that preflight and output leak protection; it does not bypass Touch ID.
+`env`, `printenv`, and `export` are blocked by default because they dump injected secrets. `--allow-unsafe` disables that preflight and output leak protection; it does not bypass operator authentication.
 
 `--env SOURCE[:TARGET]` (repeatable) restricts injection to specific secrets and can rename them for the child process. Coding agents must always use this form.
 
-With no `--env`, `keyclasp run` would inject every stored secret in the resolved scope under its own name. Keyclasp therefore requires a fresh macOS Touch ID approval before resolving any value. The operation fails closed on non-macOS systems or when biometrics are unavailable, denied, or cancelled. `--allow-unsafe` disables command preflight and output leak protection for that invocation, but it does not bypass biometric authorization.
+With no `--env`, `keyclasp run` would inject every stored secret in the resolved scope under its own name. Keyclasp therefore requires a fresh macOS Touch ID approval when Touch ID is available. If Touch ID is unavailable or not enrolled, it asks for the vault passphrase in an interactive terminal. A cancelled or failed Touch ID prompt does not fall back. A machine-only (empty) passphrase cannot authorize this path. `--allow-unsafe` disables command preflight and output leak protection for that invocation, but it does not bypass operator authentication.
 
 Use `--` before the child command when possible. Separator-free legacy forms remain supported; once the child command begins, its arguments are preserved even when they are named `--project`, `-p`, `--environment`, or `-E`.
 

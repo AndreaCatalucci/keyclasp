@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { requireBiometricAuthentication } from "../src/biometric.js";
+import { requireOperatorAuthentication } from "../src/biometric.js";
 import {
   buildRunEnvironment,
   checkUnsafeCommand,
@@ -9,10 +9,10 @@ import {
 } from "../src/run.js";
 
 vi.mock("../src/biometric.js", () => ({
-  requireBiometricAuthentication: vi.fn(),
+  requireOperatorAuthentication: vi.fn(),
 }));
 
-const biometricMock = vi.mocked(requireBiometricAuthentication);
+const biometricMock = vi.mocked(requireOperatorAuthentication);
 
 beforeEach(() => {
   biometricMock.mockReset();

@@ -111,19 +111,19 @@ const authTag = cipher.getAuthTag();
 
 ## Operator Biometric Gates
 
-Two broad plaintext-access paths require a fresh macOS Touch ID approval before Keyclasp resolves any secret value:
+Two broad plaintext-access paths require operator authentication before Keyclasp resolves any secret value:
 
 - `keyclasp get <name>`, which prints plaintext for a human operator.
 - `keyclasp run` without `--env`, which injects every secret in the selected scope.
 
-Keyclasp asks macOS LocalAuthentication to evaluate the biometric-only device-owner policy. It does not permit password fallback. The operation fails closed when Touch ID is unavailable, not enrolled, denied, cancelled, or when the platform is not macOS. Agents must never invoke either operator-only path.
+Keyclasp asks macOS LocalAuthentication to evaluate the biometric-only device-owner policy when Touch ID is available. If Touch ID is unavailable, not enrolled, or the helper cannot start, it asks for the vault passphrase in an interactive terminal and checks it against the key derived at `init`. A cancelled or failed Touch ID prompt does not fall back to the passphrase. A machine-only (empty) passphrase cannot authorize these paths. The passphrase prompt requires a TTY so a non-interactive agent cannot satisfy it by piping stdin. Agents must never invoke either operator-only path.
 
 ## Attack Surface Analysis
 
 | Attack Vector | Risk | Mitigation |
 |---------------|------|------------|
-| Agent asks for a secret value directly | **HIGH** | `keyclasp get` requires fresh macOS Touch ID before resolving the value, and the agent skill prohibits invoking it |
-| Agent requests every secret in a scope | **HIGH** | Whole-scope `keyclasp run` requires fresh macOS Touch ID; agent workflows must use explicit scope and `--env` mappings |
+| Agent asks for a secret value directly | **HIGH** | `keyclasp get` requires Touch ID or an interactive vault passphrase before resolving the value, and the agent skill prohibits invoking it |
+| Agent requests every secret in a scope | **HIGH** | Whole-scope `keyclasp run` requires Touch ID or an interactive vault passphrase; agent workflows must use explicit scope and `--env` mappings |
 | Child process reads injected secrets | **HIGH** | Run only trusted commands; guarded execution reduces accidental disclosure but does not make malicious software safe |
 | Injected command prints secrets to its own output | **HIGH** | `keyclasp run` blocks obvious environment dumps, redacts detected injected values from stdout/stderr, and terminates the child process by default; `--allow-unsafe` disables this and must be explicit |
 | Vault.db stolen + passphrase known | **MEDIUM** | Machine-identity-bound key file prevents unwrapping on different hardware |
@@ -138,7 +138,7 @@ Keyclasp asks macOS LocalAuthentication to evaluate the biometric-only device-ow
 1. **Never commit `.keyclasp/`** to version control.
 2. **Set a real passphrase at `keyclasp init`** unless you specifically want a machine-bound vault with no passphrase to remember.
 3. **Use `keyclasp run`** instead of printing secrets into the shell or pasting them into an agent prompt.
-4. **Always use explicit `--project`, `--environment`, and `--env SOURCE[:TARGET]` for agent commands** so both the namespace and requested secrets are unambiguous. Whole-scope injection is operator-only and biometric-gated.
+4. **Always use explicit `--project`, `--environment`, and `--env SOURCE[:TARGET]` for agent commands** so both the namespace and requested secrets are unambiguous. Whole-scope injection is operator-only (Touch ID or interactive vault passphrase).
 5. **Run only trusted child processes** with injected credentials.
 6. **Rotate affected secrets** (`keyclasp set <name>` again) if you suspect compromise.
 

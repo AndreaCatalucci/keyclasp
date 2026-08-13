@@ -48,14 +48,14 @@ keyclasp run --project myapp --environment prod --env OPENAI_KEY:OPENAI_API_KEY 
 keyclasp run --project myapp --environment prod --env AWS_ACCESS_KEY_ID --env AWS_SECRET_ACCESS_KEY -- aws s3 ls
 ```
 
-Never omit `--env`. With no `--env` option, Keyclasp treats the request as operator-only whole-scope injection and requires macOS Touch ID. Agents must not request or attempt to satisfy that prompt.
+Never omit `--env`. With no `--env` option, Keyclasp treats the request as operator-only whole-scope injection and requires Touch ID or an interactive vault passphrase. Agents must not request or attempt to satisfy that prompt.
 
 Always place Keyclasp options (including `--project`/`--environment`) before `--`; everything after `--` is the child command and its arguments.
 
 ## Safety Rules
 
 - Do not run `keyclasp get` or any other command that prints a plaintext secret.
-- Do not run `keyclasp run` without at least one explicit `--env` mapping. Whole-scope injection is a biometric-gated operator action.
+- Do not run `keyclasp run` without at least one explicit `--env` mapping. Whole-scope injection is an operator action (Touch ID or interactive vault passphrase).
 - Do not inspect injected values with `env`, `printenv`, shell expansion, debug logging, or equivalent commands. Verify behavior through the target command instead.
 - Do not paste secret values into prompts, source files, command arguments, logs, test snapshots, commits, or summaries.
 - Treat the child command as trusted code: it can read every secret injected into it. Use explicit `--env` mappings for least privilege when possible.

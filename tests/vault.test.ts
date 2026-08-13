@@ -23,6 +23,8 @@ import {
   clearKey,
   getKey,
   getDb,
+  verifyVaultPassphrase,
+  vaultHasPassphrase,
   validateScopeName,
   isNewProjectEnvironment,
   projects,
@@ -228,6 +230,30 @@ describe("vault CRUD", () => {
     expect(deleteSecret("default", "default", "DELETE_TEST")).toBe(true);
     expect(resolveSecret("default", "default", "DELETE_TEST")).toBeNull();
     expect(deleteSecret("default", "default", "DELETE_TEST")).toBe(false);
+  });
+});
+
+describe("vault passphrase verification", () => {
+  it("accepts the passphrase used at init and rejects others", () => {
+    const vault = withTempVault("operator-passphrase");
+    try {
+      expect(verifyVaultPassphrase("operator-passphrase")).toBe(true);
+      expect(verifyVaultPassphrase("wrong-passphrase")).toBe(false);
+      expect(vaultHasPassphrase()).toBe(true);
+    } finally {
+      vault.restore();
+    }
+  });
+
+  it("treats an empty init passphrase as a machine-only key", () => {
+    const vault = withTempVault("");
+    try {
+      expect(verifyVaultPassphrase("")).toBe(true);
+      expect(verifyVaultPassphrase("anything")).toBe(false);
+      expect(vaultHasPassphrase()).toBe(false);
+    } finally {
+      vault.restore();
+    }
   });
 });
 

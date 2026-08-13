@@ -6,7 +6,7 @@
 
 Keyclasp is a minimal local secrets vault and CLI for AI coding agents. It lets an agent run tests, builds, API calls, cloud CLIs, and deployment tools without reading the real API keys, tokens, passwords, or credentials those commands need.
 
-Requires **Node.js 24+**. The vault, `set`/`list`/`status`, and `keyclasp run --env ...` work on macOS, Linux, and Windows. `keyclasp get` and whole-scope `keyclasp run` (no `--env`) need macOS Touch ID and fail closed elsewhere.
+Requires **Node.js 24+**. The vault, `set`/`list`/`status`, and `keyclasp run --env ...` work on macOS, Linux, and Windows. `keyclasp get` and whole-scope `keyclasp run` (no `--env`) ask for macOS Touch ID when it is available, and otherwise ask for the vault passphrase in an interactive terminal.
 
 ## The Problem Keyclasp Solves
 
@@ -95,7 +95,7 @@ keyclasp status --project myapp --environment prod
 
 Use explicit `--env` options so each command receives only the secrets it needs. This is the form that works on every platform, and the form coding agents should use.
 
-An operator on macOS can inject every secret in the selected scope by omitting `--env`. That path requires a fresh Touch ID approval and is unavailable on Linux and Windows:
+An operator can inject every secret in the selected scope by omitting `--env`. That path asks for Touch ID when available, or the vault passphrase when Touch ID is not available:
 
 ```bash
 keyclasp run --project myapp --environment prod -- npm test
@@ -121,7 +121,7 @@ That copies the skill into the local agent skills directory (`$CODEX_HOME/skills
 |---------|-------------|
 | `keyclasp init` | Initialize the encrypted vault |
 | `keyclasp set <name>` | Store a secret (also updates an existing one) |
-| `keyclasp get <name>` | Resolve and print a secret after macOS Touch ID approval (human use only) |
+| `keyclasp get <name>` | Resolve and print a secret after Touch ID or vault passphrase (human use only) |
 | `keyclasp list` | List stored secret names |
 | `keyclasp delete <name>` | Delete a secret |
 | `keyclasp use <project> <environment>` | Persist an interactive human context |
@@ -140,7 +140,7 @@ See the [full CLI reference](docs/commands.md).
 - Secret values are encrypted individually with AES-256-GCM; project, environment, and secret names are stored in plaintext.
 - The vault lives under `~/.keyclasp/` with owner-only directory and file permissions (`0700`/`0600`).
 - `keyclasp run` is the only path from the vault to a process; it blocks obvious environment-dump commands and redacts/terminates on a detected output leak.
-- `keyclasp get` and whole-scope `keyclasp run` require a fresh macOS Touch ID approval before any secret value is resolved. There is no password fallback.
+- `keyclasp get` and whole-scope `keyclasp run` require a fresh macOS Touch ID approval when Touch ID is available. If it is not available, they ask for the vault passphrase in an interactive terminal. A cancelled Touch ID prompt does not fall back. A machine-only (empty) passphrase cannot authorize these paths.
 - A child process that receives a secret can still misuse or print it. `keyclasp run` reduces this risk but cannot make untrusted code safe — only run trusted commands through it.
 - `keyclasp get` deliberately prints plaintext after biometric approval. Its output may remain in terminal scrollback; agents must never invoke it.
 - An empty ("machine-only") passphrase binds the key to the local machine's identity rather than to a secret you remember — set a real passphrase if you plan to move the vault.

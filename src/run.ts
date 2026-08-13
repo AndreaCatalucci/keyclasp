@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import os from "node:os";
 import { StringDecoder } from "node:string_decoder";
 import path from "node:path";
-import { requireBiometricAuthentication } from "./biometric.js";
+import { requireOperatorAuthentication } from "./biometric.js";
 import { validateScopeName } from "./vault.js";
 
 export const REDACTION = "[KEYCLASP_REDACTED]";
@@ -292,7 +292,7 @@ export async function runCommandWithSecrets(options: RunCommandOptions): Promise
   const envSpecs = parsed.envSpecs.length > 0 ? parsed.envSpecs : options.envSpecs;
   if ((!envSpecs || envSpecs.length === 0) && options.secretNames.length > 0) {
     try {
-      requireBiometricAuthentication(`Inject every Keyclasp secret in ${options.scopeLabel ?? "the selected scope"}`);
+      await requireOperatorAuthentication(`Inject every Keyclasp secret in ${options.scopeLabel ?? "the selected scope"}`);
     } catch (err: any) {
       options.stderr(`BLOCKED: ${err.message}\n`);
       return { kind: "blocked", exitCode: 2 };

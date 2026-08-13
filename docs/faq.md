@@ -22,7 +22,7 @@ There is no recovery email, backdoor, or "forgot password" flow. If you initiali
 
 ## Can a coding agent safely use Keyclasp?
 
-Yes, when the agent works with secret names only and uses explicit `keyclasp run --project ... --environment ... --env ...` mappings instead of requesting plaintext. Agents must never call `keyclasp get` or omit `--env`; those paths are operator-only and require macOS Touch ID. See the bundled [agent skill](../skills/keyclasp-agent/SKILL.md) for the exact workflow and safety rules.
+Yes, when the agent works with secret names only and uses explicit `keyclasp run --project ... --environment ... --env ...` mappings instead of requesting plaintext. Agents must never call `keyclasp get` or omit `--env`; those paths are operator-only and require Touch ID or an interactive vault passphrase. See the bundled [agent skill](../skills/keyclasp-agent/SKILL.md) for the exact workflow and safety rules.
 
 ## Does `keyclasp run` make any program safe?
 
@@ -34,7 +34,7 @@ Node.js 24 or newer. The package declares `"engines": { "node": ">=24" }`.
 
 ## Does it work on Linux and Windows?
 
-Yes. The vault, `set`, `list`, `status`, and `keyclasp run --env ...` work on macOS, Linux, and Windows. `keyclasp get` and whole-scope `keyclasp run` (no `--env`) require macOS Touch ID and fail closed elsewhere. Use explicit `--env` mappings on every platform.
+Yes. The vault, `set`, `list`, `status`, and `keyclasp run --env ...` work on macOS, Linux, and Windows. `keyclasp get` and whole-scope `keyclasp run` (no `--env`) ask for Touch ID when it is available. If Touch ID is missing, they ask for the vault passphrase in an interactive terminal. Use explicit `--env` mappings on every platform.
 
 ## Why did `env` or `printenv` get blocked?
 

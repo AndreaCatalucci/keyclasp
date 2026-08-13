@@ -8,9 +8,11 @@ import os from "node:os";
 import path from "node:path";
 import {
   requireBiometricAuthentication,
+  requireOperatorAuthentication,
   resolveSecretForOperator,
   type BiometricRunner,
 } from "../src/biometric.js";
+import { closeDb, clearKey, initializeVault } from "../src/vault.js";
 
 describe("biometric authentication", () => {
   it("resolves the real bundled helper next to the compiled module", () => {
@@ -94,7 +96,7 @@ describe("biometric authentication", () => {
     })).toThrow("could not start");
   });
 
-  it("authenticates before resolving a secret for get", () => {
+  it("authenticates before resolving a secret for get", async () => {
     const events: string[] = [];
     const authenticate = vi.fn(() => { events.push("biometric"); });
     const resolveSecret = vi.fn(() => {
@@ -102,20 +104,118 @@ describe("biometric authentication", () => {
       return "secret-value";
     });
 
-    expect(resolveSecretForOperator("API_KEY", resolveSecret, authenticate)).toBe("secret-value");
+    expect(await resolveSecretForOperator("API_KEY", resolveSecret, authenticate)).toBe("secret-value");
     expect(authenticate).toHaveBeenCalledWith('Reveal secret "API_KEY"');
     expect(events).toEqual(["biometric", "resolve"]);
   });
 
-  it("never resolves a get when biometric authentication fails", () => {
+  it("never resolves a get when biometric authentication fails", async () => {
     const resolveSecret = vi.fn(() => "secret-value");
     const authenticate = vi.fn(() => {
       throw new Error("Biometric authentication failed or was cancelled.");
     });
 
-    expect(() => resolveSecretForOperator("API_KEY", resolveSecret, authenticate)).toThrow(
+    await expect(resolveSecretForOperator("API_KEY", resolveSecret, authenticate)).rejects.toThrow(
       "failed or was cancelled",
     );
     expect(resolveSecret).not.toHaveBeenCalled();
+  });
+
+  it("asks for the vault passphrase when Touch ID is unavailable", async () => {
+    const promptPassphrase = vi.fn(async () => "correct-passphrase");
+    const verifyPassphrase = vi.fn(() => true);
+    const vaultHasPassphrase = vi.fn(() => true);
+
+    await requireOperatorAuthentication("Reveal API_KEY", {
+      platform: "linux",
+      promptPassphrase,
+      verifyPassphrase,
+      vaultHasPassphrase,
+    });
+
+    expect(promptPassphrase).toHaveBeenCalledOnce();
+    expect(verifyPassphrase).toHaveBeenCalledWith("correct-passphrase");
+  });
+
+  it("rejects an incorrect vault passphrase fallback", async () => {
+    await expect(requireOperatorAuthentication("Reveal API_KEY", {
+      platform: "linux",
+      promptPassphrase: async () => "wrong",
+      verifyPassphrase: () => false,
+      vaultHasPassphrase: () => true,
+    })).rejects.toThrow("Vault passphrase is incorrect.");
+  });
+
+  it("does not accept an empty machine-only key as operator fallback", async () => {
+    const promptPassphrase = vi.fn(async () => "");
+
+    await expect(requireOperatorAuthentication("Reveal API_KEY", {
+      platform: "linux",
+      promptPassphrase,
+      verifyPassphrase: () => true,
+      vaultHasPassphrase: () => false,
+    })).rejects.toThrow("this vault has no passphrase");
+    expect(promptPassphrase).not.toHaveBeenCalled();
+  });
+
+  it("does not fall back to the passphrase when Touch ID is denied", async () => {
+    const promptPassphrase = vi.fn(async () => "correct-passphrase");
+    const runner = vi.fn<BiometricRunner>(() => ({ status: 1 }));
+
+    await expect(requireOperatorAuthentication("Reveal API_KEY", {
+      platform: "darwin",
+      helperPath: "/package/native/macos-biometric.js",
+      runner,
+      promptPassphrase,
+      verifyPassphrase: () => true,
+      vaultHasPassphrase: () => true,
+    })).rejects.toThrow("failed or was cancelled");
+    expect(promptPassphrase).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the passphrase when Touch ID is not enrolled", async () => {
+    const promptPassphrase = vi.fn(async () => "correct-passphrase");
+    const runner = vi.fn<BiometricRunner>(() => ({
+      status: 1,
+      stderr: "execution error: Touch ID is unavailable or not enrolled. (-2700)",
+    }));
+
+    await requireOperatorAuthentication("Reveal API_KEY", {
+      platform: "darwin",
+      helperPath: "/package/native/macos-biometric.js",
+      runner,
+      promptPassphrase,
+      verifyPassphrase: () => true,
+      vaultHasPassphrase: () => true,
+    });
+
+    expect(promptPassphrase).toHaveBeenCalledOnce();
+  });
+
+  it("checks the entered passphrase against the real vault key", async () => {
+    const previous = process.env.KEYCLASP_HOME;
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "keyclasp-operator-"));
+    process.env.KEYCLASP_HOME = path.join(dir, ".keyclasp");
+    closeDb();
+    clearKey();
+    initializeVault("operator-passphrase");
+
+    try {
+      await requireOperatorAuthentication("Reveal API_KEY", {
+        platform: "linux",
+        promptPassphrase: async () => "operator-passphrase",
+      });
+
+      await expect(requireOperatorAuthentication("Reveal API_KEY", {
+        platform: "linux",
+        promptPassphrase: async () => "wrong-passphrase",
+      })).rejects.toThrow("Vault passphrase is incorrect.");
+    } finally {
+      closeDb();
+      clearKey();
+      if (previous === undefined) delete process.env.KEYCLASP_HOME;
+      else process.env.KEYCLASP_HOME = previous;
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

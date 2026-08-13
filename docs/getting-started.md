@@ -1,6 +1,6 @@
 # Getting Started
 
-Requires **Node.js 24+**. `set`, `list`, `status`, and `keyclasp run --env ...` work on macOS, Linux, and Windows. `keyclasp get` and whole-scope `keyclasp run` (no `--env`) need macOS Touch ID.
+Requires **Node.js 24+**. `set`, `list`, `status`, and `keyclasp run --env ...` work on macOS, Linux, and Windows. `keyclasp get` and whole-scope `keyclasp run` (no `--env`) ask for Touch ID when available, otherwise the vault passphrase.
 
 ## Install Keyclasp
 
@@ -70,7 +70,7 @@ When a command expects another variable name:
 keyclasp run --project myapp --environment prod --env SECRET_API_KEY:API_TOKEN -- npm test
 ```
 
-Omitting `--env` requests whole-scope injection. That operator-only path requires a fresh macOS Touch ID approval and is unavailable on Linux and Windows. Coding agents must always use explicit scope flags and explicit `--env` mappings.
+Omitting `--env` requests whole-scope injection. That operator-only path asks for Touch ID when available, or the vault passphrase when it is not. Coding agents must always use explicit scope flags and explicit `--env` mappings.
 
 ## Next Steps
 

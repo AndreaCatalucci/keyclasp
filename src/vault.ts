@@ -222,7 +222,7 @@ function xorWithKey(key: Buffer, wrappingKey: Buffer): Buffer {
   return output;
 }
 
-function loadKeyFile(keyData: Buffer, keyPath: string): Buffer {
+function parseKeyFile(keyData: Buffer): { magic: Buffer | null; salt: Buffer; wrappedKey: Buffer } {
   const magic = [KEY_FILE_MAGIC, LEGACY_KEY_FILE_MAGIC].find((candidate) =>
     keyData.subarray(0, candidate.length).equals(candidate)
   );
@@ -231,25 +231,37 @@ function loadKeyFile(keyData: Buffer, keyPath: string): Buffer {
     if (keyData.length !== expectedLength) {
       throw new Error(KEY_FILE_CORRUPT_ERROR);
     }
-
-    const salt = keyData.subarray(magic.length, magic.length + SALT_LENGTH);
-    const wrappedKey = keyData.subarray(magic.length + SALT_LENGTH);
-    return unwrapWithAnyStableIdentity(salt, wrappedKey, magic);
+    return {
+      magic,
+      salt: keyData.subarray(magic.length, magic.length + SALT_LENGTH),
+      wrappedKey: keyData.subarray(magic.length + SALT_LENGTH),
+    };
   }
 
   if (keyData.length !== SALT_LENGTH + KEY_LENGTH) {
     throw new Error(KEY_FILE_CORRUPT_ERROR);
   }
 
-  const salt = keyData.subarray(0, SALT_LENGTH);
-  const wrappedKey = keyData.subarray(SALT_LENGTH);
+  return {
+    magic: null,
+    salt: keyData.subarray(0, SALT_LENGTH),
+    wrappedKey: keyData.subarray(SALT_LENGTH),
+  };
+}
+
+function loadKeyFile(keyData: Buffer, keyPath: string): Buffer {
+  const parsed = parseKeyFile(keyData);
+  if (parsed.magic) {
+    return unwrapWithAnyStableIdentity(parsed.salt, parsed.wrappedKey, parsed.magic);
+  }
+
   const legacyIdentity = _machineIdentityForTests?.legacy ?? deriveLegacyMachineIdentity();
-  const key = xorWithKey(wrappedKey, legacyIdentity);
+  const key = xorWithKey(parsed.wrappedKey, legacyIdentity);
   assertKeyUnlocksVault(key);
   const upgradedKeyPath = path.basename(keyPath) === ".keyblind.key"
     ? path.join(path.dirname(keyPath), ".keyclasp.key")
     : keyPath;
-  writeKeyFile(upgradedKeyPath, salt, key);
+  writeKeyFile(upgradedKeyPath, parsed.salt, key);
   _keyPathCache = null;
   return key;
 }
@@ -452,6 +464,25 @@ export function initializeVault(passphrase: string): void {
 
 export function isInitialized(): boolean {
   return fs.existsSync(getKeyPath());
+}
+
+function readKeyFileSalt(): Buffer {
+  const keyPath = getKeyPath();
+  if (!fs.existsSync(keyPath)) {
+    throw new Error("Keyclasp key not found. Run: keyclasp init");
+  }
+  return parseKeyFile(fs.readFileSync(keyPath)).salt;
+}
+
+export function verifyVaultPassphrase(passphrase: string): boolean {
+  const candidate = deriveKey(readKeyFileSalt(), passphrase);
+  const actual = getKey();
+  if (candidate.length !== actual.length) return false;
+  return crypto.timingSafeEqual(candidate, actual);
+}
+
+export function vaultHasPassphrase(): boolean {
+  return !verifyVaultPassphrase("");
 }
 
 const CREATE_SECRETS_TABLE_SQL = `
