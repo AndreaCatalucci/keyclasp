@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 Keyblind
+// Copyright (c) 2026 Keyclasp
 
 ObjC.import("Foundation");
 ObjC.import("LocalAuthentication");

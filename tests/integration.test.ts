@@ -88,7 +88,7 @@ describe("CLI end-to-end flow", () => {
   });
 
   it("initializes, stores, lists, injects, and deletes a secret", () => {
-    expect(run(["init"], { input: "test-passphrase\n" }).status).toBe(0);
+    expect(run(["init"], { input: "\n" }).status).toBe(0);
 
     const set = run(["set", "API_KEY"], { input: "sk-test-value-123\n" });
     expect(set.status).toBe(0);

@@ -18,7 +18,9 @@ An AES-256-GCM encrypted SQLite vault at `~/.keyclasp/vault.db`, with an owner-o
 
 ## What happens if I lose my passphrase or change machines?
 
-There is no recovery email, backdoor, or "forgot password" flow. If you initialized with an empty passphrase ("machine-only key"), the vault key is also bound to a machine fingerprint and will not unlock on different hardware. Keep a tested backup or recovery plan before treating the local vault as the only copy of an important credential.
+There is no recovery email, backdoor, or "forgot password" flow. A passphrase vault cannot be opened without that passphrase. A machine-only vault (empty passphrase at `init`) is bound to this machine's identity and will not unlock on different hardware. Keep a tested backup or recovery plan before treating the local vault as the only copy of an important credential.
+
+If a new CLI refuses an old XOR key file, clone this repository and run `scripts/migrate-vault-key-wrap.mjs` on the original machine.
 
 ## Can a coding agent safely use Keyclasp?
 

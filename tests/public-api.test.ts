@@ -6,6 +6,7 @@ describe("public API", () => {
     expect(keyclasp).toHaveProperty("initializeVault");
     expect(keyclasp).toHaveProperty("storeSecret");
     expect(keyclasp).toHaveProperty("resolveSecret");
+    expect(keyclasp).toHaveProperty("unlockVault");
     expect(keyclasp).toHaveProperty("listSecrets");
     expect(keyclasp).toHaveProperty("deleteSecret");
     expect(keyclasp).toHaveProperty("runCommandWithSecrets");

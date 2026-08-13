@@ -27,12 +27,10 @@
 │                   KEYCLASP VAULT                      │
 ├──────────────────────────────────────────────────────┤
 │                                                       │
-│  User Passphrase ──► PBKDF2 (600K iter) ──► Key      │
+│  Random DEK ──► AES-256-GCM ──► SQLite (secret blobs) │
 │                                                       │
-│  Machine Fingerprint ──► XOR-wrap ──► Key file        │
-│       (stable hardware/OS identifier)                 │
-│                                                       │
-│  Key ──► AES-256-GCM ──► SQLite (encrypted blobs)    │
+│  Passphrase ──► PBKDF2 (600K) ──► GCM-wrap DEK        │
+│  or machine identity ──► GCM-wrap DEK (weaker mode)   │
 │                                                       │
 │  Secrets stored as:                                   │
 │    { iv, authTag, ciphertext }                        │
@@ -44,35 +42,29 @@
 
 ### 1. Key Derivation
 
-The vault encryption key is derived from the user's passphrase using:
+The vault data key is 32 random bytes. A passphrase, when set, is used only to wrap that key:
 
 - **Algorithm**: PBKDF2-HMAC-SHA256
 - **Iterations**: 600,000
-- **Salt**: 32 random bytes, stored alongside the wrapped key in the key file
+- **Salt**: 32 random bytes, stored in the key file
 - **Key length**: 32 bytes (256 bits)
 
 ```ts
-const key = crypto.pbkdf2Sync(passphrase, salt, 600_000, 32, "sha256");
+const dek = crypto.randomBytes(32);
+const kek = crypto.pbkdf2Sync(passphrase, salt, 600_000, 32, "sha256");
 ```
 
-**Rationale**: 600K iterations balances security with startup time (~200ms on modern hardware). Per OWASP guidance, this is at or above the minimum for PBKDF2-SHA256.
+**Rationale**: 600K iterations balances security with startup time (~200ms on modern hardware). Per OWASP guidance, this is at or above the minimum for PBKDF2-SHA256. The data key is independent of the passphrase so a wrap change does not rewrite `vault.db`.
 
-An empty passphrase is accepted ("machine-only key"). In that mode the derived key depends only on the random salt, so the meaningful protection comes entirely from the machine-identity wrap described next — the vault is then portable only in the sense that it requires the original machine, not a secret the user must remember.
+An empty passphrase at `init` selects **machine-only** mode: the data key is GCM-wrapped under a KEK derived from a local machine fingerprint. That mode is weaker (the fingerprint is not a secret) and is the path for agents and CI.
 
-### 2. Machine-Identity-Bound Key File
+### 2. Authenticated key-file wrap
 
-The on-disk key file wraps the derived key with a machine fingerprint before writing it out:
+The on-disk key file stores `encrypt(DEK, KEK)` with AES-256-GCM. `KEK` is either `PBKDF2(passphrase)` or `SHA256(magic || salt || machineIdentity)`. Mode is stored in the header and bound as AAD. Unlock of a passphrase vault requires that passphrase; there is no XOR fallback.
 
-```ts
-const wrappingKey = sha256(magic || salt || machineIdentity);
-const wrappedKey = xor(key, wrappingKey);
-```
+`machineIdentity` prefers a stable hardware/OS identifier (e.g. `IOPlatformUUID` on macOS, `/etc/machine-id` on Linux, `MachineGuid` on Windows) and falls back to a hash of hostname/user/platform/arch. It is used only in machine-only mode.
 
-`machineIdentity` prefers a stable hardware/OS identifier (e.g. `IOPlatformUUID` on macOS, `/etc/machine-id` on Linux, `MachineGuid` on Windows) and falls back to a hash of hostname/user/platform/arch.
-
-**Purpose**: A key file copied to another machine cannot be unwrapped there, even with the correct passphrase, unless the destination machine's identity also matches. This limits blast radius if the key file alone is exfiltrated.
-
-**Caveat**: This is not hardware attestation (no TPM/Secure Enclave). It is a locally-readable machine fingerprint, not a secret. An attacker with local access to the same machine (or its fingerprint) plus the passphrase can reconstruct the key. The real security boundary against a stolen key file is the passphrase, when one is set.
+**Caveat**: Machine-only wrap is not hardware attestation. An attacker with the key file and this machine's identity can unwrap a machine-only vault. A passphrase vault cannot be unwrapped without the passphrase.
 
 ### 3. Symmetric Encryption (AES-256-GCM)
 
@@ -126,8 +118,9 @@ Keyclasp asks macOS LocalAuthentication to evaluate the biometric-only device-ow
 | Agent requests every secret in a scope | **HIGH** | Whole-scope `keyclasp run` requires Touch ID or an interactive vault passphrase; agent workflows must use explicit scope and `--env` mappings |
 | Child process reads injected secrets | **HIGH** | Run only trusted commands; guarded execution reduces accidental disclosure but does not make malicious software safe |
 | Injected command prints secrets to its own output | **HIGH** | `keyclasp run` blocks obvious environment dumps, redacts detected injected values from stdout/stderr, and terminates the child process by default; `--allow-unsafe` disables this and must be explicit |
-| Vault.db stolen + passphrase known | **MEDIUM** | Machine-identity-bound key file prevents unwrapping on different hardware |
-| Vault.db stolen, no passphrase, key file also stolen | **LOW-MEDIUM** | AES-256-GCM with 600K-iteration PBKDF2; if a real passphrase was set, brute force is infeasible. An empty ("machine-only") passphrase is weaker if both files leave the original machine's identity along with them |
+| Vault.db + key file stolen, passphrase vault, no passphrase | **LOW** | GCM wrap under PBKDF2-SHA256 600k; brute force is the remaining path |
+| Vault.db + key file stolen, machine-only, same machine identity | **HIGH** | Machine fingerprint is not a secret; this mode is for agents/CI, not theft resistance |
+| Same-user process after unlock, or machine-only vault | **HIGH** | OS user isolation is the boundary; the wrap does not hide values from that user |
 | Memory dump of a running process that has unlocked the vault | **MEDIUM** | Out of scope; limit the lifetime of trusted processes |
 | Dependency compromise | **MEDIUM** | Dependency set is intentionally minimal (`better-sqlite3` is the only runtime dependency); review lockfile changes before installing |
 
@@ -148,6 +141,6 @@ Keyclasp asks macOS LocalAuthentication to evaluate the biometric-only device-ow
 |-----------|----------|----------|----------|
 | AES-256-GCM | 256 bit | Secret value encryption | `crypto.createCipheriv` |
 | PBKDF2-SHA256 | 256 bit | Key derivation from passphrase | `crypto.pbkdf2Sync` |
-| SHA256 | 256 bit | Machine fingerprint, key wrapping | `crypto.createHash` |
+| SHA256 | 256 bit | Machine fingerprint for machine-only wrap | `crypto.createHash` |
 
 All algorithms use Node.js's built-in `crypto` module. No third-party crypto libraries.

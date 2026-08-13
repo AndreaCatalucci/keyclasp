@@ -23,6 +23,7 @@ import {
   clearKey,
   getKey,
   getDb,
+  unlockVault,
   verifyVaultPassphrase,
   vaultHasPassphrase,
   validateScopeName,
@@ -167,6 +168,7 @@ describe("vault CRUD", () => {
 
       closeDb();
       clearKey();
+      unlockVault("second-passphrase");
       expect(resolveSecret("default", "default", "SECOND_KEY")).toBe("second-value");
     } finally {
       closeDb();
@@ -178,6 +180,7 @@ describe("vault CRUD", () => {
       }
       fs.rmSync(path.dirname(firstHome), { recursive: true, force: true });
       fs.rmSync(path.dirname(secondHome), { recursive: true, force: true });
+      unlockVault("test-passphrase");
     }
   });
 

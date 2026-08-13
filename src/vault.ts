@@ -11,11 +11,17 @@ const AUTH_TAG_LENGTH = 16;
 const KEY_LENGTH = 32;
 const PBKDF2_ITERATIONS = 600_000;
 const SALT_LENGTH = 32;
-const KEY_FILE_MAGIC = Buffer.from("keyclasp:v2\n", "utf8");
-const LEGACY_KEY_FILE_MAGIC = Buffer.from("keyblind:v2\n", "utf8");
+const KEY_FILE_MAGIC = Buffer.from("keyclasp:v3\n", "utf8");
+const KEY_FILE_MODE_PASSPHRASE = 0x50;
+const KEY_FILE_MODE_MACHINE = 0x4d;
+const KEY_FILE_KDF_PBKDF2_SHA256 = 0x01;
+const KEY_FILE_V3_LENGTH = KEY_FILE_MAGIC.length + 1 + 1 + 4 + SALT_LENGTH + IV_LENGTH + AUTH_TAG_LENGTH + KEY_LENGTH;
 const KEY_FILE_CORRUPT_ERROR = "Keyclasp key file is corrupted or incomplete.";
+const KEY_FILE_OLD_FORMAT_ERROR = "Keyclasp key file uses an unsupported format. Clone the keyclasp repository and run scripts/migrate-vault-key-wrap.mjs against this vault.";
+const KEY_LOCKED_ERROR = "Keyclasp vault is locked. Unlock with the vault passphrase in an interactive terminal, or use a machine-only vault.";
 const KEY_VAULT_MISMATCH_ERROR = "Keyclasp key file does not unlock this vault database. Restore the matching .keyclasp.key before reading or writing secrets.";
-const VAULT_HOME_CONFLICT_ERROR = "Both ~/.keyclasp and ~/.keyblind contain vault data. Set KEYCLASP_HOME explicitly to choose one before continuing.";
+
+export { KEY_FILE_OLD_FORMAT_ERROR, KEY_LOCKED_ERROR };
 // Names written by features that have since been removed. Guarded against so
 // vaults created by earlier versions never resurface stale, unreadable rows.
 const REMOVED_INTERNAL_SECRET_NAMES = new Set([
@@ -24,11 +30,6 @@ const REMOVED_INTERNAL_SECRET_NAMES = new Set([
   "_keyclasp_deadman:config",
   "_keyclasp_deadman:last_checkin",
   "__keyclasp_team_check",
-  "_keyblind_sso:config",
-  "_keyblind_sso:token",
-  "_keyblind_deadman:config",
-  "_keyblind_deadman:last_checkin",
-  "__keyblind_team_check",
 ]);
 
 export interface DecryptabilityCheck {
@@ -70,31 +71,15 @@ function getVaultDir(): string {
 }
 
 function resolveVaultHome(): string {
-  const signature = `${process.env.KEYCLASP_HOME ?? ""}\0${process.env.KEYBLIND_HOME ?? ""}`;
+  const signature = process.env.KEYCLASP_HOME ?? "";
   if (_vaultHomeCache?.signature === signature) return _vaultHomeCache.path;
 
-  let resolved: string;
-  if (process.env.KEYCLASP_HOME) {
-    resolved = path.resolve(process.env.KEYCLASP_HOME);
-  } else if (process.env.KEYBLIND_HOME) {
-    resolved = path.resolve(process.env.KEYBLIND_HOME);
-  } else {
-    const preferredHome = path.join(os.homedir(), ".keyclasp");
-    const legacyHome = path.join(os.homedir(), ".keyblind");
-    const preferredHasVault = hasCompleteVaultAt(preferredHome);
-    const legacyHasVault = hasCompleteVaultAt(legacyHome);
-    if (preferredHasVault && legacyHasVault) throw new Error(VAULT_HOME_CONFLICT_ERROR);
-    resolved = legacyHasVault ? legacyHome : preferredHome;
-  }
+  const resolved = process.env.KEYCLASP_HOME
+    ? path.resolve(process.env.KEYCLASP_HOME)
+    : path.join(os.homedir(), ".keyclasp");
 
   _vaultHomeCache = { signature, path: resolved };
   return resolved;
-}
-
-function hasCompleteVaultAt(vaultDir: string): boolean {
-  if (!fs.existsSync(path.join(vaultDir, "vault.db"))) return false;
-  return fs.existsSync(path.join(vaultDir, ".keyclasp.key")) ||
-    fs.existsSync(path.join(vaultDir, ".keyblind.key"));
 }
 
 export function getVaultLocation(): string {
@@ -109,9 +94,7 @@ function getKeyPath(): string {
   const vaultDir = getVaultDir();
   if (_keyPathCache?.vaultDir === vaultDir) return _keyPathCache.path;
 
-  const preferredPath = path.join(vaultDir, ".keyclasp.key");
-  const legacyPath = path.join(vaultDir, ".keyblind.key");
-  const resolved = !fs.existsSync(preferredPath) && fs.existsSync(legacyPath) ? legacyPath : preferredPath;
+  const resolved = path.join(vaultDir, ".keyclasp.key");
   _keyPathCache = { vaultDir, path: resolved };
   return resolved;
 }
@@ -214,84 +197,143 @@ function deriveWrappingKey(salt: Buffer, machineIdentity: Buffer, magic: Buffer 
     .digest();
 }
 
-function xorWithKey(key: Buffer, wrappingKey: Buffer): Buffer {
-  const output = Buffer.alloc(key.length);
-  for (let i = 0; i < key.length; i++) {
-    output[i] = key[i] ^ wrappingKey[i % wrappingKey.length];
-  }
-  return output;
+type KeyFileMode = "passphrase" | "machine";
+
+interface ParsedV3KeyFile {
+  mode: KeyFileMode;
+  salt: Buffer;
+  iv: Buffer;
+  authTag: Buffer;
+  wrappedKey: Buffer;
+  aad: Buffer;
 }
 
-function parseKeyFile(keyData: Buffer): { magic: Buffer | null; salt: Buffer; wrappedKey: Buffer } {
-  const magic = [KEY_FILE_MAGIC, LEGACY_KEY_FILE_MAGIC].find((candidate) =>
-    keyData.subarray(0, candidate.length).equals(candidate)
-  );
-  if (magic) {
-    const expectedLength = magic.length + SALT_LENGTH + KEY_LENGTH;
-    if (keyData.length !== expectedLength) {
-      throw new Error(KEY_FILE_CORRUPT_ERROR);
-    }
-    return {
-      magic,
-      salt: keyData.subarray(magic.length, magic.length + SALT_LENGTH),
-      wrappedKey: keyData.subarray(magic.length + SALT_LENGTH),
-    };
+function parseV3KeyFile(keyData: Buffer): ParsedV3KeyFile {
+  if (!keyData.subarray(0, KEY_FILE_MAGIC.length).equals(KEY_FILE_MAGIC)) {
+    throw new Error(KEY_FILE_OLD_FORMAT_ERROR);
   }
-
-  if (keyData.length !== SALT_LENGTH + KEY_LENGTH) {
+  if (keyData.length !== KEY_FILE_V3_LENGTH) {
     throw new Error(KEY_FILE_CORRUPT_ERROR);
   }
 
+  let offset = KEY_FILE_MAGIC.length;
+  const modeByte = keyData[offset];
+  offset += 1;
+  const kdfByte = keyData[offset];
+  offset += 1;
+  const iterations = keyData.readUInt32BE(offset);
+  offset += 4;
+  const salt = keyData.subarray(offset, offset + SALT_LENGTH);
+  offset += SALT_LENGTH;
+  const iv = keyData.subarray(offset, offset + IV_LENGTH);
+  offset += IV_LENGTH;
+  const authTag = keyData.subarray(offset, offset + AUTH_TAG_LENGTH);
+  offset += AUTH_TAG_LENGTH;
+  const wrappedKey = keyData.subarray(offset);
+
+  if (kdfByte !== KEY_FILE_KDF_PBKDF2_SHA256 || iterations !== PBKDF2_ITERATIONS) {
+    throw new Error(KEY_FILE_CORRUPT_ERROR);
+  }
+  if (modeByte !== KEY_FILE_MODE_PASSPHRASE && modeByte !== KEY_FILE_MODE_MACHINE) {
+    throw new Error(KEY_FILE_CORRUPT_ERROR);
+  }
+
+  const aad = Buffer.concat([
+    KEY_FILE_MAGIC,
+    Buffer.from([modeByte, kdfByte]),
+    keyData.subarray(KEY_FILE_MAGIC.length + 2, KEY_FILE_MAGIC.length + 6),
+    salt,
+  ]);
+
   return {
-    magic: null,
-    salt: keyData.subarray(0, SALT_LENGTH),
-    wrappedKey: keyData.subarray(SALT_LENGTH),
+    mode: modeByte === KEY_FILE_MODE_PASSPHRASE ? "passphrase" : "machine",
+    salt,
+    iv,
+    authTag,
+    wrappedKey,
+    aad,
   };
 }
 
-function loadKeyFile(keyData: Buffer, keyPath: string): Buffer {
-  const parsed = parseKeyFile(keyData);
-  if (parsed.magic) {
-    return unwrapWithAnyStableIdentity(parsed.salt, parsed.wrappedKey, parsed.magic);
-  }
-
-  const legacyIdentity = _machineIdentityForTests?.legacy ?? deriveLegacyMachineIdentity();
-  const key = xorWithKey(parsed.wrappedKey, legacyIdentity);
-  assertKeyUnlocksVault(key);
-  const upgradedKeyPath = path.basename(keyPath) === ".keyblind.key"
-    ? path.join(path.dirname(keyPath), ".keyclasp.key")
-    : keyPath;
-  writeKeyFile(upgradedKeyPath, parsed.salt, key);
-  _keyPathCache = null;
-  return key;
+function wrapDek(dek: Buffer, kek: Buffer, aad: Buffer): { iv: Buffer; authTag: Buffer; wrapped: Buffer } {
+  const iv = crypto.randomBytes(IV_LENGTH);
+  const cipher = crypto.createCipheriv(ALGORITHM, kek, iv, { authTagLength: AUTH_TAG_LENGTH });
+  cipher.setAAD(aad);
+  const wrapped = Buffer.concat([cipher.update(dek), cipher.final()]);
+  return { iv, authTag: cipher.getAuthTag(), wrapped };
 }
 
-function unwrapWithAnyStableIdentity(salt: Buffer, wrappedKey: Buffer, magic: Buffer): Buffer {
+function unwrapDek(parsed: ParsedV3KeyFile, kek: Buffer): Buffer {
+  const decipher = crypto.createDecipheriv(ALGORITHM, kek, parsed.iv, { authTagLength: AUTH_TAG_LENGTH });
+  decipher.setAAD(parsed.aad);
+  decipher.setAuthTag(parsed.authTag);
+  return Buffer.concat([decipher.update(parsed.wrappedKey), decipher.final()]);
+}
+
+function unwrapWithAnyStableIdentity(parsed: ParsedV3KeyFile): Buffer {
   const identities = deriveStableMachineIdentities();
   for (const identity of identities) {
-    const key = xorWithKey(wrappedKey, deriveWrappingKey(salt, identity, magic));
-    if (canDecryptVaultRows(key)) return key;
+    try {
+      const dek = unwrapDek(parsed, deriveWrappingKey(parsed.salt, identity));
+      assertKeyUnlocksVault(dek);
+      return dek;
+    } catch {
+      // Try the next machine-identity candidate.
+    }
   }
 
   throw new Error(KEY_VAULT_MISMATCH_ERROR);
 }
 
-function writeKeyFile(keyPath: string, salt: Buffer, key: Buffer): void {
-  const wrappedKey = xorWithKey(key, deriveWrappingKey(salt, deriveStableMachineIdentity()));
+function writeKeyFile(keyPath: string, dek: Buffer, mode: KeyFileMode, passphrase: string): void {
+  const salt = crypto.randomBytes(SALT_LENGTH);
+  const modeByte = mode === "passphrase" ? KEY_FILE_MODE_PASSPHRASE : KEY_FILE_MODE_MACHINE;
+  const iterations = Buffer.alloc(4);
+  iterations.writeUInt32BE(PBKDF2_ITERATIONS);
+  const aad = Buffer.concat([
+    KEY_FILE_MAGIC,
+    Buffer.from([modeByte, KEY_FILE_KDF_PBKDF2_SHA256]),
+    iterations,
+    salt,
+  ]);
+  const kek = mode === "passphrase"
+    ? deriveKey(salt, passphrase)
+    : deriveWrappingKey(salt, deriveStableMachineIdentity());
+  const { iv, authTag, wrapped } = wrapDek(dek, kek, aad);
   const tmpPath = `${keyPath}.${process.pid}.${Date.now()}.tmp`;
-  fs.writeFileSync(tmpPath, Buffer.concat([KEY_FILE_MAGIC, salt, wrappedKey]), { mode: 0o600 });
+  fs.writeFileSync(tmpPath, Buffer.concat([
+    KEY_FILE_MAGIC,
+    Buffer.from([modeByte, KEY_FILE_KDF_PBKDF2_SHA256]),
+    iterations,
+    salt,
+    iv,
+    authTag,
+    wrapped,
+  ]), { mode: 0o600 });
   backupExistingKeyFile(keyPath);
   fs.renameSync(tmpPath, keyPath);
   fs.chmodSync(keyPath, 0o600);
 }
 
 function backupExistingKeyFile(keyPath: string): void {
-  try {
-    fs.renameSync(keyPath, nextKeyBackupPath(keyPath));
-  } catch (err: any) {
-    if (err?.code === "ENOENT") return;
-    throw err;
+  if (!fs.existsSync(keyPath)) return;
+  const backupPath = nextKeyBackupPath(keyPath);
+  fs.copyFileSync(keyPath, backupPath);
+  fs.chmodSync(backupPath, 0o600);
+}
+
+function readParsedKeyFile(): ParsedV3KeyFile {
+  const keyPath = getKeyPath();
+  if (!fs.existsSync(keyPath)) {
+    throw new Error("Keyclasp key not found. Run: keyclasp init");
   }
+  return parseV3KeyFile(fs.readFileSync(keyPath));
+}
+
+function assertSupportedKeyFile(): void {
+  const keyPath = getKeyPath();
+  if (!fs.existsSync(keyPath)) return;
+  parseV3KeyFile(fs.readFileSync(keyPath));
 }
 
 function nextKeyBackupPath(keyPath: string): string {
@@ -422,15 +464,36 @@ export function getKey(): Buffer {
     return _key;
   }
 
-  const keyData = fs.readFileSync(keyPath);
-  const loaded = loadKeyFile(keyData, keyPath);
-  const refreshedKeyPath = getKeyPath();
-  const refreshedStat = fs.statSync(refreshedKeyPath);
-  _key = loaded;
-  _keyCachePath = refreshedKeyPath;
-  _keyCacheStat = { mtimeMs: refreshedStat.mtimeMs, size: refreshedStat.size };
+  const parsed = parseV3KeyFile(fs.readFileSync(keyPath));
+  const loaded = parsed.mode === "machine"
+    ? unwrapWithAnyStableIdentity(parsed)
+    : (() => { throw new Error(KEY_LOCKED_ERROR); })();
+  cacheLoadedKey(loaded, keyPath);
+  return loaded;
+}
+
+function cacheLoadedKey(key: Buffer, keyPath: string): void {
+  const stat = fs.statSync(keyPath);
+  _key = key;
+  _keyCachePath = keyPath;
+  _keyCacheStat = { mtimeMs: stat.mtimeMs, size: stat.size };
   rememberKeyValidation();
-  return _key;
+}
+
+export function unlockVault(passphrase: string): void {
+  if (!passphrase) {
+    throw new Error("Vault passphrase is required.");
+  }
+  const parsed = readParsedKeyFile();
+  if (parsed.mode !== "passphrase") {
+    throw new Error("This vault is machine-only and does not use a passphrase.");
+  }
+  try {
+    const dek = unwrapDek(parsed, deriveKey(parsed.salt, passphrase));
+    cacheLoadedKey(dek, getKeyPath());
+  } catch {
+    throw new Error("Vault passphrase is incorrect.");
+  }
 }
 
 export function initializeVault(passphrase: string): void {
@@ -447,17 +510,11 @@ export function initializeVault(passphrase: string): void {
     throw new Error("Keyclasp vault database exists without a key file. Restore the matching .keyclasp.key or remove the vault directory before reinitializing.");
   }
 
-  const salt = crypto.randomBytes(SALT_LENGTH);
-  const key = deriveKey(salt, passphrase);
+  const dek = crypto.randomBytes(KEY_LENGTH);
+  const mode: KeyFileMode = passphrase ? "passphrase" : "machine";
+  writeKeyFile(getKeyPath(), dek, mode, passphrase);
+  cacheLoadedKey(dek, getKeyPath());
 
-  writeKeyFile(getKeyPath(), salt, key);
-  const keyStat = fs.statSync(getKeyPath());
-  _key = key;
-  _keyCachePath = getKeyPath();
-  _keyCacheStat = { mtimeMs: keyStat.mtimeMs, size: keyStat.size };
-  rememberKeyValidation();
-
-  // Pre-create the database so isInitialized() passes
   closeDb();
   getDb();
 }
@@ -466,23 +523,21 @@ export function isInitialized(): boolean {
   return fs.existsSync(getKeyPath());
 }
 
-function readKeyFileSalt(): Buffer {
-  const keyPath = getKeyPath();
-  if (!fs.existsSync(keyPath)) {
-    throw new Error("Keyclasp key not found. Run: keyclasp init");
-  }
-  return parseKeyFile(fs.readFileSync(keyPath)).salt;
-}
-
 export function verifyVaultPassphrase(passphrase: string): boolean {
-  const candidate = deriveKey(readKeyFileSalt(), passphrase);
-  const actual = getKey();
-  if (candidate.length !== actual.length) return false;
-  return crypto.timingSafeEqual(candidate, actual);
+  const parsed = readParsedKeyFile();
+  if (parsed.mode === "machine") return passphrase === "";
+  if (!passphrase) return false;
+  try {
+    const dek = unwrapDek(parsed, deriveKey(parsed.salt, passphrase));
+    cacheLoadedKey(dek, getKeyPath());
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function vaultHasPassphrase(): boolean {
-  return !verifyVaultPassphrase("");
+  return readParsedKeyFile().mode === "passphrase";
 }
 
 const CREATE_SECRETS_TABLE_SQL = `
@@ -534,6 +589,7 @@ function ensureSecretsSchema(db: Database.Database): void {
 }
 
 export function getDb(): Database.Database {
+  assertSupportedKeyFile();
   const dbPath = getVaultPath();
   if (_db && _dbPath === dbPath) return _db;
   if (_db) closeDb();

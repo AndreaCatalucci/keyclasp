@@ -11,6 +11,7 @@ export {
   deleteSecret,
   isInitialized,
   getKey,
+  unlockVault,
   getVaultLocation,
   closeDb,
   checkVaultDecryptability,

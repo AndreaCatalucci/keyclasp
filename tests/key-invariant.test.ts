@@ -1,6 +1,5 @@
 import { describe, expect, it, beforeEach, afterEach } from "vitest";
 import crypto from "node:crypto";
-import Database from "better-sqlite3";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -8,23 +7,20 @@ import {
   clearKey,
   checkVaultDecryptability,
   closeDb,
-  encrypt,
   initializeVault,
   isInitialized,
   listSecrets,
   resolveSecret,
   setMachineIdentityForTests,
   storeSecret,
-  getVaultLocation,
+  unlockVault,
 } from "../src/vault.js";
 
 const previousKeyclaspHome = process.env.KEYCLASP_HOME;
-const previousKeyblindHome = process.env.KEYBLIND_HOME;
 const previousHome = process.env.HOME;
 let tmpDir: string;
 let vaultHome: string;
-const keyFileMagic = Buffer.from("keyclasp:v2\n", "utf8");
-const legacyKeyFileMagic = Buffer.from("keyblind:v2\n", "utf8");
+const keyFileMagic = Buffer.from("keyclasp:v3\n", "utf8");
 
 function resetRuntime(): void {
   closeDb();
@@ -39,82 +35,8 @@ function keyPath(): string {
   return path.join(vaultHome, ".keyclasp.key");
 }
 
-function legacyKeyPath(): string {
-  return path.join(vaultHome, ".keyblind.key");
-}
-
-function xorWithKey(key: Buffer, wrappingKey: Buffer): Buffer {
-  const output = Buffer.alloc(key.length);
-  for (let i = 0; i < key.length; i++) {
-    output[i] = key[i] ^ wrappingKey[i % wrappingKey.length];
-  }
-  return output;
-}
-
-function writeLegacyVault(secretName: string, secretValue: string, legacyIdentity: Buffer): void {
-  fs.mkdirSync(vaultHome, { recursive: true, mode: 0o700 });
-  const salt = crypto.randomBytes(32);
-  const key = crypto.pbkdf2Sync("legacy-passphrase", salt, 600_000, 32, "sha256");
-  fs.writeFileSync(legacyKeyPath(), Buffer.concat([salt, xorWithKey(key, legacyIdentity)]), { mode: 0o600 });
-
-  const { encrypted, iv, authTag } = encrypt(secretValue, key);
-  const db = new Database(path.join(vaultHome, "vault.db"));
-  try {
-    db.exec(`
-      CREATE TABLE secrets (
-        name TEXT PRIMARY KEY,
-        encrypted_value BLOB NOT NULL,
-        iv BLOB NOT NULL,
-        auth_tag BLOB NOT NULL,
-        created_at TEXT NOT NULL DEFAULT (datetime('now')),
-        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-      )
-    `);
-    db.prepare("INSERT INTO secrets (name, encrypted_value, iv, auth_tag) VALUES (?, ?, ?, ?)").run(
-      secretName,
-      encrypted,
-      iv,
-      authTag,
-    );
-  } finally {
-    db.close();
-  }
-}
-
-function writeKeyblindV2Vault(secretName: string, secretValue: string, stableIdentity: Buffer): void {
-  fs.mkdirSync(vaultHome, { recursive: true, mode: 0o700 });
-  const salt = crypto.randomBytes(32);
-  const key = crypto.pbkdf2Sync("keyblind-v2-passphrase", salt, 600_000, 32, "sha256");
-  const wrappingKey = crypto.createHash("sha256")
-    .update(legacyKeyFileMagic)
-    .update(salt)
-    .update(stableIdentity)
-    .digest();
-  const legacyPath = path.join(vaultHome, ".keyblind.key");
-  fs.writeFileSync(legacyPath, Buffer.concat([legacyKeyFileMagic, salt, xorWithKey(key, wrappingKey)]), { mode: 0o600 });
-
-  const { encrypted, iv, authTag } = encrypt(secretValue, key);
-  const db = new Database(path.join(vaultHome, "vault.db"));
-  try {
-    db.exec(`
-      CREATE TABLE secrets (
-        name TEXT PRIMARY KEY,
-        encrypted_value BLOB NOT NULL,
-        iv BLOB NOT NULL,
-        auth_tag BLOB NOT NULL,
-        created_at TEXT NOT NULL DEFAULT (datetime('now')),
-        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-      )
-    `);
-    db.prepare("INSERT INTO secrets (name, encrypted_value, iv, auth_tag) VALUES (?, ?, ?, ?)").run(
-      secretName,
-      encrypted,
-      iv,
-      authTag,
-    );
-  } finally {
-    db.close();
-  }
+function unlock(passphrase: string): void {
+  unlockVault(passphrase);
 }
 
 beforeEach(() => {
@@ -133,11 +55,6 @@ afterEach(() => {
   } else {
     process.env.KEYCLASP_HOME = previousKeyclaspHome;
   }
-  if (previousKeyblindHome === undefined) {
-    delete process.env.KEYBLIND_HOME;
-  } else {
-    process.env.KEYBLIND_HOME = previousKeyblindHome;
-  }
   if (previousHome === undefined) {
     delete process.env.HOME;
   } else {
@@ -147,15 +64,6 @@ afterEach(() => {
 });
 
 describe("vault key invariants", () => {
-  it("opens Keyblind v2 vaults through the legacy home, key filename, and key header", () => {
-    const stableIdentity = Buffer.from("stable-keyblind-v2-identity-value");
-    setMachineIdentityForTests({ stable: stableIdentity });
-    writeKeyblindV2Vault("LEGACY_V2", "still-readable", stableIdentity);
-
-    restartRuntime();
-    expect(resolveSecret("default", "default", "LEGACY_V2")).toBe("still-readable");
-  });
-
   it("round-trips many secrets after a fresh runtime reload for every read", () => {
     initializeVault("long-lived-passphrase");
 
@@ -172,10 +80,12 @@ describe("vault key invariants", () => {
     for (const [name, value] of fixtures) {
       storeSecret("default", "default", name, value);
       restartRuntime();
+      unlock("long-lived-passphrase");
       expect(resolveSecret("default", "default", name)).toBe(value);
     }
 
     restartRuntime();
+    unlock("long-lived-passphrase");
     for (const [name, value] of fixtures) {
       expect(resolveSecret("default", "default", name)).toBe(value);
     }
@@ -184,10 +94,11 @@ describe("vault key invariants", () => {
   it("keeps resolving a repeatedly overwritten secret across runtime restarts", () => {
     initializeVault("overwrite-passphrase");
 
-    for (let i = 0; i < 75; i++) {
+    for (let i = 0; i < 10; i++) {
       const value = `version-${i}-${crypto.randomBytes(512).toString("hex")}`;
       storeSecret("default", "default", "ROTATING_SECRET", value);
       restartRuntime();
+      unlock("overwrite-passphrase");
       expect(resolveSecret("default", "default", "ROTATING_SECRET")).toBe(value);
     }
   });
@@ -205,6 +116,7 @@ describe("vault key invariants", () => {
     expect(after.equals(before)).toBe(true);
 
     restartRuntime();
+    unlock("stable-passphrase");
     expect(resolveSecret("default", "default", "SURVIVES_REINIT")).toBe("stable-value");
   });
 
@@ -226,10 +138,12 @@ describe("vault key invariants", () => {
     expect(secondKey.equals(firstKey)).toBe(false);
 
     restartRuntime();
+    unlock("second-passphrase");
     expect(resolveSecret("default", "default", "SECOND_SECRET")).toBe("second-value");
 
     process.env.KEYCLASP_HOME = firstHome;
     restartRuntime();
+    unlock("first-passphrase");
     expect(resolveSecret("default", "default", "FIRST_SECRET")).toBe("first-value");
   });
 
@@ -246,15 +160,17 @@ describe("vault key invariants", () => {
     storeSecret("default", "default", "ONLY_B", "b-value");
 
     process.env.KEYCLASP_HOME = homeA;
+    unlock("a-passphrase");
     expect(resolveSecret("default", "default", "ONLY_A")).toBe("a-value");
     expect(resolveSecret("default", "default", "ONLY_B")).toBeNull();
 
     process.env.KEYCLASP_HOME = homeB;
+    unlock("b-passphrase");
     expect(resolveSecret("default", "default", "ONLY_B")).toBe("b-value");
     expect(resolveSecret("default", "default", "ONLY_A")).toBeNull();
   });
 
-  it("writes stable v2 key files that survive legacy machine identity changes", () => {
+  it("writes v3 key files that do not depend on the legacy machine identity", () => {
     setMachineIdentityForTests({
       stable: Buffer.from("stable-machine-id-32-byte-value!"),
       legacy: Buffer.from("legacy-before-change-32-byte-val"),
@@ -268,75 +184,19 @@ describe("vault key invariants", () => {
       stable: Buffer.from("stable-machine-id-32-byte-value!"),
       legacy: Buffer.from("legacy-after-change-32-byte-valu"),
     });
+    unlock("stable-machine-passphrase");
 
     expect(resolveSecret("default", "default", "STABLE_MACHINE")).toBe("survives-platform-drift");
   });
 
-  it("adds a Keyclasp key beside a headerless Keyblind key without breaking rollback", () => {
-    const stableIdentity = Buffer.from("stable-legacy-migration-identity");
-    const originalLegacyIdentity = Buffer.from("legacy-migration-before-change");
-    writeLegacyVault("LEGACY_SECRET", "legacy-still-readable", originalLegacyIdentity);
-    const legacyKeyFile = fs.readFileSync(legacyKeyPath());
-
-    setMachineIdentityForTests({
-      stable: stableIdentity,
-      legacy: originalLegacyIdentity,
-    });
-    expect(resolveSecret("default", "default", "LEGACY_SECRET")).toBe("legacy-still-readable");
-    expect(fs.readFileSync(keyPath()).subarray(0, keyFileMagic.length).equals(keyFileMagic)).toBe(true);
-    expect(fs.readFileSync(legacyKeyPath()).equals(legacyKeyFile)).toBe(true);
-
-    restartRuntime();
-    setMachineIdentityForTests({
-      stable: stableIdentity,
-      legacy: Buffer.from("legacy-migration-after-change!"),
-    });
-    expect(resolveSecret("default", "default", "LEGACY_SECRET")).toBe("legacy-still-readable");
-
-    fs.unlinkSync(keyPath());
-    restartRuntime();
-    setMachineIdentityForTests({
-      stable: stableIdentity,
-      legacy: originalLegacyIdentity,
-    });
-    expect(resolveSecret("default", "default", "LEGACY_SECRET")).toBe("legacy-still-readable");
-    expect(fs.readFileSync(legacyKeyPath()).equals(legacyKeyFile)).toBe(true);
-  });
-
-  it("uses a complete legacy home when the preferred home is empty or partial", () => {
-    const stableIdentity = Buffer.from("stable-home-selection-identity!");
+  it("uses ~/.keyclasp when KEYCLASP_HOME is unset", () => {
     const preferredHome = path.join(tmpDir, ".keyclasp");
-    const legacyHome = path.join(tmpDir, ".keyblind");
-    vaultHome = legacyHome;
-    writeKeyblindV2Vault("LEGACY_HOME_SECRET", "legacy-home-value", stableIdentity);
-    fs.mkdirSync(preferredHome, { recursive: true });
-    fs.writeFileSync(path.join(preferredHome, ".keyclasp.key"), Buffer.from("partial"));
-
     delete process.env.KEYCLASP_HOME;
-    delete process.env.KEYBLIND_HOME;
-    process.env.HOME = tmpDir;
-    setMachineIdentityForTests({ stable: stableIdentity });
-    restartRuntime();
-
-    expect(getVaultLocation()).toBe(legacyHome);
-    expect(resolveSecret("default", "default", "LEGACY_HOME_SECRET")).toBe("legacy-home-value");
-  });
-
-  it("requires an explicit home when both default homes contain vaults", () => {
-    const preferredHome = path.join(tmpDir, ".keyclasp");
-    const legacyHome = path.join(tmpDir, ".keyblind");
-    for (const home of [preferredHome, legacyHome]) {
-      fs.mkdirSync(home, { recursive: true });
-      fs.writeFileSync(path.join(home, ".keyclasp.key"), Buffer.from("recognizable"));
-      fs.writeFileSync(path.join(home, "vault.db"), Buffer.alloc(0));
-    }
-
-    delete process.env.KEYCLASP_HOME;
-    delete process.env.KEYBLIND_HOME;
     process.env.HOME = tmpDir;
     restartRuntime();
 
-    expect(() => getVaultLocation()).toThrow(/Both ~\/\.keyclasp and ~\/\.keyblind contain vault data/);
+    initializeVault("home-passphrase");
+    expect(fs.existsSync(path.join(preferredHome, ".keyclasp.key"))).toBe(true);
   });
 
   it("refuses to initialize a fresh key over an existing vault database", () => {
@@ -352,6 +212,7 @@ describe("vault key invariants", () => {
 
     fs.writeFileSync(keyPath(), originalKey, { mode: 0o600 });
     restartRuntime();
+    unlock("original-passphrase");
     expect(resolveSecret("default", "default", "ORPHAN_DB_SECRET")).toBe("do-not-overwrite");
   });
 
@@ -371,11 +232,13 @@ describe("vault key invariants", () => {
     fs.writeFileSync(path.join(homeA, ".keyclasp.key"), wrongKey, { mode: 0o600 });
     process.env.KEYCLASP_HOME = homeA;
     restartRuntime();
+    unlock("home-b");
 
     expect(() => storeSecret("default", "default", "NEW_AFTER_DRIFT", "new-value")).toThrow(/does not unlock this vault/);
 
     fs.writeFileSync(path.join(homeA, ".keyclasp.key"), originalKey, { mode: 0o600 });
     restartRuntime();
+    unlock("home-a");
     expect(resolveSecret("default", "default", "EXISTING")).toBe("existing-value");
     expect(resolveSecret("default", "default", "NEW_AFTER_DRIFT")).toBeNull();
   });

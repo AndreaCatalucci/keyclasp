@@ -143,7 +143,8 @@ See the [full CLI reference](docs/commands.md).
 - `keyclasp get` and whole-scope `keyclasp run` require a fresh macOS Touch ID approval when Touch ID is available. If it is not available, they ask for the vault passphrase in an interactive terminal. A cancelled Touch ID prompt does not fall back. A machine-only (empty) passphrase cannot authorize these paths.
 - A child process that receives a secret can still misuse or print it. `keyclasp run` reduces this risk but cannot make untrusted code safe — only run trusted commands through it.
 - `keyclasp get` deliberately prints plaintext after biometric approval. Its output may remain in terminal scrollback; agents must never invoke it.
-- An empty ("machine-only") passphrase binds the key to the local machine's identity rather than to a secret you remember — set a real passphrase if you plan to move the vault.
+- A non-empty passphrase wraps the vault data key. Unlock after each new process requires that passphrase (TTY). An empty ("machine-only") passphrase binds the key to the local machine's identity — that is the agent/CI mode.
+- Old XOR key files are refused. Migrate this machine with `scripts/migrate-vault-key-wrap.mjs` from a clone of this repo.
 - Keyclasp has not received a professional third-party security audit.
 
 Read the [security design](docs/security.md) for the full threat model.

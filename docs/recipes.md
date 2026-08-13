@@ -7,10 +7,12 @@ Common patterns and workflows.
 Run the vault-backed command through `keyclasp run` instead of exporting secrets into the job environment directly:
 
 ```bash
-keyclasp init <<< "$VAULT_PASSPHRASE"
+keyclasp init <<< ""
 echo "$SECRET_API_KEY" | keyclasp set SECRET_API_KEY --project myapp --environment ci
 keyclasp run --project myapp --environment ci --env SECRET_API_KEY -- npm test
 ```
+
+CI must `init` as machine-only **inside** the job (empty passphrase). A passphrase vault cannot unlock in a later non-TTY process. Do not mount a laptop passphrase vault into CI or a container and expect `run --env` to work.
 
 Treat the CI job's own secret store as the source of truth; Keyclasp only narrows what the test/build process itself can see and print.
 
@@ -38,4 +40,6 @@ keyclasp run --project myapp --environment prod --env SECRET_API_KEY --env DATAB
 
 ## Moving a Vault to Another Machine
 
-Copy the vault directory (`~/.keyclasp/`) to the new machine, then re-run `keyclasp status` there. If the key file was generated with a non-empty passphrase, it unlocks on the new machine once the passphrase-derived key is available; a machine-only key (empty passphrase) is bound to the original machine's identity and will not unlock elsewhere. Prefer setting a real passphrase during `keyclasp init` if you plan to move the vault.
+Copy the vault directory (`~/.keyclasp/`) to the new machine. A passphrase vault unlocks there after you enter the wrap passphrase in a TTY (`set`, `get`, `run`, or `status` value check). A machine-only vault will not unlock on different hardware. Prefer a real passphrase during `keyclasp init` if you plan to move the vault.
+
+Old XOR (`keyclasp:v2`) key files are refused. On the original machine, clone this repository and run `scripts/migrate-vault-key-wrap.mjs` before using a new CLI. After you confirm the new wrap, shred `.keyclasp.key.*.bak` — those backups are still the old wrap. The script is not shipped in the published npm package.

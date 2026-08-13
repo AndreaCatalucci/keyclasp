@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 Keyblind
+// Copyright (c) 2026 Keyclasp
 
 import { spawnSync } from "node:child_process";
 import { stdin, stdout } from "node:process";

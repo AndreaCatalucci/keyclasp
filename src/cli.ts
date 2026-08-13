@@ -2,6 +2,9 @@
 import {
   initializeVault,
   getKey,
+  unlockVault,
+  KEY_LOCKED_ERROR,
+  vaultHasPassphrase,
   getVaultLocation,
   storeSecret,
   listSecrets,
@@ -25,9 +28,34 @@ import {
 import { parseRunArgs, runCommandWithSecrets } from "./run.js";
 import { getDisplayVersion } from "./version.js";
 import { extractGlobalFlags, resolveContext, writeContext, clearContext } from "./context.js";
-import { resolveSecretForOperator } from "./biometric.js";
+import { requireOperatorAuthentication } from "./biometric.js";
 import readline from "node:readline";
 import { stdin, stdout } from "node:process";
+
+function isVaultUnlocked(): boolean {
+  try {
+    getKey();
+    return true;
+  } catch (err: any) {
+    if (err?.message === KEY_LOCKED_ERROR) return false;
+    throw err;
+  }
+}
+
+async function ensureVaultUnlocked(): Promise<void> {
+  if (isVaultUnlocked()) return;
+  if (!stdin.isTTY) {
+    console.error(KEY_LOCKED_ERROR);
+    process.exit(1);
+  }
+  const passphrase = await promptSecret("Enter vault passphrase: ");
+  try {
+    unlockVault(passphrase);
+  } catch (err: any) {
+    console.error(err.message);
+    process.exit(1);
+  }
+}
 
 async function readPassphrase(prompt: string): Promise<string> {
   if (!stdin.isTTY) {
@@ -357,6 +385,14 @@ async function main(): Promise<void> {
           process.exit(1);
         }
         const { project, environment } = resolveContext(pFlag, eFlag);
+        if (!stdin.isTTY && rest[1] !== "-") {
+          if (!isVaultUnlocked()) {
+            console.error(KEY_LOCKED_ERROR);
+            process.exit(1);
+          }
+        } else {
+          await ensureVaultUnlocked();
+        }
 
         let value: string;
         if (rest[1] === "-") {
@@ -397,10 +433,9 @@ async function main(): Promise<void> {
           process.exit(1);
         }
         const { project, environment } = resolveContext(pFlag, eFlag);
-        const val = await resolveSecretForOperator(
-          `${project}/${environment}/${secretName}`,
-          () => resolveSecret(project, environment, secretName),
-        );
+        await requireOperatorAuthentication(`Reveal secret "${project}/${environment}/${secretName}"`);
+        await ensureVaultUnlocked();
+        const val = resolveSecret(project, environment, secretName);
         if (val === null) {
           console.error(`Secret "${secretName}" not found in project "${project}" environment "${environment}".`);
           process.exit(1);
@@ -481,6 +516,11 @@ async function main(): Promise<void> {
         console.log("───────────────");
         console.log(`  Scope:      ${project}/${environment}  (project: ${projectSource}, environment: ${environmentSource})`);
         console.log(`  Vault:      ${getVaultLocation()}`);
+        if (!isVaultUnlocked()) {
+          console.log(`  Secrets:    ${scopedCount} in scope`);
+          console.log(`  Values:     locked (${vaultHasPassphrase() ? "passphrase" : "machine"} mode)`);
+          break;
+        }
         try {
           const decryptability = checkVaultDecryptability();
           console.log(`  Secrets:    ${scopedCount} in scope, ${decryptability.checked} vault-wide`);
@@ -572,10 +612,22 @@ async function main(): Promise<void> {
           console.error(`Note: no secrets stored yet for project "${project}" environment "${environment}"; running with zero secrets injected.`);
         }
 
+        const explicitEnv = parsed.envSpecs.length > 0;
+        if (!explicitEnv && scopedNames.length > 0) {
+          try {
+            await requireOperatorAuthentication(`Inject every Keyclasp secret in ${project}/${environment}`);
+          } catch (err: any) {
+            console.error(`BLOCKED: ${err.message}`);
+            process.exit(2);
+          }
+        }
+        await ensureVaultUnlocked();
+
         const result = await runCommandWithSecrets({
           args: cmdArgs,
           baseEnv: process.env,
           secretNames: scopedNames,
+          envSpecs: explicitEnv ? undefined : scopedNames.map((name) => ({ sourceName: name, targetName: name })),
           resolveSecret: (name) => resolveSecret(project, environment, name),
           stdout: (chunk) => process.stdout.write(chunk),
           stderr: (chunk) => process.stderr.write(chunk),

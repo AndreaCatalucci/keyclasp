@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 Keyblind
+// Copyright (c) 2026 Keyclasp
 
 import { describe, expect, it, vi } from "vitest";
 import { spawnSync } from "node:child_process";

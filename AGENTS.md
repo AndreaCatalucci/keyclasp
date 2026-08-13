@@ -47,5 +47,5 @@ keyclasp run -- npm test # Inject secrets into a trusted command
 - **Small surface, justified.** Every command in the CLI is deliberate — additional commands (`use`/`projects`/`environments`/`rename`, `--bulk` delete) exist because retroactively scoping secrets by project/environment required them, not by default. Each is weighed against the attack surface it adds.
 - **Projects and environments are namespacing, not isolation.** Secrets live in one vault.db, keyed by `(project, environment, name)` — not per-project databases. Same secret name in two scopes is independent. Agents should always pass `--project`/`--environment` explicitly on every operation rather than relying on the persisted `keyclasp use` context, so parallel agent runs never race on shared mutable state.
 - **Local-only.** No dashboard, backend, or network service. The vault lives at `~/.keyclasp/`, owner-only permissions.
-- **Machine-identity-bound key** — encryption key XOR-wrapped with a machine fingerprint before it's written to disk.
+- **Passphrase wraps the data key** — a random AES key is GCM-wrapped with PBKDF2(passphrase). Empty init selects a weaker machine-only wrap. The app does not read legacy XOR or Keyblind key files.
 - **Zero network, zero telemetry** — fully local, no cloud, no accounts.
