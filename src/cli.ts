@@ -516,12 +516,12 @@ async function main(): Promise<void> {
         console.log("───────────────");
         console.log(`  Scope:      ${project}/${environment}  (project: ${projectSource}, environment: ${environmentSource})`);
         console.log(`  Vault:      ${getVaultLocation()}`);
-        if (!isVaultUnlocked()) {
-          console.log(`  Secrets:    ${scopedCount} in scope`);
-          console.log(`  Values:     locked (${vaultHasPassphrase() ? "passphrase" : "machine"} mode)`);
-          break;
-        }
         try {
+          if (!isVaultUnlocked()) {
+            console.log(`  Secrets:    ${scopedCount} in scope`);
+            console.log(`  Values:     locked (${vaultHasPassphrase() ? "passphrase" : "machine"} mode)`);
+            break;
+          }
           const decryptability = checkVaultDecryptability();
           console.log(`  Secrets:    ${scopedCount} in scope, ${decryptability.checked} vault-wide`);
           if (decryptability.checked === 0) {
@@ -627,11 +627,11 @@ async function main(): Promise<void> {
           args: cmdArgs,
           baseEnv: process.env,
           secretNames: scopedNames,
-          envSpecs: explicitEnv ? undefined : scopedNames.map((name) => ({ sourceName: name, targetName: name })),
           resolveSecret: (name) => resolveSecret(project, environment, name),
           stdout: (chunk) => process.stdout.write(chunk),
           stderr: (chunk) => process.stderr.write(chunk),
           scopeLabel: `${project}/${environment}`,
+          operatorAuthenticated: !explicitEnv && scopedNames.length > 0,
         });
         process.exit(result.exitCode);
         break;

@@ -115,6 +115,62 @@ describe("CLI end-to-end flow", () => {
   });
 });
 
+describe("CLI passphrase vault stays locked across processes", () => {
+  beforeEach(() => {
+    expect(run(["init"], { input: "wrap-passphrase\n" }).status).toBe(0);
+  });
+
+  it("prints locked status without treating it as a decrypt failure", () => {
+    const status = run(["status"]);
+    expect(status.status).toBe(0);
+    expect(status.stdout).toContain("locked");
+    expect(status.stdout).toContain("passphrase");
+    expect(status.stdout).not.toContain("FAILED");
+  });
+
+  it("refuses a piped set on a locked vault without storing the value", () => {
+    const set = run(["set", "API_KEY"], { input: "sk-must-not-be-stored\n" });
+    expect(set.status).toBe(1);
+    expect(set.stderr).toMatch(/locked/i);
+    const list = run(["list"]);
+    expect(list.status).toBe(0);
+    expect(list.stdout).not.toContain("API_KEY");
+  });
+
+  it("refuses non-TTY run --env without spawning the child", () => {
+    const sentinel = path.join(vaultHome, "ran");
+    const result = run([
+      "run",
+      "--env",
+      "API_KEY",
+      "--",
+      process.execPath,
+      "-e",
+      `require("node:fs").writeFileSync(${JSON.stringify(sentinel)}, "ran")`,
+    ]);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toMatch(/locked/i);
+    expect(fs.existsSync(sentinel)).toBe(false);
+  });
+
+  it("still refuses run --allow-unsafe --env when locked", () => {
+    const sentinel = path.join(vaultHome, "unsafe-ran");
+    const result = run([
+      "run",
+      "--allow-unsafe",
+      "--env",
+      "API_KEY",
+      "--",
+      process.execPath,
+      "-e",
+      `require("node:fs").writeFileSync(${JSON.stringify(sentinel)}, "ran")`,
+    ]);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toMatch(/locked/i);
+    expect(fs.existsSync(sentinel)).toBe(false);
+  });
+});
+
 describe("CLI run — secret injection stays out of the agent's view", () => {
   beforeEach(() => {
     run(["init"], { input: "\n" });

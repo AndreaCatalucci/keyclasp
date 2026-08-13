@@ -95,7 +95,9 @@ describe("migrate-vault-key-wrap", () => {
     writeV2Vault(home, "migrated-secret");
     const beforeDb = fs.readFileSync(path.join(home, "vault.db"));
 
-    const result = spawnSync(process.execPath, [scriptPath, "--yes", "--passphrase", "new-wrap"], {
+    const passphraseFile = path.join(tmpDir, "wrap-passphrase");
+    fs.writeFileSync(passphraseFile, "new-wrap\n", { mode: 0o600 });
+    const result = spawnSync(process.execPath, [scriptPath, "--yes", "--passphrase-file", passphraseFile], {
       encoding: "utf8",
       env: { ...process.env, KEYCLASP_HOME: home },
     });
@@ -124,5 +126,15 @@ describe("migrate-vault-key-wrap", () => {
     });
     expect(second.status).not.toBe(0);
     expect(second.stderr).toMatch(/already the current format/);
+  });
+
+  it("refuses a non-interactive invoke without --yes", () => {
+    writeV2Vault(home, "migrated-secret");
+    const result = spawnSync(process.execPath, [scriptPath, "--machine"], {
+      encoding: "utf8",
+      env: { ...process.env, KEYCLASP_HOME: home },
+    });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toMatch(/requires a TTY/);
   });
 });

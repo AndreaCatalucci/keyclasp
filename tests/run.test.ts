@@ -331,6 +331,24 @@ describe("guarded command execution", () => {
     expect(biometricMock).not.toHaveBeenCalled();
   });
 
+  it("skips hyphenated names on whole-scope injection after operator auth", async () => {
+    let stdout = "";
+    const result = await runCommandWithSecrets({
+      args: [process.execPath, "-e", "process.stdout.write(process.env.API_KEY === 'ok' && process.env['MY-API-KEY'] === undefined ? 'ok' : 'bad')"],
+      baseEnv: {},
+      secretNames: ["API_KEY", "MY-API-KEY"],
+      resolveSecret: (name) => (name === "API_KEY" ? "ok" : "hyphen-value"),
+      stdout: (chunk) => { stdout += chunk; },
+      stderr: () => {},
+      operatorAuthenticated: true,
+    });
+
+    expect(result.kind).toBe("exit");
+    expect(result.exitCode).toBe(0);
+    expect(stdout).toBe("ok");
+    expect(biometricMock).not.toHaveBeenCalled();
+  });
+
   it("reports a child executable that cannot be started", async () => {
     let stderr = "";
     const result = await runCommandWithSecrets({

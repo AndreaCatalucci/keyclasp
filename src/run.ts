@@ -54,6 +54,7 @@ export interface RunCommandOptions {
   stdout: (chunk: string) => void;
   stderr: (chunk: string) => void;
   scopeLabel?: string;
+  operatorAuthenticated?: boolean;
 }
 
 interface RedactorResult {
@@ -290,7 +291,7 @@ export async function runCommandWithSecrets(options: RunCommandOptions): Promise
   }
 
   const envSpecs = parsed.envSpecs.length > 0 ? parsed.envSpecs : options.envSpecs;
-  if ((!envSpecs || envSpecs.length === 0) && options.secretNames.length > 0) {
+  if ((!envSpecs || envSpecs.length === 0) && options.secretNames.length > 0 && !options.operatorAuthenticated) {
     try {
       await requireOperatorAuthentication(`Inject every Keyclasp secret in ${options.scopeLabel ?? "the selected scope"}`);
     } catch (err: any) {

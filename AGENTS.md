@@ -36,9 +36,9 @@ npx tsc --watch  # Dev mode
 
 ```bash
 npm i -g github:AndreaCatalucci/keyclasp  # Install
-keyclasp init         # Create vault
+keyclasp init         # Empty passphrase for machine-only (agents/CI)
 keyclasp set API_KEY - # Store a secret securely
-keyclasp run -- npm test # Inject secrets into a trusted command
+keyclasp run --env API_KEY -- npm test # Inject only the named secret
 ```
 
 ## Key Decisions

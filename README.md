@@ -105,7 +105,7 @@ keyclasp run --project myapp --environment prod -- npm test
 
 Tell the agent:
 
-> Use Keyclasp for commands that need credentials. Always pass the intended `--project` and `--environment` explicitly to `keyclasp list`, `keyclasp status`, and `keyclasp run`; do not rely on `keyclasp use` or ambient context. Choose the minimum required `--env` mappings and never omit `--env`. Never call `keyclasp get`, request whole-scope injection, or print or paste injected environment variables.
+> Use Keyclasp for commands that need credentials. Agents and CI need a machine-only vault (empty passphrase at `init`); a passphrase vault stays locked in each new process and `run --env` will fail. Always pass the intended `--project` and `--environment` explicitly to `keyclasp list`, `keyclasp status`, and `keyclasp run`; do not rely on `keyclasp use` or ambient context. Choose the minimum required `--env` mappings and never omit `--env`. Never call `keyclasp get`, request whole-scope injection, or print or paste injected environment variables.
 
 Keyclasp ships an agent skill at [`skills/keyclasp-agent`](skills/keyclasp-agent) that encodes exactly this workflow, plus explicit safety rules. From a clone of this repository:
 

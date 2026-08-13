@@ -179,13 +179,49 @@ function prompt(question) {
   });
 }
 
+function promptSecret(question) {
+  return new Promise((resolve) => {
+    process.stdout.write(question);
+    let value = "";
+    const onData = (char) => {
+      const str = char.toString();
+      switch (str) {
+        case "\n":
+        case "\r":
+          process.stdin.removeListener("data", onData);
+          process.stdin.pause();
+          process.stdout.write("\n");
+          resolve(value);
+          break;
+        case "\u0003":
+          process.stdin.removeListener("data", onData);
+          process.stdout.write("\n");
+          process.exit(1);
+          break;
+        case "\u007f":
+          if (value.length > 0) value = value.slice(0, -1);
+          break;
+        default:
+          if (str >= " ") {
+            value += str;
+            process.stdout.write("*");
+          }
+          break;
+      }
+    };
+    process.stdin.setRawMode?.(true);
+    process.stdin.resume();
+    process.stdin.on("data", onData);
+  });
+}
+
 function parseArgs(argv) {
-  const parsed = { yes: false, passphrase: undefined, machine: false };
+  const parsed = { yes: false, passphraseFile: undefined, machine: false };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--yes") parsed.yes = true;
     else if (argv[i] === "--machine") parsed.machine = true;
-    else if (argv[i] === "--passphrase") {
-      parsed.passphrase = argv[i + 1] ?? "";
+    else if (argv[i] === "--passphrase-file") {
+      parsed.passphraseFile = argv[i + 1];
       i += 1;
     }
   }
@@ -194,7 +230,7 @@ function parseArgs(argv) {
 
 async function main() {
   const flags = parseArgs(process.argv.slice(2));
-  const noninteractive = flags.yes && (flags.machine || flags.passphrase !== undefined);
+  const noninteractive = flags.yes && (flags.machine || flags.passphraseFile);
   if (!noninteractive && !process.stdin.isTTY) {
     console.error("This migrate script is operator-only and requires a TTY.");
     process.exit(1);
@@ -224,11 +260,16 @@ async function main() {
 
   console.log(`Vault: ${home}`);
   console.log(`Key:   ${keyPath}`);
-  let passphrase = flags.machine ? "" : (flags.passphrase ?? "");
+  let passphrase = "";
+  if (flags.machine) {
+    passphrase = "";
+  } else if (flags.passphraseFile) {
+    passphrase = fs.readFileSync(flags.passphraseFile, "utf8").replace(/\n$/, "");
+  }
   if (!noninteractive) {
-    passphrase = await prompt("New wrap passphrase (empty = machine-only): ");
+    passphrase = await promptSecret("New wrap passphrase (empty = machine-only): ");
     if (passphrase) {
-      const again = await prompt("Confirm passphrase: ");
+      const again = await promptSecret("Confirm passphrase: ");
       if (again !== passphrase) {
         console.error("Passphrases did not match.");
         process.exit(1);
