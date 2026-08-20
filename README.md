@@ -78,7 +78,7 @@ keyclasp run --project demo --environment local --env DEMO_SECRET -- \
   node -e 'const v = process.env.DEMO_SECRET; console.log(v ? "injected, " + v.length + " chars" : "missing")'
 ```
 
-`env`, `printenv`, and `export` are blocked on purpose. If the child process prints the secret itself, Keyclasp redacts it as `[KEYCLASP_REDACTED]` and terminates the process. That is the leak guard working, not a failed inject:
+`env`, `printenv`, and `export` are blocked on purpose. If the child process prints the secret itself, Keyclasp redacts it as `[KEYCLASP_REDACTED]` and terminates the process. That's not a failed inject: the injection worked, but the child leaked the value into its own output, so the leak guard caught it and shut the process down:
 
 ```bash
 keyclasp run --project demo --environment local --env DEMO_SECRET -- \
