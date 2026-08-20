@@ -24,7 +24,7 @@ If a new CLI refuses an old XOR key file, clone this repository and run `scripts
 
 ## Can a coding agent safely use Keyclasp?
 
-Yes, when the vault is machine-only (empty passphrase at `init`) and the agent works with secret names only, using explicit `keyclasp run --project ... --environment ... --env ...` mappings. A passphrase vault stays locked in each new process, so `run --env` fails for agents. Agents must never call `keyclasp get` or omit `--env`; those paths are operator-only and require Touch ID or an interactive vault passphrase. See the bundled [agent skill](../skills/keyclasp-agent/SKILL.md) for the exact workflow and safety rules.
+Yes, when the vault is machine-only (empty passphrase at `init`) and the agent works with secret names only, using explicit `keyclasp run --project ... --environment ... --env ...` mappings. A passphrase vault stays locked in each new process, so `run --env` fails for agents. Agents must never call `keyclasp get` or omit `--env`; those paths are operator-only and require Touch ID or an interactive vault passphrase. Install the bundled [agent skill](../skills/keyclasp-agent/SKILL.md) with `npx skills add AndreaCatalucci/keyclasp@keyclasp-agent -g`.
 
 ## Does `keyclasp run` make any program safe?
 

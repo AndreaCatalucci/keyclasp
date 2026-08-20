@@ -13,7 +13,6 @@
   "files": [
     "dist",
     "native",
-    "scripts/install-codex-skill.sh",
     "skills",
     "NOTICE"
   ],
@@ -22,7 +21,6 @@
     "build": "npm run clean --silent && tsc",
     "postbuild": "node -e \"require('node:fs').chmodSync('dist/cli.js', 0o755)\"",
     "dev": "tsc --watch",
-    "install:codex-skill": "bash scripts/install-codex-skill.sh",
     "start": "node dist/cli.js",
     "prepare": "npm run build",
     "prepublishOnly": "npm run build",

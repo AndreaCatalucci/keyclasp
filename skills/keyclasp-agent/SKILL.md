@@ -1,74 +1,62 @@
 ---
 name: keyclasp-agent
-description: Use Keyclasp from Codex to discover secret names and run commands with secrets injected only at the process boundary. Use when a coding task needs credentials for tests, builds, API calls, package registries, cloud CLIs, or deploys; when stored secret names must be matched to environment variables; or when a command fails because a required credential is missing.
+description: Keyclasp process-boundary injection. Use when a command needs credentials, fails for a missing env var, or another skill must inject secrets without exposing values.
 ---
 
-# Keyclasp for Codex
+# Keyclasp Agent
 
-Use Keyclasp as the boundary between Codex and plaintext credentials. Work with secret names and command output, never secret values.
+**Secret names** only. Values cross the **process boundary** inside `keyclasp run`, never this conversation.
 
-## Workflow
+## 1. Name the command, env vars, and scope
 
-1. Determine which environment variables the target command expects from project configuration, documentation, or its error output.
-2. Confirm Keyclasp is available with `command -v keyclasp` when availability is unknown.
-3. Determine the project and environment to use (see "Always Scope Explicitly" below) — from the task at hand, not by assuming a default.
-4. Discover metadata without revealing values, scoped to that project/environment:
-
-   ```bash
-   keyclasp status --project <project> --environment <environment>
-   keyclasp list --project <project> --environment <environment>
-   ```
-
-5. Match the required environment variables to the listed secret names.
-6. Run the command through Keyclasp, passing the same `--project`/`--environment` flags.
-
-## Always Scope Explicitly
-
-Every secret lives under a `(project, environment, name)` triple, not just a name — the same name can hold different values in different scopes. Always pass `--project` and `--environment` explicitly on every Keyclasp invocation (`status`, `list`, `run`, etc.), rather than relying on ambient state:
+Read project config, docs, and error output. Pass `--project` and `--environment` on every Keyclasp command — never `keyclasp use`, never ambient context. If scope is unknown:
 
 ```bash
-keyclasp list --project myapp --environment prod
-keyclasp run --project myapp --environment prod --env OPENAI_API_KEY -- npm test
+keyclasp projects
+keyclasp environments
+keyclasp list --all
 ```
 
-Do not use `keyclasp use` (persisted project/environment context) or assume one is already set. It writes shared state to a context file meant for a human's interactive shell — a coding agent's invocations should never depend on it, since parallel or later invocations (this agent or another) could see a different persisted context than the one intended, silently resolving the wrong scope. If the project or environment isn't obvious from the task, ask rather than guess.
+Done when the child command, required env-var names, `--project`, and `--environment` are known.
 
-## Choose the Injection Form
+## 2. Confirm the vault can inject
 
-Prefer explicit `--env` mappings so the child process receives only the secrets it needs. Repeat `--env` for multiple secrets.
+`command -v keyclasp` when availability is unknown, then:
 
 ```bash
-# Inject one secret under the same environment variable name
-keyclasp run --project myapp --environment prod --env OPENAI_API_KEY -- npm test
-
-# Map a stored name to the environment variable expected by the command
-keyclasp run --project myapp --environment prod --env OPENAI_KEY:OPENAI_API_KEY -- npm test
-
-# Inject several selected secrets
-keyclasp run --project myapp --environment prod --env AWS_ACCESS_KEY_ID --env AWS_SECRET_ACCESS_KEY -- aws s3 ls
+keyclasp status --project <project> --environment <environment>
+keyclasp list --project <project> --environment <environment>
 ```
 
-Never omit `--env`. With no `--env` option, Keyclasp treats the request as operator-only whole-scope injection and requires Touch ID or an interactive vault passphrase. Agents must not request or attempt to satisfy that prompt.
+`list` prints names. `status` exit 0 does not mean `run --env` can inject: if `Values:` is `locked`, stop. Map each required env var to a listed name (`--env STORE:EXPECTED` when they differ).
 
-Always place Keyclasp options (including `--project`/`--environment`) before `--`; everything after `--` is the child command and its arguments.
+Done when the binary exists, status is not locked, and every required name is listed — or the missing-name failure has been handled.
 
-## Safety Rules
+## 3. Run at the process boundary
 
-- Do not run `keyclasp get` or any other command that prints a plaintext secret.
-- Do not run `keyclasp run` without at least one explicit `--env` mapping. Whole-scope injection is an operator action (Touch ID or interactive vault passphrase).
-- Do not inspect injected values with `env`, `printenv`, shell expansion, debug logging, or equivalent commands. Verify behavior through the target command instead.
-- Do not paste secret values into prompts, source files, command arguments, logs, test snapshots, commits, or summaries.
-- Treat the child command as trusted code: it can read every secret injected into it. Use explicit `--env` mappings for least privilege when possible.
-- Keep the default output guard enabled. It redacts detected injected values and terminates a command that prints one.
-- Never add `--allow-unsafe` unless the user explicitly authorizes disabling both command preflight and output leak protection for that invocation.
-- Apply the usual authorization rules to the child command. Keyclasp changes how credentials reach it; it does not authorize a deployment, mutation, or other external action.
+Keyclasp options before `--`. Repeat `--env` once per secret.
 
-## Handle Failures
+```bash
+keyclasp run --project <project> --environment <environment> --env OPENAI_API_KEY -- npm test
+keyclasp run --project <project> --environment <environment> --env OPENAI_KEY:OPENAI_API_KEY -- npm test
+```
 
-- If Keyclasp is unavailable, report that installation or PATH configuration is required. Do not fall back to asking for plaintext credentials.
-- If `status` prints `Values: locked (passphrase mode)` or `run --env` exits locked, stop. Unlock does not persist across processes, so asking the user to type the wrap passphrase will not unblock later agent commands. Tell the user agent/CI injection needs a machine-only vault (empty `keyclasp init`, or migrate with `--machine`) or they must run the command themselves in a TTY. Do not treat `status` exit 0 as proof that `run --env` can inject. Do not prompt for or accept a vault passphrase.
-- If the vault is not initialized or uses an old key-file format, report the exact Keyclasp error and let the user complete setup or run the migrate script.
-- If a secret is missing, run `keyclasp list --project <project> --environment <environment>` again with the same scope, compare names, and report the required name and scope. A "not found" error may mean the name is wrong, or the project/environment is — check both before assuming the secret was never stored. Do not invent a value or read one from an unsafe file.
-- If Keyclasp blocks a command as an environment dump, choose a narrower behavioral verification. Do not bypass the block.
-- If output leak detection terminates the command, report the redacted failure and fix the target command's logging before retrying.
-- Otherwise, preserve and report the child command's exit status and safe output as normal.
+Done when this form has run, or a failure below was handled without exposing a value.
+
+## Safety
+
+- Never run `keyclasp get`. If the user needs plaintext, tell them to run it in their terminal.
+- Never omit `--env` (whole-scope injection is operator-only).
+- Never pass `--allow-unsafe` unless the user authorizes that one invocation.
+- Never write a secret value into prompts, files, command arguments, logs, snapshots, commits, or summaries. Never inspect injection with `env`, `printenv`, shell expansion, or debug dumps — verify through child behavior, or a check that reports only set vs length.
+- Never invent a value or read one from a project file. Do not run `init` / `set` / `delete` / `rename`. If the user wants a value stored, tell them to run `keyclasp set NAME -` in their terminal.
+- The child is trusted code and receives every injected secret. Keyclasp does not authorize the child's external actions.
+
+## Failures
+
+- **Missing binary**: report that install or PATH is required. Do not ask for plaintext.
+- **Not initialized / locked / old-format key**: report the exact Keyclasp error. Do not prompt or pipe a passphrase. A **machine-only** vault (empty passphrase at `init`) is what agents can use; a passphrase vault stays locked in each new process.
+- **`Secret "NAME" not found` / name missing from this scope**: `keyclasp list --all`, then report the required name and the scope you used.
+- **`BLOCKED` environment dump**: prove the variable is set without printing it.
+- **`BLOCKED: command output contained an injected secret`**: report the redacted failure (`[KEYCLASP_REDACTED]`) and fix the child's logging before retrying.
+- **Anything else**: preserve the child's exit status and safe output.

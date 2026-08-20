@@ -1,4 +1,4 @@
 interface:
   display_name: "Keyclasp for Codex"
   short_description: "Run commands with secrets without revealing them"
-  default_prompt: "Use $keyclasp-agent to run this command with the required secrets."
+  default_prompt: "Use $keyclasp-agent to run this command at the process boundary with explicit --env mappings."
