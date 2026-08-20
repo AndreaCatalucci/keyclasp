@@ -11,7 +11,7 @@ export interface GlobalFlags {
 export type FlagScanMode = "scan-all" | "scan-until-terminator";
 
 // Pulls --project/-p and --environment/-E (or their --flag=value forms) out
-// of argv, wherever they appear. "scan-all" scans the whole array — safe for
+// of argv, wherever they appear. "scan-all" scans the whole array, safe for
 // commands with a single positional arg, since a global flag can't be
 // confused with it. "scan-until-terminator" stops recognizing global flags
 // at the first literal "--" so a child command's own arguments (keyclasp
@@ -80,7 +80,7 @@ function contextFilePath(): string {
 }
 
 // Missing file, malformed JSON, or invalid field types are all treated as
-// "no persisted context" — never throws, so a corrupted context.json can't
+// "no persisted context". Never throws, so a corrupted context.json can't
 // break unrelated commands.
 export function readContext(): StoredContext | null {
   try {

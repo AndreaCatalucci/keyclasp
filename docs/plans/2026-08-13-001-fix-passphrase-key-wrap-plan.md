@@ -60,12 +60,12 @@ Today the vault key is `PBKDF2(passphrase)` written XOR-wrapped with a public ma
 
 ### Relevant Code and Patterns
 
-- `src/vault.ts` — `initializeVault`, `writeKeyFile` (tmp + `.N.bak` + rename + `0600`), `getKey`, `parseKeyFile` / `loadKeyFile` (XOR dual-read), `verifyVaultPassphrase`, `vaultHasPassphrase`, in-process `_key` cache.
-- `src/cli.ts` — `init` passphrase via TTY or stdin; `set` may consume stdin as the secret value; `status` treats decrypt failure as exit 1.
-- `src/biometric.ts` — Touch ID first; denied does not fall back; unavailable falls back to TTY passphrase; machine-only cannot authorize when Touch ID is missing.
-- `src/run.ts` — whole-scope `run` calls operator auth; `--env` does not.
-- `tests/key-invariant.test.ts` — encodes XOR v2 / Keyblind / headerless reads and `restartRuntime` + `resolveSecret` with no passphrase.
-- `scripts/install-codex-skill.sh` — only existing script; `set -euo pipefail`, fail closed. Migrate is a new Node script, not a bash copy of this pattern.
+- `src/vault.ts`: `initializeVault`, `writeKeyFile` (tmp + `.N.bak` + rename + `0600`), `getKey`, `parseKeyFile` / `loadKeyFile` (XOR dual-read), `verifyVaultPassphrase`, `vaultHasPassphrase`, in-process `_key` cache.
+- `src/cli.ts`: `init` passphrase via TTY or stdin; `set` may consume stdin as the secret value; `status` treats decrypt failure as exit 1.
+- `src/biometric.ts`: Touch ID first; denied does not fall back; unavailable falls back to TTY passphrase; machine-only cannot authorize when Touch ID is missing.
+- `src/run.ts`: whole-scope `run` calls operator auth; `--env` does not.
+- `tests/key-invariant.test.ts`: encodes XOR v2 / Keyblind / headerless reads and `restartRuntime` + `resolveSecret` with no passphrase.
+- `scripts/install-codex-skill.sh`: only existing script; `set -euo pipefail`, fail closed. Migrate is a new Node script, not a bash copy of this pattern.
 
 ### Institutional Learnings
 
@@ -73,10 +73,10 @@ Today the vault key is `PBKDF2(passphrase)` written XOR-wrapped with a public ma
 
 ### External References
 
-- NIST SP 800-132 Option 2 — random data key, authenticated wrap under a password-derived key.
-- OWASP Password Storage / Cryptographic Storage — PBKDF2-SHA256 600k is the current floor; GCM envelope; do not persist the KDF output as the data key.
-- Node.js 24 `crypto` — keep `pbkdf2Sync` + `createCipheriv("aes-256-gcm", …, { authTagLength: 16 })`. Set `authTagLength` on decrypt (DEP0182). `argon2Sync` exists only from 24.7.0; no first-class AES-KW on `node:crypto`.
-- Age / Bitwarden — random file/user key wrapped by a passphrase KDF; passphrase change rewraps the key, not the data.
+- NIST SP 800-132 Option 2: random data key, authenticated wrap under a password-derived key.
+- OWASP Password Storage / Cryptographic Storage: PBKDF2-SHA256 600k is the current floor; GCM envelope; do not persist the KDF output as the data key.
+- Node.js 24 `crypto`: keep `pbkdf2Sync` + `createCipheriv("aes-256-gcm", …, { authTagLength: 16 })`. Set `authTagLength` on decrypt (DEP0182). `argon2Sync` exists only from 24.7.0; no first-class AES-KW on `node:crypto`.
+- Age / Bitwarden: random file/user key wrapped by a passphrase KDF; passphrase change rewraps the key, not the data.
 
 ---
 
@@ -85,12 +85,12 @@ Today the vault key is `PBKDF2(passphrase)` written XOR-wrapped with a public ma
 - **Random data key, passphrase is only the wrap key.** Matches NIST Option 2 and makes passphrase change a key-file rewrite. Rejected: keep `dataKey = PBKDF2(passphrase)` (passphrase change would rewrite every row).
 - **Two explicit modes in the header and in GCM AAD: `passphrase` and `machine`.** Parse mode first and branch. Never probe empty passphrase, then real passphrase, then machine unwrap. Empty `init` input selects `machine`; non-empty selects `passphrase`.
 - **Passphrase mode wrap: AES-256-GCM under PBKDF2-SHA256 (600k, 32-byte salt, 32-byte key).** Keep the KDF the project already documents. Rejected for this plan: Argon2id (requires `engines: >=24.7.0`) and scrypt (new parameters, no local pattern).
-- **Machine mode wrap: AES-256-GCM under a KEK derived from the existing stable machine identity (plus salt and magic).** Authenticated, still weak — the identity is locally public. Label it. Do not mix machine identity into the passphrase KEK (that would break portability).
+- **Machine mode wrap: AES-256-GCM under a KEK derived from the existing stable machine identity (plus salt and magic).** Authenticated, still weak: the identity is locally public. Label it. Do not mix machine identity into the passphrase KEK (that would break portability).
 - **AAD binds magic, mode, KDF id, KDF params, and salt.** Stops mode flip and KDF-parameter downgrade. Wrong passphrase is a tag failure.
 - **New magic only.** App reads the new format and refuses everything else with an error that points at the ad hoc script. XOR / Keyblind / headerless paths leave `vault.ts`.
 - **Unlock is in-process only.** `getKey()` auto-unwraps `machine` mode. `passphrase` mode requires an unlock in this process, then the existing `_key` cache. No daemon, no wrap secret on disk, no env var.
-- **CLI: TTY wrap prompt on decrypting commands; non-TTY fail closed.** Applies to `set`, `get`, `run`, and `status`'s value check when mode is `passphrase` and the process is locked. Piped `echo value | keyclasp set NAME` does not steal stdin for the passphrase — it fails locked. Interactive `set NAME -` prompts unlock first, then the value. `run --env` does not grow a biometric gate; on a TTY it may ask for the wrap passphrase (same as `ssh` without an agent); without a TTY it errors locked.
-- **Operator gate vs unwrap.** Touch ID still authorizes `get` / whole-scope `run` when available. After a successful Touch ID, passphrase mode still needs one wrap prompt if locked. On platforms without Touch ID, a single TTY passphrase both authorizes and unwraps — do not prompt twice. Cancelled Touch ID still does not fall back.
+- **CLI: TTY wrap prompt on decrypting commands; non-TTY fail closed.** Applies to `set`, `get`, `run`, and `status`'s value check when mode is `passphrase` and the process is locked. Piped `echo value | keyclasp set NAME` does not steal stdin for the passphrase; it fails locked. Interactive `set NAME -` prompts unlock first, then the value. `run --env` does not grow a biometric gate; on a TTY it may ask for the wrap passphrase (same as `ssh` without an agent); without a TTY it errors locked.
+- **Operator gate vs unwrap.** Touch ID still authorizes `get` / whole-scope `run` when available. After a successful Touch ID, passphrase mode still needs one wrap prompt if locked. On platforms without Touch ID, a single TTY passphrase both authorizes and unwraps; do not prompt twice. Cancelled Touch ID still does not fall back.
 - **Product split.** Passphrase mode is an operator at-rest vault. Machine mode is the agent and CI vault. There is no “unlock once, later agent processes work.”
 - **Migrate script rewraps the existing data key.** It contains its own copy of the old XOR + machine-identity unwrap (the app will no longer). It prompts for the new wrap secret (empty → machine mode). It does not rewrite `vault.db`. It is not a `keyclasp` command. Recovery after a published-package upgrade is “clone this repo and run the script,” not “the installed CLI ships migrate.”
 - **Old-format vaults are inert, not half-usable.** `isInitialized()` staying true must not let `list` / `delete` / `rename` mutate ciphertext the new binary cannot unwrap. Those commands fail with the same refuse-old-format error as decrypting ones.
@@ -234,7 +234,7 @@ Mode decision for later processes:
 **Test scenarios:**
 - Happy path: machine mode, `clearKey`, `resolveSecret` succeeds with no passphrase.
 - Happy path: passphrase mode, `clearKey`, unlock with the init passphrase, then `resolveSecret` succeeds.
-- Happy path: Linux-style operator path — one passphrase both authorizes and unlocks `get`.
+- Happy path: Linux-style operator path, one passphrase both authorizes and unlocks `get`.
 - Edge case: `list` / `delete` / `rename` after `clearKey` on a passphrase vault still succeed.
 - Error path: passphrase mode, `clearKey`, `resolveSecret` / `storeSecret` throw locked.
 - Error path: wrong unlock passphrase fails; cache stays empty.
@@ -327,7 +327,7 @@ Mode decision for later processes:
 - **Interaction graph:** Every path that opens the vault becomes format-aware. Decrypting paths are also lock-aware. Name-only commands refuse old-format keys (they must not mutate ciphertext the new binary cannot unwrap). Biometric helper stays a gate, not an unwrap. `status` exit 0 on a locked passphrase vault is not proof that `run --env` will inject.
 - **Error propagation:** Five classes: locked, refuse-old-format, corrupt new key file, wrong passphrase, row decrypt failure. CLI maps locked and refuse-old-format to short operator messages (TTY/machine-only vs clone-and-migrate). `status` locked → exit 0; `status` old-format → non-zero.
 - **State lifecycle risks:** In-process cache dies with the process. Migrate copies the live key to `.N.bak` before replace so a crash never leaves `vault.db` without a live key. After success the `.bak` is still the old XOR wrap. Mixed old/new binaries on PATH: new files look corrupt to an old CLI; rollback is restore `.bak` + old binary.
-- **API surface parity:** `getKey()` becomes lock-aware. `verifyVaultPassphrase` becomes unlock (cache fill on success). `vaultHasPassphrase` reads the header. Library `unlock` is a programmatic passphrase path — accepted because the library already decrypted without a CLI. Add unlock to `src/index.ts` and assert it in `tests/public-api.test.ts`.
+- **API surface parity:** `getKey()` becomes lock-aware. `verifyVaultPassphrase` becomes unlock (cache fill on success). `vaultHasPassphrase` reads the header. Library `unlock` is a programmatic passphrase path, accepted because the library already decrypted without a CLI. Add unlock to `src/index.ts` and assert it in `tests/public-api.test.ts`.
 - **Integration coverage:** CLI process-per-invocation is the real contract. Cover non-TTY `run --env`, piped `set`, `status` locked vs old-format, and name-only commands against an XOR fixture.
 - **Operational contract break:** Published CI (`init` with a passphrase, then new-process `set` / `run --env`) and “mount the laptop vault into a container” stop working for passphrase vaults. CI must machine-`init` inside that job's identity. A container does not inherit the host fingerprint.
 - **Unchanged invariants:** `run --env` has no biometric gate. `--allow-unsafe` does not unlock. Cancelled Touch ID does not fall back. Projects/environments remain namespacing. Zero network.
@@ -350,7 +350,7 @@ Mode decision for later processes:
 | Operator types the passphrase twice on `get` | No Touch ID: one prompt. Touch ID present: Touch ID then at most one wrap prompt. |
 | Piped `set` swallows the value as the passphrase | Non-TTY locked failure; never read wrap secret from the value pipe. |
 | Machine mode still unwraps for any same-user process | Accepted and labeled. Stronger machine-only is keychain follow-up. |
-| One-way format cut vs old binaries | Rollback is `.bak` + old CLI. Mixed PATH looks like a corrupt vault — docs say so. |
+| One-way format cut vs old binaries | Rollback is `.bak` + old CLI. Mixed PATH looks like a corrupt vault; docs say so. |
 | PBKDF2 600k is not memory-hard | Accepted for this plan; follow-up KDF upgrade. |
 
 ---

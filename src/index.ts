@@ -1,6 +1,6 @@
 // Note: deleteProject/deleteEnvironmentInProject/deleteEnvironmentAcrossAllProjects
 // and the rename* functions below run with no confirmation prompt at this
-// layer — the CLI's typed-confirmation / non-TTY-refusal safety net for bulk
+// layer. The CLI's typed-confirmation / non-TTY-refusal safety net for bulk
 // deletes lives entirely in cli.ts. Library callers are responsible for their
 // own confirmation before invoking these.
 export {

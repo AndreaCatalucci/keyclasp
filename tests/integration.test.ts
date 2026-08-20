@@ -171,7 +171,7 @@ describe("CLI passphrase vault stays locked across processes", () => {
   });
 });
 
-describe("CLI run — secret injection stays out of the agent's view", () => {
+describe("CLI run: secret injection stays out of the agent's view", () => {
   beforeEach(() => {
     run(["init"], { input: "\n" });
     run(["set", "INJECTED_SECRET"], { input: "sk-super-secret-value\n" });
@@ -455,7 +455,7 @@ describe("CLI bulk delete", () => {
     expect(result.status).toBe(1);
   });
 
-  it("single-secret delete is unaffected — no confirmation required", () => {
+  it("single-secret delete is unaffected, no confirmation required", () => {
     const result = run(["delete", "BULK_ONE", "--project", "bulkapp", "--environment", "prod"]);
     expect(result.status).toBe(0);
     expect(runMissingSecret("BULK_ONE", ["--project", "bulkapp", "--environment", "prod"]).status).toBe(1);

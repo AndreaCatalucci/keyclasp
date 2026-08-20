@@ -28,7 +28,7 @@ Yes, when the vault is machine-only (empty passphrase at `init`) and the agent w
 
 ## Does `keyclasp run` make any program safe?
 
-No. A child process that receives a secret can still misuse it. Keyclasp blocks common environment-dump commands and scans output for injected values, terminating the process on a detected leak — these are safeguards, not a security boundary against malicious code.
+No. A child process that receives a secret can still misuse it. Keyclasp blocks common environment-dump commands and scans output for injected values, terminating the process on a detected leak. These are safeguards, not a security boundary against malicious code.
 
 ## What Node.js version do I need?
 
@@ -40,7 +40,7 @@ Yes. The vault, `set`, `list`, `status`, and `keyclasp run --env ...` work on ma
 
 ## Why did `env` or `printenv` get blocked?
 
-Those commands dump the process environment, which would print injected secrets. That is intentional. Prove injection with the target command, or with a check that reports only whether the variable is set — not its value.
+Those commands dump the process environment, which would print injected secrets. That is intentional. Prove injection with the target command, or with a check that reports only whether the variable is set, not its value.
 
 ## Why did my command print `[KEYCLASP_REDACTED]` and exit?
 

@@ -9,7 +9,7 @@ description: Keyclasp process-boundary injection. Use when a command needs crede
 
 ## 1. Name the command, env vars, and scope
 
-Read project config, docs, and error output. Pass `--project` and `--environment` on every Keyclasp command — never `keyclasp use`, never ambient context. If scope is unknown:
+Read project config, docs, and error output. Pass `--project` and `--environment` on every Keyclasp command. Never `keyclasp use`, never ambient context. If scope is unknown:
 
 ```bash
 keyclasp projects
@@ -30,7 +30,7 @@ keyclasp list --project <project> --environment <environment>
 
 `list` prints names. `status` exit 0 does not mean `run --env` can inject: if `Values:` is `locked`, stop. Map each required env var to a listed name (`--env STORE:EXPECTED` when they differ).
 
-Done when the binary exists, status is not locked, and every required name is listed — or the missing-name failure has been handled.
+Done when the binary exists, status is not locked, and every required name is listed, or the missing-name failure has been handled.
 
 ## 3. Run at the process boundary
 
@@ -48,7 +48,7 @@ Done when this form has run, or a failure below was handled without exposing a v
 - Never run `keyclasp get`. If the user needs plaintext, tell them to run it in their terminal.
 - Never omit `--env` (whole-scope injection is operator-only).
 - Never pass `--allow-unsafe` unless the user authorizes that one invocation.
-- Never write a secret value into prompts, files, command arguments, logs, snapshots, commits, or summaries. Never inspect injection with `env`, `printenv`, shell expansion, or debug dumps — verify through child behavior, or a check that reports only set vs length.
+- Never write a secret value into prompts, files, command arguments, logs, snapshots, commits, or summaries. Never inspect injection with `env`, `printenv`, shell expansion, or debug dumps. Verify through child behavior, or a check that reports only set vs length.
 - Never invent a value or read one from a project file. Do not run `init` / `set` / `delete` / `rename`. If the user wants a value stored, tell them to run `keyclasp set NAME -` in their terminal.
 - The child is trusted code and receives every injected secret. Keyclasp does not authorize the child's external actions.
 

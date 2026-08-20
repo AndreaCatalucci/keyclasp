@@ -70,7 +70,7 @@ async function readPassphrase(prompt: string): Promise<string> {
 
 function printHelp(): void {
   console.log(`
-🔑 Keyclasp — Local encrypted credential vault for coding agents
+🔑 Keyclasp: Local encrypted credential vault for coding agents
 
 Usage:
   keyclasp init                Initialize the encrypted vault
@@ -188,7 +188,7 @@ async function confirmBulkDelete(opts: { description: string; typedValue: string
   console.log(`This will permanently delete ${opts.count} secret(s) in ${opts.description}.`);
   const typed = await promptPlainLine(`Type "${opts.typedValue}" to confirm: `);
   if (typed !== opts.typedValue) {
-    console.error("Confirmation did not match. Aborted — nothing was deleted.");
+    console.error("Confirmation did not match. Aborted, nothing was deleted.");
     process.exit(1);
   }
 }
@@ -558,7 +558,7 @@ async function main(): Promise<void> {
         }
         writeContext(useProject, useEnvironment);
         console.log(`Context set to ${useProject}/${useEnvironment}.`);
-        console.log("This is a convenience for interactive use only — scripts and agents should always pass --project/--environment explicitly.");
+        console.log("This is a convenience for interactive use only. Scripts and agents should always pass --project/--environment explicitly.");
         break;
       }
 

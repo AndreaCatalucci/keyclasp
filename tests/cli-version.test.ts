@@ -72,7 +72,7 @@ describe("removed CLI surface", () => {
     expect(help).toContain("keyclasp rename");
     expect(help).toContain("keyclasp run");
     expect(help).toContain("keyclasp status");
-    // --project/--environment scoping is an intentional, current feature —
+    // --project/--environment scoping is an intentional, current feature,
     // distinct from the removed features above, so it's expected here.
     expect(help).toContain("--project");
     expect(help).not.toContain("keyclasp sandbox");

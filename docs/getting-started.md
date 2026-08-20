@@ -28,7 +28,7 @@ keyclasp init
 
 ## Try It Without a Real API Key
 
-Use the secure prompt so the value does not enter shell history. Paste the value and press Enter — not Ctrl+D.
+Use the secure prompt so the value does not enter shell history. Paste the value and press Enter, not Ctrl+D.
 
 ```bash
 keyclasp set DEMO_SECRET - --project demo --environment local

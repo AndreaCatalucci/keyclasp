@@ -42,4 +42,4 @@ keyclasp run --project myapp --environment prod --env SECRET_API_KEY --env DATAB
 
 Copy the vault directory (`~/.keyclasp/`) to the new machine. A passphrase vault unlocks there after you enter the wrap passphrase in a TTY (`set`, `get`, `run`, or `status` value check). A machine-only vault will not unlock on different hardware. Prefer a real passphrase during `keyclasp init` if you plan to move the vault.
 
-Old XOR (`keyclasp:v2`) key files are refused. On the original machine, clone this repository and run `scripts/migrate-vault-key-wrap.mjs` before using a new CLI. After you confirm the new wrap, shred `.keyclasp.key.*.bak` — those backups are still the old wrap. The script is not shipped in the published npm package.
+Old XOR (`keyclasp:v2`) key files are refused. On the original machine, clone this repository and run `scripts/migrate-vault-key-wrap.mjs` before using a new CLI. After you confirm the new wrap, shred `.keyclasp.key.*.bak`. Those backups are still the old wrap. The script is not shipped in the published npm package.

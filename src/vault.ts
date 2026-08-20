@@ -601,7 +601,7 @@ export function getDb(): Database.Database {
     _db.pragma("journal_mode = WAL");
   } catch {
     // journal_mode change can fail with SQLITE_BUSY on Windows CI
-    // when the DB file is newly created. This is non-fatal — the
+    // when the DB file is newly created. This is non-fatal: the
     // vault is fully functional with the default journal mode.
   }
   ensureSecretsSchema(_db);
@@ -797,7 +797,7 @@ function collisionMessage(scopeLabel: string, collisions: { environment?: string
   const list = collisions
     .map((c) => (c.environment !== undefined ? `${c.environment}/${c.name}` : c.name))
     .join("\n  ");
-  return `Rename aborted — ${collisions.length} secret(s) already exist in ${scopeLabel}:\n  ${list}`;
+  return `Rename aborted. ${collisions.length} secret(s) already exist in ${scopeLabel}:\n  ${list}`;
 }
 
 export function renameProject(fromProject: string, toProject: string): { moved: number } {
@@ -857,7 +857,7 @@ export function renameEnvironmentAcrossAllProjects(fromEnvironment: string, toEn
     `).all(toEnvironment, fromEnvironment) as { project: string; name: string }[];
     if (collisions.length > 0) {
       const list = collisions.map((c) => `${c.project}/${c.name}`).join("\n  ");
-      throw new Error(`Rename aborted — ${collisions.length} secret(s) already exist in environment "${toEnvironment}":\n  ${list}`);
+      throw new Error(`Rename aborted. ${collisions.length} secret(s) already exist in environment "${toEnvironment}":\n  ${list}`);
     }
     const affectedProjects = db.prepare("SELECT DISTINCT project FROM secrets WHERE environment = ?").all(fromEnvironment) as { project: string }[];
     const moved = db.prepare("UPDATE secrets SET environment = ?, updated_at = datetime('now') WHERE environment = ?")

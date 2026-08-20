@@ -1,6 +1,6 @@
-# Keyclasp — Local Encrypted Credential Vault for Coding Agents
+# Keyclasp: Local Encrypted Credential Vault for Coding Agents
 
-**Store credentials locally, encrypted. Let a coding agent run commands that need them — without the agent, its prompt, or its output ever seeing the plaintext.**
+**Store credentials locally, encrypted. Let a coding agent run commands that need them, without the agent, its prompt, or its output ever seeing the plaintext.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
@@ -19,7 +19,7 @@ coding agent          Keyclasp vault           trusted child process
 secret names only  -> encrypted values      -> runtime environment
 ```
 
-The agent can discover that a project expects `SECRET_API_KEY` without ever seeing its value. When a command needs that key, `keyclasp run` injects it directly into the child process's environment — the value never passes through the agent's context, the CLI's own stdout, or the shell command line. Keyclasp also watches the command's own output, redacts a detected secret, and terminates the process if it leaks one.
+The agent can discover that a project expects `SECRET_API_KEY` without ever seeing its value. When a command needs that key, `keyclasp run` injects it directly into the child process's environment. The value never passes through the agent's context, the CLI's own stdout, or the shell command line. Keyclasp also watches the command's own output, redacts a detected secret, and terminates the process if it leaks one.
 
 ## Why Use Keyclasp Instead of a Plain `.env` File?
 
@@ -78,7 +78,7 @@ keyclasp run --project demo --environment local --env DEMO_SECRET -- \
   node -e 'const v = process.env.DEMO_SECRET; console.log(v ? "injected, " + v.length + " chars" : "missing")'
 ```
 
-`env`, `printenv`, and `export` are blocked on purpose. If the child process prints the secret itself, Keyclasp redacts it as `[KEYCLASP_REDACTED]` and terminates the process — that is the leak guard working, not a failed inject:
+`env`, `printenv`, and `export` are blocked on purpose. If the child process prints the secret itself, Keyclasp redacts it as `[KEYCLASP_REDACTED]` and terminates the process. That is the leak guard working, not a failed inject:
 
 ```bash
 keyclasp run --project demo --environment local --env DEMO_SECRET -- \
@@ -145,9 +145,9 @@ See the [full CLI reference](docs/commands.md).
 - The vault lives under `~/.keyclasp/` with owner-only directory and file permissions (`0700`/`0600`).
 - `keyclasp run` is the only path from the vault to a process; it blocks obvious environment-dump commands and redacts/terminates on a detected output leak.
 - `keyclasp get` and whole-scope `keyclasp run` require a fresh macOS Touch ID approval when Touch ID is available. If it is not available, they ask for the vault passphrase in an interactive terminal. A cancelled Touch ID prompt does not fall back. A machine-only (empty) passphrase cannot authorize these paths.
-- A child process that receives a secret can still misuse or print it. `keyclasp run` reduces this risk but cannot make untrusted code safe — only run trusted commands through it.
+- A child process that receives a secret can still misuse or print it. `keyclasp run` reduces this risk but cannot make untrusted code safe. Only run trusted commands through it.
 - `keyclasp get` deliberately prints plaintext after biometric approval. Its output may remain in terminal scrollback; agents must never invoke it.
-- A non-empty passphrase wraps the vault data key. Unlock after each new process requires that passphrase (TTY). An empty ("machine-only") passphrase binds the key to the local machine's identity — that is the agent/CI mode.
+- A non-empty passphrase wraps the vault data key. Unlock after each new process requires that passphrase (TTY). An empty ("machine-only") passphrase binds the key to the local machine's identity. That is the agent/CI mode.
 - Old XOR key files are refused. Migrate this machine with `scripts/migrate-vault-key-wrap.mjs` from a clone of this repo.
 - Keyclasp has not received a professional third-party security audit.
 
