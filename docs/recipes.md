@@ -20,7 +20,7 @@ Treat the CI job's own secret store as the source of truth; Keyclasp only narrow
 
 ```dockerfile
 FROM node:24-slim
-RUN npm install -g github:AndreaCatalucci/keyclasp
+RUN npm install -g keyclasp
 ```
 
 Mount the vault at runtime instead of copying credentials into the image:

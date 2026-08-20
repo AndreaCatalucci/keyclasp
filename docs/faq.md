@@ -49,7 +49,7 @@ The child process wrote an injected secret to stdout or stderr. Keyclasp redacts
 ## How do I install Keyclasp?
 
 ```bash
-npm install -g github:AndreaCatalucci/keyclasp
+npm install -g keyclasp
 ```
 
 Or clone, build, and link:

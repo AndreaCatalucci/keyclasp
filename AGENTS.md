@@ -35,7 +35,7 @@ npx tsc --watch  # Dev mode
 ## New User Flow
 
 ```bash
-npm i -g github:AndreaCatalucci/keyclasp  # Install
+npm i -g keyclasp  # Install
 keyclasp init         # Empty passphrase for machine-only (agents/CI)
 keyclasp set API_KEY - # Store a secret securely
 keyclasp run --env API_KEY -- npm test # Inject only the named secret

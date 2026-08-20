@@ -37,7 +37,7 @@ Keyclasp is local-only by design: no account, cloud service, network connection,
 ### 1. Install
 
 ```bash
-npm install -g github:AndreaCatalucci/keyclasp
+npm install -g keyclasp
 ```
 
 The install compiles a native SQLite binding (`better-sqlite3`). If that step fails, install a C++ toolchain (Xcode Command Line Tools on macOS, `build-essential` plus Python on Linux) and retry.

@@ -5,7 +5,7 @@ Requires **Node.js 24+**. `set`, `list`, `status`, and `keyclasp run --env ...` 
 ## Install Keyclasp
 
 ```bash
-npm install -g github:AndreaCatalucci/keyclasp
+npm install -g keyclasp
 keyclasp init
 ```
 
