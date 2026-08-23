@@ -11,15 +11,25 @@ const AUTH_TAG_LENGTH = 16;
 const KEY_LENGTH = 32;
 const PBKDF2_ITERATIONS = 600_000;
 const SALT_LENGTH = 32;
-const KEY_FILE_MAGIC = Buffer.from("keyclasp:v3\n", "utf8");
+const KEY_FILE_MAGIC_V3 = Buffer.from("keyclasp:v3\n", "utf8");
+const KEY_FILE_MAGIC_V4 = Buffer.from("keyclasp:v4\n", "utf8");
 const KEY_FILE_MODE_PASSPHRASE = 0x50;
 const KEY_FILE_MODE_MACHINE = 0x4d;
 const KEY_FILE_KDF_PBKDF2_SHA256 = 0x01;
-const KEY_FILE_V3_LENGTH = KEY_FILE_MAGIC.length + 1 + 1 + 4 + SALT_LENGTH + IV_LENGTH + AUTH_TAG_LENGTH + KEY_LENGTH;
+const KEY_FILE_STATE_ACTIVE = 0x41;
+const KEY_FILE_STATE_MIGRATION_PENDING = 0x50;
+const KEY_FILE_V3_LENGTH = KEY_FILE_MAGIC_V3.length + 1 + 1 + 4 + SALT_LENGTH + IV_LENGTH + AUTH_TAG_LENGTH + KEY_LENGTH;
+const KEY_FILE_V4_LENGTH = KEY_FILE_MAGIC_V4.length + 1 + 1 + 1 + 4 + SALT_LENGTH + 16 + IV_LENGTH + AUTH_TAG_LENGTH + KEY_LENGTH;
 const KEY_FILE_CORRUPT_ERROR = "Keyclasp key file is corrupted or incomplete.";
 const KEY_FILE_OLD_FORMAT_ERROR = "Keyclasp key file uses an unsupported format. Clone the keyclasp repository and run scripts/migrate-vault-key-wrap.mjs against this vault.";
 const KEY_LOCKED_ERROR = "Keyclasp vault is locked. Unlock with the vault passphrase in an interactive terminal, or use a machine-only vault.";
 const KEY_VAULT_MISMATCH_ERROR = "Keyclasp key file does not unlock this vault database. Restore the matching .keyclasp.key before reading or writing secrets.";
+const VAULT_DATABASE_MISSING_ERROR = "Keyclasp vault database is missing. Restore vault.db and its matching .keyclasp.key from the same backup.";
+const VAULT_DATABASE_REPLACED_ERROR = "Keyclasp vault database was replaced while open. Restart Keyclasp only after restoring vault.db and its matching .keyclasp.key from the same backup.";
+const VAULT_FORMAT_VERSION = 2;
+const RECORD_KIND_SECRET = "secret";
+const RECORD_AAD_MAGIC = Buffer.from("keyclasp:record-aad:v1\0", "utf8");
+const VAULT_KEY_CHECK_AAD = Buffer.from("keyclasp:vault-key-check:v1\0", "utf8");
 
 export { KEY_FILE_OLD_FORMAT_ERROR, KEY_LOCKED_ERROR };
 // Names written by features that have since been removed. Guarded against so
@@ -52,8 +62,15 @@ export interface ScopedSecret {
 }
 
 type EncryptedVaultRow = { encrypted_value: Buffer; iv: Buffer; auth_tag: Buffer };
-type NamedEncryptedVaultRow = EncryptedVaultRow & { name: string };
+type NamedEncryptedVaultRow = EncryptedVaultRow & {
+  project: string;
+  environment: string;
+  name: string;
+  record_id?: Buffer;
+  record_kind?: string;
+};
 type FileStamp = { mtimeMs: number; size: number } | null;
+type FileIdentity = { device: number; inode: number };
 type KeyValidationStamp = {
   keyPath: string;
   key: FileStamp;
@@ -63,11 +80,83 @@ type KeyValidationStamp = {
 };
 
 let _machineIdentityForTests: { stable?: Buffer; legacy?: Buffer } | null = null;
+let _migrationFaultForTests: "after-backup" | "before-commit" | "after-commit" | null = null;
+let _migrationBackupHookForTests: ((backupPath: string) => void) | null = null;
+let _initializingVault = false;
 let _vaultHomeCache: { signature: string; path: string } | null = null;
 let _keyPathCache: { vaultDir: string; path: string } | null = null;
 
 function getVaultDir(): string {
   return resolveVaultHome();
+}
+
+function enforceOwnerOnlyVaultPermissions(): void {
+  const vaultDir = getVaultDir();
+  if (!fs.existsSync(vaultDir)) return;
+  enforceOwnerOnlyPath(vaultDir, 0o700, "vault directory");
+  for (const entry of fs.readdirSync(vaultDir)) {
+    if (entry === ".initialize.db" || entry.startsWith(".initialize.db-") ||
+        entry === ".keyclasp.key" || entry.startsWith(".keyclasp.key.") ||
+        entry === "vault.db" || entry.startsWith("vault.db-" ) || entry.startsWith("vault.db.")) {
+      const entryPath = path.join(vaultDir, entry);
+      try {
+        enforceOwnerOnlyPath(entryPath, 0o600, `vault file "${entry}"`);
+      } catch (err: any) {
+        if (err?.code === "ENOENT" || !fs.existsSync(entryPath)) continue;
+        throw err;
+      }
+    }
+  }
+}
+
+function enforceOwnerOnlyPath(filePath: string, mode: number, label: string): void {
+  const before = fs.lstatSync(filePath);
+  if (before.isSymbolicLink()) {
+    throw new Error(`Unsafe ${label}: symbolic links are not allowed.`);
+  }
+  if (process.platform === "win32") {
+    throw new Error(`Cannot verify owner-only Windows ACLs for ${label}; Keyclasp vault access is blocked on this host.`);
+  }
+  const currentUid = process.getuid?.();
+  if (currentUid !== undefined && before.uid !== currentUid) {
+    throw new Error(`Unsafe ${label}: owner UID ${before.uid} does not match the current UID ${currentUid}.`);
+  }
+  if (process.platform === "darwin") repairMacOsAcl(filePath, label);
+  if ((before.mode & 0o777) === mode) return;
+  try {
+    fs.chmodSync(filePath, mode);
+  } catch (err: any) {
+    throw new Error(`Cannot repair owner-only permissions for ${label}: ${err?.message ?? "permission change failed"}`);
+  }
+  const actual = fs.statSync(filePath).mode & 0o777;
+  if (actual !== mode) {
+    throw new Error(`Cannot verify owner-only permissions for ${label}; expected ${mode.toString(8)}, found ${actual.toString(8)}.`);
+  }
+}
+
+function repairMacOsAcl(filePath: string, label: string): void {
+  if (macOsAclEntries(filePath).length === 0) return;
+  try {
+    execFileSync("/bin/chmod", ["-N", filePath], { stdio: ["ignore", "ignore", "pipe"] });
+  } catch (err: any) {
+    throw new Error(`Cannot remove macOS ACL entries from ${label}: ${err?.message ?? "ACL repair failed"}`);
+  }
+  if (macOsAclEntries(filePath).length > 0) {
+    throw new Error(`Cannot verify an empty macOS ACL for ${label}.`);
+  }
+}
+
+function macOsAclEntries(filePath: string): string[] {
+  let output: string;
+  try {
+    output = execFileSync("/bin/ls", ["-lde", filePath], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  } catch (err: any) {
+    throw new Error(`Cannot inspect the macOS ACL for "${filePath}": ${err?.message ?? "ACL inspection failed"}`);
+  }
+  return output.split("\n").filter((line) => /^\s*\d+:\s/.test(line));
 }
 
 function resolveVaultHome(): string {
@@ -189,7 +278,7 @@ function deriveKey(salt: Buffer, passphrase: string): Buffer {
   return crypto.pbkdf2Sync(passphrase, salt, PBKDF2_ITERATIONS, KEY_LENGTH, "sha256");
 }
 
-function deriveWrappingKey(salt: Buffer, machineIdentity: Buffer, magic: Buffer = KEY_FILE_MAGIC): Buffer {
+function deriveWrappingKey(salt: Buffer, machineIdentity: Buffer, magic: Buffer = KEY_FILE_MAGIC_V4): Buffer {
   return crypto.createHash("sha256")
     .update(magic)
     .update(salt)
@@ -199,32 +288,44 @@ function deriveWrappingKey(salt: Buffer, machineIdentity: Buffer, magic: Buffer 
 
 type KeyFileMode = "passphrase" | "machine";
 
-interface ParsedV3KeyFile {
+interface ParsedKeyFile {
+  format: 3 | 4;
+  magic: Buffer;
   mode: KeyFileMode;
   salt: Buffer;
   iv: Buffer;
   authTag: Buffer;
   wrappedKey: Buffer;
   aad: Buffer;
+  vaultId: Buffer | null;
+  state: "active" | "migration-pending";
 }
 
-function parseV3KeyFile(keyData: Buffer): ParsedV3KeyFile {
-  if (!keyData.subarray(0, KEY_FILE_MAGIC.length).equals(KEY_FILE_MAGIC)) {
+function parseKeyFile(keyData: Buffer): ParsedKeyFile {
+  const isV3 = keyData.subarray(0, KEY_FILE_MAGIC_V3.length).equals(KEY_FILE_MAGIC_V3);
+  const isV4 = keyData.subarray(0, KEY_FILE_MAGIC_V4.length).equals(KEY_FILE_MAGIC_V4);
+  if (!isV3 && !isV4) {
     throw new Error(KEY_FILE_OLD_FORMAT_ERROR);
   }
-  if (keyData.length !== KEY_FILE_V3_LENGTH) {
+  const format = isV4 ? 4 : 3;
+  const magic = isV4 ? KEY_FILE_MAGIC_V4 : KEY_FILE_MAGIC_V3;
+  if (keyData.length !== (isV4 ? KEY_FILE_V4_LENGTH : KEY_FILE_V3_LENGTH)) {
     throw new Error(KEY_FILE_CORRUPT_ERROR);
   }
 
-  let offset = KEY_FILE_MAGIC.length;
+  let offset = magic.length;
   const modeByte = keyData[offset];
   offset += 1;
   const kdfByte = keyData[offset];
   offset += 1;
+  const stateByte = isV4 ? keyData[offset] : KEY_FILE_STATE_ACTIVE;
+  if (isV4) offset += 1;
   const iterations = keyData.readUInt32BE(offset);
   offset += 4;
   const salt = keyData.subarray(offset, offset + SALT_LENGTH);
   offset += SALT_LENGTH;
+  const vaultId = isV4 ? keyData.subarray(offset, offset + 16) : null;
+  if (isV4) offset += 16;
   const iv = keyData.subarray(offset, offset + IV_LENGTH);
   offset += IV_LENGTH;
   const authTag = keyData.subarray(offset, offset + AUTH_TAG_LENGTH);
@@ -237,21 +338,30 @@ function parseV3KeyFile(keyData: Buffer): ParsedV3KeyFile {
   if (modeByte !== KEY_FILE_MODE_PASSPHRASE && modeByte !== KEY_FILE_MODE_MACHINE) {
     throw new Error(KEY_FILE_CORRUPT_ERROR);
   }
+  if (stateByte !== KEY_FILE_STATE_ACTIVE && stateByte !== KEY_FILE_STATE_MIGRATION_PENDING) {
+    throw new Error(KEY_FILE_CORRUPT_ERROR);
+  }
 
   const aad = Buffer.concat([
-    KEY_FILE_MAGIC,
+    magic,
     Buffer.from([modeByte, kdfByte]),
-    keyData.subarray(KEY_FILE_MAGIC.length + 2, KEY_FILE_MAGIC.length + 6),
+    ...(isV4 ? [Buffer.from([stateByte])] : []),
+    keyData.subarray(magic.length + 2 + (isV4 ? 1 : 0), magic.length + 6 + (isV4 ? 1 : 0)),
     salt,
+    ...(vaultId ? [vaultId] : []),
   ]);
 
   return {
+    format,
+    magic,
     mode: modeByte === KEY_FILE_MODE_PASSPHRASE ? "passphrase" : "machine",
     salt,
     iv,
     authTag,
     wrappedKey,
     aad,
+    vaultId,
+    state: stateByte === KEY_FILE_STATE_MIGRATION_PENDING ? "migration-pending" : "active",
   };
 }
 
@@ -263,19 +373,19 @@ function wrapDek(dek: Buffer, kek: Buffer, aad: Buffer): { iv: Buffer; authTag: 
   return { iv, authTag: cipher.getAuthTag(), wrapped };
 }
 
-function unwrapDek(parsed: ParsedV3KeyFile, kek: Buffer): Buffer {
+function unwrapDek(parsed: ParsedKeyFile, kek: Buffer): Buffer {
   const decipher = crypto.createDecipheriv(ALGORITHM, kek, parsed.iv, { authTagLength: AUTH_TAG_LENGTH });
   decipher.setAAD(parsed.aad);
   decipher.setAuthTag(parsed.authTag);
   return Buffer.concat([decipher.update(parsed.wrappedKey), decipher.final()]);
 }
 
-function unwrapWithAnyStableIdentity(parsed: ParsedV3KeyFile): Buffer {
+function unwrapWithAnyStableIdentity(parsed: ParsedKeyFile): Buffer {
   const identities = deriveStableMachineIdentities();
   for (const identity of identities) {
     try {
-      const dek = unwrapDek(parsed, deriveWrappingKey(parsed.salt, identity));
-      assertKeyUnlocksVault(dek);
+      const dek = unwrapDek(parsed, deriveWrappingKey(parsed.salt, identity, parsed.magic));
+      assertKeyUnlocksVault(dek, parsed.vaultId, parsed.state === "migration-pending");
       return dek;
     } catch {
       // Try the next machine-identity candidate.
@@ -285,27 +395,39 @@ function unwrapWithAnyStableIdentity(parsed: ParsedV3KeyFile): Buffer {
   throw new Error(KEY_VAULT_MISMATCH_ERROR);
 }
 
-function writeKeyFile(keyPath: string, dek: Buffer, mode: KeyFileMode, passphrase: string): void {
+function writeKeyFile(
+  keyPath: string,
+  dek: Buffer,
+  mode: KeyFileMode,
+  passphrase: string,
+  vaultId: Buffer,
+  state: "active" | "migration-pending" = "active",
+): void {
   const salt = crypto.randomBytes(SALT_LENGTH);
   const modeByte = mode === "passphrase" ? KEY_FILE_MODE_PASSPHRASE : KEY_FILE_MODE_MACHINE;
   const iterations = Buffer.alloc(4);
   iterations.writeUInt32BE(PBKDF2_ITERATIONS);
+  const stateByte = state === "active" ? KEY_FILE_STATE_ACTIVE : KEY_FILE_STATE_MIGRATION_PENDING;
   const aad = Buffer.concat([
-    KEY_FILE_MAGIC,
+    KEY_FILE_MAGIC_V4,
     Buffer.from([modeByte, KEY_FILE_KDF_PBKDF2_SHA256]),
+    Buffer.from([stateByte]),
     iterations,
     salt,
+    vaultId,
   ]);
   const kek = mode === "passphrase"
     ? deriveKey(salt, passphrase)
-    : deriveWrappingKey(salt, deriveStableMachineIdentity());
+    : deriveWrappingKey(salt, deriveStableMachineIdentity(), KEY_FILE_MAGIC_V4);
   const { iv, authTag, wrapped } = wrapDek(dek, kek, aad);
   const tmpPath = `${keyPath}.${process.pid}.${Date.now()}.tmp`;
   fs.writeFileSync(tmpPath, Buffer.concat([
-    KEY_FILE_MAGIC,
+    KEY_FILE_MAGIC_V4,
     Buffer.from([modeByte, KEY_FILE_KDF_PBKDF2_SHA256]),
+    Buffer.from([stateByte]),
     iterations,
     salt,
+    vaultId,
     iv,
     authTag,
     wrapped,
@@ -315,6 +437,34 @@ function writeKeyFile(keyPath: string, dek: Buffer, mode: KeyFileMode, passphras
   fs.chmodSync(keyPath, 0o600);
 }
 
+export function writeLegacyV3KeyFileForTests(dek: Buffer, passphrase: string): void {
+  const salt = crypto.randomBytes(SALT_LENGTH);
+  const mode: KeyFileMode = passphrase ? "passphrase" : "machine";
+  const modeByte = mode === "passphrase" ? KEY_FILE_MODE_PASSPHRASE : KEY_FILE_MODE_MACHINE;
+  const iterations = Buffer.alloc(4);
+  iterations.writeUInt32BE(PBKDF2_ITERATIONS);
+  const aad = Buffer.concat([
+    KEY_FILE_MAGIC_V3,
+    Buffer.from([modeByte, KEY_FILE_KDF_PBKDF2_SHA256]),
+    iterations,
+    salt,
+  ]);
+  const kek = mode === "passphrase"
+    ? deriveKey(salt, passphrase)
+    : deriveWrappingKey(salt, deriveStableMachineIdentity(), KEY_FILE_MAGIC_V3);
+  const { iv, authTag, wrapped } = wrapDek(dek, kek, aad);
+  fs.writeFileSync(getKeyPath(), Buffer.concat([
+    KEY_FILE_MAGIC_V3,
+    Buffer.from([modeByte, KEY_FILE_KDF_PBKDF2_SHA256]),
+    iterations,
+    salt,
+    iv,
+    authTag,
+    wrapped,
+  ]), { mode: 0o600 });
+  clearKey();
+}
+
 function backupExistingKeyFile(keyPath: string): void {
   if (!fs.existsSync(keyPath)) return;
   const backupPath = nextKeyBackupPath(keyPath);
@@ -322,18 +472,18 @@ function backupExistingKeyFile(keyPath: string): void {
   fs.chmodSync(backupPath, 0o600);
 }
 
-function readParsedKeyFile(): ParsedV3KeyFile {
+function readParsedKeyFile(): ParsedKeyFile {
   const keyPath = getKeyPath();
   if (!fs.existsSync(keyPath)) {
     throw new Error("Keyclasp key not found. Run: keyclasp init");
   }
-  return parseV3KeyFile(fs.readFileSync(keyPath));
+  return parseKeyFile(fs.readFileSync(keyPath));
 }
 
 function assertSupportedKeyFile(): void {
   const keyPath = getKeyPath();
   if (!fs.existsSync(keyPath)) return;
-  parseV3KeyFile(fs.readFileSync(keyPath));
+  parseKeyFile(fs.readFileSync(keyPath));
 }
 
 function nextKeyBackupPath(keyPath: string): string {
@@ -343,9 +493,13 @@ function nextKeyBackupPath(keyPath: string): string {
   }
 }
 
-function assertKeyUnlocksVault(key: Buffer): void {
+function assertKeyUnlocksVault(
+  key: Buffer,
+  expectedVaultId: Buffer | null = null,
+  allowPendingLegacy = false,
+): void {
   if (keyValidationCurrent()) return;
-  if (canDecryptVaultRows(key)) return;
+  if (canDecryptVaultRows(key, expectedVaultId, allowPendingLegacy)) return;
   throw new Error(KEY_VAULT_MISMATCH_ERROR);
 }
 
@@ -382,6 +536,29 @@ function fileStamp(filePath: string): FileStamp {
   }
 }
 
+function readFileIdentity(filePath: string): FileIdentity | null {
+  try {
+    const stat = fs.statSync(filePath);
+    return { device: stat.dev, inode: stat.ino };
+  } catch (err: any) {
+    if (err?.code === "ENOENT") return null;
+    throw err;
+  }
+}
+
+function assertCachedDatabaseStillCurrent(): void {
+  if (!_db || !_dbPath) return;
+  const current = readFileIdentity(_dbPath);
+  if (!current) {
+    closeDb();
+    throw new Error(VAULT_DATABASE_MISSING_ERROR);
+  }
+  if (!_dbFileIdentity || current.device !== _dbFileIdentity.device || current.inode !== _dbFileIdentity.inode) {
+    closeDb();
+    throw new Error(VAULT_DATABASE_REPLACED_ERROR);
+  }
+}
+
 function validationStampEquals(a: KeyValidationStamp, b: KeyValidationStamp): boolean {
   return a.keyPath === b.keyPath &&
     a.dbPath === b.dbPath &&
@@ -395,13 +572,26 @@ function fileStampEquals(a: FileStamp, b: FileStamp): boolean {
   return a.mtimeMs === b.mtimeMs && a.size === b.size;
 }
 
-function canDecryptVaultRows(key: Buffer): boolean {
+function canDecryptVaultRows(
+  key: Buffer,
+  expectedVaultId: Buffer | null = null,
+  allowPendingLegacy = false,
+): boolean {
   const dbPath = getVaultPath();
   if (!fs.existsSync(dbPath)) return true;
 
-  const db = _db ?? new Database(dbPath, { readonly: true, fileMustExist: true });
+  const db = _db && _dbPath === dbPath
+    ? _db
+    : new Database(dbPath, { readonly: true, fileMustExist: true });
   const closeAfter = db !== _db;
   try {
+    const vaultId = readCurrentVaultId(db);
+    if (expectedVaultId && vaultId && !vaultId.equals(expectedVaultId)) return false;
+    if (expectedVaultId && !vaultId && !allowPendingLegacy) return false;
+    if (vaultId) {
+      verifyVaultKeyCheck(db, key, vaultId);
+      return true;
+    }
     for (const row of iterateNamedEncryptedVaultRows(db)) {
       decrypt(row.encrypted_value, row.iv, row.auth_tag, key);
     }
@@ -415,7 +605,11 @@ function canDecryptVaultRows(key: Buffer): boolean {
 
 function* iterateNamedEncryptedVaultRows(db: Database.Database): IterableIterator<NamedEncryptedVaultRow> {
   if (!tableExists(db, "secrets")) return;
-  yield* db.prepare("SELECT name, encrypted_value, iv, auth_tag FROM secrets ORDER BY name").iterate() as IterableIterator<NamedEncryptedVaultRow>;
+  const current = readCurrentVaultId(db) !== null;
+  const columns = current
+    ? "project, environment, name, record_id, record_kind, encrypted_value, iv, auth_tag"
+    : `${secretsTableColumns(db).includes("project") ? "project, environment" : "'default' AS project, 'default' AS environment"}, name, encrypted_value, iv, auth_tag`;
+  yield* db.prepare(`SELECT ${columns} FROM secrets ORDER BY project, environment, name`).iterate() as IterableIterator<NamedEncryptedVaultRow>;
 }
 
 function tableExists(db: Database.Database, table: string): boolean {
@@ -431,6 +625,83 @@ export function encrypt(value: string, key: Buffer): { encrypted: Buffer; iv: Bu
   return { encrypted, iv, authTag };
 }
 
+function canonicalField(value: Buffer | string): Buffer {
+  const bytes = typeof value === "string" ? Buffer.from(value, "utf8") : value;
+  const length = Buffer.alloc(4);
+  length.writeUInt32BE(bytes.length);
+  return Buffer.concat([length, bytes]);
+}
+
+export function buildRecordAssociatedData(identity: {
+  vaultId: Buffer;
+  recordId: Buffer;
+  project: string;
+  environment: string;
+  name: string;
+  recordKind?: string;
+  formatVersion?: number;
+}): Buffer {
+  const version = Buffer.alloc(4);
+  version.writeUInt32BE(identity.formatVersion ?? VAULT_FORMAT_VERSION);
+  return Buffer.concat([
+    RECORD_AAD_MAGIC,
+    version,
+    canonicalField(identity.vaultId),
+    canonicalField(identity.recordId),
+    canonicalField(identity.project),
+    canonicalField(identity.environment),
+    canonicalField(identity.name),
+    canonicalField(identity.recordKind ?? RECORD_KIND_SECRET),
+  ]);
+}
+
+function encryptRecord(value: string, key: Buffer, identity: Parameters<typeof buildRecordAssociatedData>[0]): ReturnType<typeof encrypt> {
+  const iv = crypto.randomBytes(IV_LENGTH);
+  const cipher = crypto.createCipheriv(ALGORITHM, key, iv, { authTagLength: AUTH_TAG_LENGTH });
+  cipher.setAAD(buildRecordAssociatedData(identity));
+  const encrypted = Buffer.concat([cipher.update(value, "utf8"), cipher.final()]);
+  return { encrypted, iv, authTag: cipher.getAuthTag() };
+}
+
+function decryptRecord(row: NamedEncryptedVaultRow, key: Buffer, vaultId: Buffer): string {
+  if (!row.record_id || row.record_id.length !== 16 || row.record_kind !== RECORD_KIND_SECRET) {
+    throw new Error("Keyclasp vault record identity is missing or invalid.");
+  }
+  const decipher = crypto.createDecipheriv(ALGORITHM, key, row.iv, { authTagLength: AUTH_TAG_LENGTH });
+  decipher.setAAD(buildRecordAssociatedData({
+    vaultId,
+    recordId: row.record_id,
+    project: row.project,
+    environment: row.environment,
+    name: row.name,
+    recordKind: row.record_kind,
+  }));
+  decipher.setAuthTag(row.auth_tag);
+  return Buffer.concat([decipher.update(row.encrypted_value), decipher.final()]).toString("utf8");
+}
+
+function createVaultKeyCheck(key: Buffer, vaultId: Buffer): { iv: Buffer; authTag: Buffer } {
+  const iv = crypto.randomBytes(IV_LENGTH);
+  const cipher = crypto.createCipheriv(ALGORITHM, key, iv, { authTagLength: AUTH_TAG_LENGTH });
+  cipher.setAAD(Buffer.concat([VAULT_KEY_CHECK_AAD, vaultId]));
+  cipher.final();
+  return { iv, authTag: cipher.getAuthTag() };
+}
+
+function verifyVaultKeyCheck(db: Database.Database, key: Buffer, vaultId: Buffer): void {
+  const row = db.prepare("SELECT key_check_iv, key_check_tag FROM vault_metadata WHERE singleton = 1").get() as
+    | { key_check_iv: Buffer; key_check_tag: Buffer }
+    | undefined;
+  if (!row || !Buffer.isBuffer(row.key_check_iv) || row.key_check_iv.length !== IV_LENGTH ||
+      !Buffer.isBuffer(row.key_check_tag) || row.key_check_tag.length !== AUTH_TAG_LENGTH) {
+    throw new Error("Keyclasp vault key-check metadata is corrupt or incomplete.");
+  }
+  const decipher = crypto.createDecipheriv(ALGORITHM, key, row.key_check_iv, { authTagLength: AUTH_TAG_LENGTH });
+  decipher.setAAD(Buffer.concat([VAULT_KEY_CHECK_AAD, vaultId]));
+  decipher.setAuthTag(row.key_check_tag);
+  decipher.final();
+}
+
 export function decrypt(encrypted: Buffer, iv: Buffer, authTag: Buffer, key: Buffer): string {
   const decipher = crypto.createDecipheriv(ALGORITHM, key, iv, { authTagLength: AUTH_TAG_LENGTH });
   decipher.setAuthTag(authTag);
@@ -439,6 +710,7 @@ export function decrypt(encrypted: Buffer, iv: Buffer, authTag: Buffer, key: Buf
 
 let _db: Database.Database | null = null;
 let _dbPath: string | null = null;
+let _dbFileIdentity: FileIdentity | null = null;
 let _key: Buffer | null = null;
 let _keyCachePath: string | null = null;
 let _keyCacheStat: { mtimeMs: number; size: number } | null = null;
@@ -453,6 +725,8 @@ export function getKey(): Buffer {
   if (!fs.existsSync(keyPath)) {
     throw new Error("Keyclasp key not found. Run: keyclasp init");
   }
+  enforceOwnerOnlyVaultPermissions();
+  assertCachedDatabaseStillCurrent();
 
   const keyStat = fs.statSync(keyPath);
   if (
@@ -464,12 +738,32 @@ export function getKey(): Buffer {
     return _key;
   }
 
-  const parsed = parseV3KeyFile(fs.readFileSync(keyPath));
+  const parsed = parseKeyFile(fs.readFileSync(keyPath));
   const loaded = parsed.mode === "machine"
     ? unwrapWithAnyStableIdentity(parsed)
     : (() => { throw new Error(KEY_LOCKED_ERROR); })();
+  completeVaultOpen(parsed, loaded, "");
   cacheLoadedKey(loaded, keyPath);
+  rememberKeyValidation();
   return loaded;
+}
+
+function completeVaultOpen(parsed: ParsedKeyFile, key: Buffer, passphrase: string): Buffer {
+  const db = getDb();
+  const vaultId = ensureCurrentVaultFormat(db, key, parsed.vaultId, {
+    allowPendingLegacy: parsed.state === "migration-pending",
+    markMigrationPending: parsed.format === 3
+      ? (pendingVaultId) => writeKeyFile(getKeyPath(), key, parsed.mode, passphrase, pendingVaultId, "migration-pending")
+      : undefined,
+  });
+  if (parsed.format === 3 || parsed.state === "migration-pending") {
+    writeKeyFile(getKeyPath(), key, parsed.mode, passphrase, vaultId);
+  }
+  return vaultId;
+}
+
+function ensureVaultFormatMatchesKey(db: Database.Database, key: Buffer): Buffer {
+  return ensureCurrentVaultFormat(db, key, readParsedKeyFile().vaultId);
 }
 
 function cacheLoadedKey(key: Buffer, keyPath: string): void {
@@ -477,7 +771,6 @@ function cacheLoadedKey(key: Buffer, keyPath: string): void {
   _key = key;
   _keyCachePath = keyPath;
   _keyCacheStat = { mtimeMs: stat.mtimeMs, size: stat.size };
-  rememberKeyValidation();
 }
 
 export function unlockVault(passphrase: string): void {
@@ -488,12 +781,16 @@ export function unlockVault(passphrase: string): void {
   if (parsed.mode !== "passphrase") {
     throw new Error("This vault is machine-only and does not use a passphrase.");
   }
+  let dek: Buffer;
   try {
-    const dek = unwrapDek(parsed, deriveKey(parsed.salt, passphrase));
-    cacheLoadedKey(dek, getKeyPath());
+    dek = unwrapDek(parsed, deriveKey(parsed.salt, passphrase));
   } catch {
     throw new Error("Vault passphrase is incorrect.");
   }
+  assertKeyUnlocksVault(dek, parsed.vaultId, parsed.state === "migration-pending");
+  completeVaultOpen(parsed, dek, passphrase);
+  cacheLoadedKey(dek, getKeyPath());
+  rememberKeyValidation();
 }
 
 export function initializeVault(passphrase: string): void {
@@ -501,25 +798,54 @@ export function initializeVault(passphrase: string): void {
   if (!fs.existsSync(vaultDir)) {
     fs.mkdirSync(vaultDir, { mode: 0o700, recursive: true });
   }
-
-  if (fs.existsSync(getKeyPath())) {
-    throw new Error("Keyclasp is already initialized. To reset, delete the active vault directory.");
+  enforceOwnerOnlyVaultPermissions();
+  const lockPath = path.join(vaultDir, ".initialize.db");
+  const lockDb = new Database(lockPath);
+  fs.chmodSync(lockPath, 0o600);
+  lockDb.pragma("busy_timeout = 1");
+  try {
+    lockDb.exec("BEGIN EXCLUSIVE");
+  } catch (err: any) {
+    lockDb.close();
+    if (err?.code === "SQLITE_BUSY") {
+      throw new Error("Keyclasp initialization is already in progress. Retry after the other process finishes.");
+    }
+    throw err;
   }
 
-  if (fs.existsSync(getVaultPath())) {
-    throw new Error("Keyclasp vault database exists without a key file. Restore the matching .keyclasp.key or remove the vault directory before reinitializing.");
+  try {
+    if (fs.existsSync(getKeyPath())) {
+      throw new Error("Keyclasp is already initialized. To reset, delete the active vault directory.");
+    }
+
+    if (fs.existsSync(getVaultPath())) {
+      throw new Error("Keyclasp vault database exists without a key file. Restore the matching .keyclasp.key or remove the vault directory before reinitializing.");
+    }
+
+    const dek = crypto.randomBytes(KEY_LENGTH);
+    const vaultId = crypto.randomBytes(16);
+    const mode: KeyFileMode = passphrase ? "passphrase" : "machine";
+    writeKeyFile(getKeyPath(), dek, mode, passphrase, vaultId);
+
+    closeDb();
+    let db: Database.Database;
+    _initializingVault = true;
+    try {
+      db = getDb();
+      ensureCurrentVaultFormat(db, dek, vaultId);
+    } finally {
+      _initializingVault = false;
+    }
+    cacheLoadedKey(dek, getKeyPath());
+    rememberKeyValidation();
+  } finally {
+    if (lockDb.inTransaction) lockDb.exec("ROLLBACK");
+    lockDb.close();
   }
-
-  const dek = crypto.randomBytes(KEY_LENGTH);
-  const mode: KeyFileMode = passphrase ? "passphrase" : "machine";
-  writeKeyFile(getKeyPath(), dek, mode, passphrase);
-  cacheLoadedKey(dek, getKeyPath());
-
-  closeDb();
-  getDb();
 }
 
 export function isInitialized(): boolean {
+  enforceOwnerOnlyVaultPermissions();
   return fs.existsSync(getKeyPath());
 }
 
@@ -529,7 +855,10 @@ export function verifyVaultPassphrase(passphrase: string): boolean {
   if (!passphrase) return false;
   try {
     const dek = unwrapDek(parsed, deriveKey(parsed.salt, passphrase));
+    assertKeyUnlocksVault(dek, parsed.vaultId, parsed.state === "migration-pending");
+    completeVaultOpen(parsed, dek, passphrase);
     cacheLoadedKey(dek, getKeyPath());
+    rememberKeyValidation();
     return true;
   } catch {
     return false;
@@ -553,6 +882,24 @@ const CREATE_SECRETS_TABLE_SQL = `
     PRIMARY KEY (project, environment, name)
   )
 `;
+
+function createCurrentSecretsTableSql(tableName: "secrets" | "secrets_current_migrate"): string {
+  return `
+  CREATE TABLE ${tableName} (
+    project TEXT NOT NULL,
+    environment TEXT NOT NULL,
+    name TEXT NOT NULL,
+    record_id BLOB NOT NULL UNIQUE CHECK(length(record_id) = 16),
+    record_kind TEXT NOT NULL CHECK(record_kind = 'secret'),
+    encrypted_value BLOB NOT NULL,
+    iv BLOB NOT NULL CHECK(length(iv) = 12),
+    auth_tag BLOB NOT NULL CHECK(length(auth_tag) = 16),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (project, environment, name)
+  )
+`;
+}
 
 function secretsTableColumns(db: Database.Database): string[] {
   return (db.pragma("table_info(secrets)") as { name: string }[]).map((r) => r.name);
@@ -588,14 +935,203 @@ function ensureSecretsSchema(db: Database.Database): void {
   migrate.immediate();
 }
 
+function readCurrentVaultId(db: Database.Database): Buffer | null {
+  if (!tableExists(db, "vault_metadata")) return null;
+  const row = db.prepare("SELECT format_version, vault_id FROM vault_metadata WHERE singleton = 1").get() as
+    | { format_version: number; vault_id: Buffer }
+    | undefined;
+  if (!row || row.format_version !== VAULT_FORMAT_VERSION || !Buffer.isBuffer(row.vault_id) || row.vault_id.length !== 16) {
+    throw new Error("Keyclasp vault format metadata is corrupt or unsupported.");
+  }
+  const columns = secretsTableColumns(db);
+  if (!columns.includes("record_id") || !columns.includes("record_kind")) {
+    throw new Error("Keyclasp vault is partially migrated: format metadata and record schema disagree. Restore a pre-migration backup.");
+  }
+  const metadataColumns = (db.pragma("table_info(vault_metadata)") as { name: string }[]).map((column) => column.name);
+  if (!metadataColumns.includes("key_check_iv") || !metadataColumns.includes("key_check_tag")) {
+    throw new Error("Keyclasp vault format metadata is incomplete. Restore a pre-migration backup.");
+  }
+  return row.vault_id;
+}
+
+function nextVaultBackupPath(dbPath: string): string {
+  return `${dbPath}.v1.${process.pid}.${crypto.randomBytes(6).toString("hex")}.bak`;
+}
+
+function ensureCurrentVaultFormat(
+  db: Database.Database,
+  key: Buffer,
+  expectedVaultId: Buffer | null = null,
+  options: {
+    allowPendingLegacy?: boolean;
+    markMigrationPending?: (vaultId: Buffer) => void;
+  } = {},
+): Buffer {
+  const current = readCurrentVaultId(db);
+  if (current) {
+    if (expectedVaultId && !current.equals(expectedVaultId)) throw new Error(KEY_VAULT_MISMATCH_ERROR);
+    verifyVaultKeyCheck(db, key, current);
+    return current;
+  }
+
+  if (!tableExists(db, "secrets")) {
+    if (!_initializingVault || !expectedVaultId) {
+      throw new Error("Keyclasp vault database is empty or replaced. Restore vault.db and its matching .keyclasp.key from the same backup.");
+    }
+    const create = db.transaction(() => {
+      const raced = readCurrentVaultId(db);
+      if (raced) {
+        if (!raced.equals(expectedVaultId)) throw new Error(KEY_VAULT_MISMATCH_ERROR);
+        return raced;
+      }
+      const vaultId = expectedVaultId;
+      db.exec(createCurrentSecretsTableSql("secrets"));
+      createVaultMetadata(db, key, vaultId);
+      return vaultId;
+    });
+    return create.immediate();
+  }
+  const existingColumns = secretsTableColumns(db);
+  if (existingColumns.includes("record_id") || existingColumns.includes("record_kind")) {
+    throw new Error("Keyclasp vault is partially migrated: record identity exists without format metadata. Restore a pre-migration backup.");
+  }
+  if (expectedVaultId && !options.allowPendingLegacy) {
+    throw new Error("Keyclasp vault database is replaced or rolled back to a legacy format. Restore the matching current database.");
+  }
+
+  const migrate = db.transaction(() => {
+    const raced = readCurrentVaultId(db);
+    if (raced) {
+      if (expectedVaultId && !raced.equals(expectedVaultId)) throw new Error(KEY_VAULT_MISMATCH_ERROR);
+      return raced;
+    }
+    const dbPath = getVaultPath();
+    const backupPath = nextVaultBackupPath(dbPath);
+    const snapshot = new Database(dbPath, { readonly: true, fileMustExist: true });
+    try {
+      snapshot.prepare("VACUUM INTO ?").run(backupPath);
+    } finally {
+      snapshot.close();
+    }
+    enforceOwnerOnlyPath(backupPath, 0o600, "vault migration backup");
+    _migrationBackupHookForTests?.(backupPath);
+    if (_migrationFaultForTests === "after-backup") throw new Error("Injected migration interruption after backup.");
+    const vaultId = expectedVaultId ?? crypto.randomBytes(16);
+    options.markMigrationPending?.(vaultId);
+    ensureSecretsSchema(db);
+    const rows = db.prepare(`
+      SELECT project, environment, name, encrypted_value, iv, auth_tag, created_at, updated_at
+      FROM secrets ORDER BY project, environment, name
+    `).all() as (NamedEncryptedVaultRow & { created_at: string; updated_at: string })[];
+
+    db.exec("DROP TABLE IF EXISTS secrets_current_migrate");
+    db.exec(createCurrentSecretsTableSql("secrets_current_migrate"));
+    const insert = db.prepare(`
+      INSERT INTO secrets_current_migrate
+        (project, environment, name, record_id, record_kind, encrypted_value, iv, auth_tag, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    for (const row of rows) {
+      const value = decrypt(row.encrypted_value, row.iv, row.auth_tag, key);
+      const recordId = crypto.randomBytes(16);
+      const encrypted = encryptRecord(value, key, {
+        vaultId,
+        recordId,
+        project: row.project,
+        environment: row.environment,
+        name: row.name,
+      });
+      insert.run(
+        row.project,
+        row.environment,
+        row.name,
+        recordId,
+        RECORD_KIND_SECRET,
+        encrypted.encrypted,
+        encrypted.iv,
+        encrypted.authTag,
+        row.created_at,
+        row.updated_at,
+      );
+    }
+    db.exec("DROP TABLE secrets");
+    db.exec("ALTER TABLE secrets_current_migrate RENAME TO secrets");
+    createVaultMetadata(db, key, vaultId);
+    if (_migrationFaultForTests === "before-commit") throw new Error("Injected migration interruption before commit.");
+    return vaultId;
+  });
+
+  const migrated = migrate.immediate();
+  if (_migrationFaultForTests === "after-commit") throw new Error("Injected migration interruption after commit.");
+  return migrated;
+}
+
+function createVaultMetadata(db: Database.Database, key: Buffer, vaultId: Buffer): void {
+  db.exec(`
+    CREATE TABLE vault_metadata (
+      singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+      format_version INTEGER NOT NULL,
+      vault_id BLOB NOT NULL CHECK(length(vault_id) = 16),
+      key_check_iv BLOB NOT NULL CHECK(length(key_check_iv) = 12),
+      key_check_tag BLOB NOT NULL CHECK(length(key_check_tag) = 16)
+    )
+  `);
+  const keyCheck = createVaultKeyCheck(key, vaultId);
+  db.prepare(`
+    INSERT INTO vault_metadata (singleton, format_version, vault_id, key_check_iv, key_check_tag)
+    VALUES (1, ?, ?, ?, ?)
+  `).run(VAULT_FORMAT_VERSION, vaultId, keyCheck.iv, keyCheck.authTag);
+  db.pragma(`user_version = ${VAULT_FORMAT_VERSION}`);
+}
+
+function validateDatabaseStateForKeyFile(db: Database.Database, parsed: ParsedKeyFile): void {
+  const current = readCurrentVaultId(db);
+  if (current) {
+    if (parsed.format === 3) {
+      throw new Error("Keyclasp key file is older than the current vault database. Restore both files from the same backup.");
+    }
+    if (!parsed.vaultId?.equals(current)) throw new Error(KEY_VAULT_MISMATCH_ERROR);
+    return;
+  }
+
+  if (!tableExists(db, "secrets")) {
+    throw new Error("Keyclasp vault database is empty or replaced. Restore vault.db and its matching .keyclasp.key from the same backup.");
+  }
+  const columns = secretsTableColumns(db);
+  if (columns.includes("record_id") || columns.includes("record_kind")) {
+    throw new Error("Keyclasp vault is partially migrated: record identity exists without format metadata. Restore a pre-migration backup.");
+  }
+  if (parsed.format === 4 && parsed.state === "active") {
+    throw new Error("Keyclasp vault database is replaced or rolled back to a legacy format. Restore the matching current database.");
+  }
+}
+
 export function getDb(): Database.Database {
   assertSupportedKeyFile();
+  enforceOwnerOnlyVaultPermissions();
   const dbPath = getVaultPath();
-  if (_db && _dbPath === dbPath) return _db;
+  if (!_initializingVault && fs.existsSync(getKeyPath()) && !fs.existsSync(dbPath)) {
+    if (_db && _dbPath === dbPath) closeDb();
+    throw new Error(VAULT_DATABASE_MISSING_ERROR);
+  }
+  if (_db && _dbPath === dbPath) {
+    assertCachedDatabaseStillCurrent();
+    return _db!;
+  }
   if (_db) closeDb();
 
-  _db = new Database(dbPath);
+  const identityBeforeOpen = readFileIdentity(dbPath);
+  _db = _initializingVault
+    ? new Database(dbPath)
+    : new Database(dbPath, { fileMustExist: true });
   _dbPath = dbPath;
+  const identityAfterOpen = readFileIdentity(dbPath);
+  if (identityBeforeOpen && identityAfterOpen &&
+      (identityBeforeOpen.device !== identityAfterOpen.device || identityBeforeOpen.inode !== identityAfterOpen.inode)) {
+    closeDb();
+    throw new Error(VAULT_DATABASE_REPLACED_ERROR);
+  }
+  _dbFileIdentity = identityAfterOpen;
   _db.pragma("busy_timeout = 5000");
   try {
     _db.pragma("journal_mode = WAL");
@@ -604,79 +1140,146 @@ export function getDb(): Database.Database {
     // when the DB file is newly created. This is non-fatal: the
     // vault is fully functional with the default journal mode.
   }
-  ensureSecretsSchema(_db);
+  if (!_initializingVault) {
+    try {
+      validateDatabaseStateForKeyFile(_db, readParsedKeyFile());
+    } catch (err) {
+      closeDb();
+      throw err;
+    }
+  }
+  enforceOwnerOnlyVaultPermissions();
   return _db;
 }
 
 export function storeSecret(project: string, environment: string, name: string, value: string): void {
   validateScopeName(project, "project");
   validateScopeName(environment, "environment");
-  const db = getDb();
   const key = getKey();
+  const db = getDb();
   assertKeyUnlocksVault(key);
-  const { encrypted, iv, authTag } = encrypt(value, key);
-
-  const stmt = db.prepare(`
-    INSERT INTO secrets (project, environment, name, encrypted_value, iv, auth_tag, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
-    ON CONFLICT(project, environment, name) DO UPDATE SET
-      encrypted_value = excluded.encrypted_value,
-      iv = excluded.iv,
-      auth_tag = excluded.auth_tag,
-      updated_at = datetime('now')
-  `);
-  stmt.run(project, environment, name, encrypted, iv, authTag);
+  const vaultId = ensureVaultFormatMatchesKey(db, key);
+  const write = db.transaction(() => {
+    const existing = db.prepare(
+      "SELECT record_id FROM secrets WHERE project = ? AND environment = ? AND name = ?",
+    ).get(project, environment, name) as { record_id: Buffer } | undefined;
+    const recordId = existing?.record_id ?? crypto.randomBytes(16);
+    const { encrypted, iv, authTag } = encryptRecord(value, key, {
+      vaultId,
+      recordId,
+      project,
+      environment,
+      name,
+    });
+    db.prepare(`
+      INSERT INTO secrets (project, environment, name, record_id, record_kind, encrypted_value, iv, auth_tag, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      ON CONFLICT(project, environment, name) DO UPDATE SET
+        encrypted_value = excluded.encrypted_value,
+        iv = excluded.iv,
+        auth_tag = excluded.auth_tag,
+        updated_at = datetime('now')
+    `).run(project, environment, name, recordId, RECORD_KIND_SECRET, encrypted, iv, authTag);
+  });
+  write.immediate();
   rememberKeyValidation();
 }
 
 export function resolveSecret(project: string, environment: string, name: string): string | null {
   if (REMOVED_INTERNAL_SECRET_NAMES.has(name)) return null;
 
-  const db = getDb();
   const key = getKey();
+  const db = getDb();
+  const vaultId = ensureVaultFormatMatchesKey(db, key);
   const row = db.prepare(
-    "SELECT encrypted_value, iv, auth_tag FROM secrets WHERE project = ? AND environment = ? AND name = ?"
+    "SELECT project, environment, name, record_id, record_kind, encrypted_value, iv, auth_tag FROM secrets WHERE project = ? AND environment = ? AND name = ?"
   ).get(project, environment, name) as
-    | { encrypted_value: Buffer; iv: Buffer; auth_tag: Buffer }
+    | NamedEncryptedVaultRow
     | undefined;
 
   if (!row) return null;
-  return decrypt(row.encrypted_value, row.iv, row.auth_tag, key);
+  return decryptRecord(row, key, vaultId);
+}
+
+export function resolveSecretsForRun(
+  project: string,
+  environment: string,
+  names: readonly string[],
+): Map<string, string> {
+  if (names.length === 0) return new Map();
+  const uniqueNames = [...new Set(names)];
+  const key = getKey();
+  const db = getDb();
+  assertKeyUnlocksVault(key);
+  const vaultId = ensureVaultFormatMatchesKey(db, key);
+  const placeholders = uniqueNames.map(() => "?").join(", ");
+  const read = db.transaction(() => {
+    const rows = db.prepare(`
+      SELECT project, environment, name, record_id, record_kind, encrypted_value, iv, auth_tag
+      FROM secrets
+      WHERE project = ? AND environment = ? AND name IN (${placeholders})
+    `).all(project, environment, ...uniqueNames) as NamedEncryptedVaultRow[];
+    const rowsByName = new Map(rows.map((row) => [row.name, row]));
+    for (const name of uniqueNames) {
+      if (!rowsByName.has(name)) {
+        throw new Error(`Secret "${name}" disappeared before it could be injected.`);
+      }
+    }
+    return new Map(uniqueNames.map((name) => [name, decryptRecord(rowsByName.get(name)!, key, vaultId)]));
+  });
+  return read();
 }
 
 export function isNewProjectEnvironment(project: string, environment: string): boolean {
   const db = getDb();
+  if (!tableExists(db, "secrets")) return true;
+  if (!secretsTableColumns(db).includes("project")) {
+    if (project !== "default" || environment !== "default") return true;
+    return db.prepare("SELECT 1 FROM secrets LIMIT 1").get() === undefined;
+  }
   const row = db.prepare("SELECT 1 FROM secrets WHERE project = ? AND environment = ? LIMIT 1").get(project, environment);
   return row === undefined;
 }
 
 export function projects(): string[] {
   const db = getDb();
+  if (!tableExists(db, "secrets")) return [];
+  if (!secretsTableColumns(db).includes("project")) {
+    return db.prepare("SELECT 1 FROM secrets LIMIT 1").get() === undefined ? [] : ["default"];
+  }
   const rows = db.prepare("SELECT DISTINCT project FROM secrets ORDER BY project").all() as { project: string }[];
   return rows.map((r) => r.project);
 }
 
 export function environments(): string[] {
   const db = getDb();
+  if (!tableExists(db, "secrets")) return [];
+  if (!secretsTableColumns(db).includes("project")) {
+    return db.prepare("SELECT 1 FROM secrets LIMIT 1").get() === undefined ? [] : ["default"];
+  }
   const rows = db.prepare("SELECT DISTINCT environment FROM secrets ORDER BY environment").all() as { environment: string }[];
   return rows.map((r) => r.environment);
 }
 
 export function listSecrets(project?: string, environment?: string): string[] | ScopedSecret[] {
   const db = getDb();
+  if (!tableExists(db, "secrets")) return [];
+  const scopedSchema = secretsTableColumns(db).includes("project");
+  if (!scopedSchema && ((project !== undefined && project !== "default") ||
+      (environment !== undefined && environment !== "default"))) return [];
   const conditions: string[] = ["name NOT LIKE '@_@_%' ESCAPE '@'"];
   const params: string[] = [];
-  if (project !== undefined) {
+  if (scopedSchema && project !== undefined) {
     conditions.push("project = ?");
     params.push(project);
   }
-  if (environment !== undefined) {
+  if (scopedSchema && environment !== undefined) {
     conditions.push("environment = ?");
     params.push(environment);
   }
 
   const rows = db.prepare(
-    `SELECT project, environment, name FROM secrets WHERE ${conditions.join(" AND ")} ORDER BY project, environment, name`
+    `SELECT ${scopedSchema ? "project, environment" : "'default' AS project, 'default' AS environment"}, name FROM secrets WHERE ${conditions.join(" AND ")} ORDER BY project, environment, name`
   ).all(...params) as ScopedSecret[];
   const filtered = rows.filter((r) => !REMOVED_INTERNAL_SECRET_NAMES.has(r.name));
 
@@ -688,13 +1291,16 @@ export function listSecrets(project?: string, environment?: string): string[] | 
 
 export function checkVaultDecryptability(): DecryptabilityCheck {
   const db = getDb();
-  const rows = [...iterateNamedEncryptedVaultRows(db)];
+  let vaultId: Buffer | null = null;
+  let rows = [...iterateNamedEncryptedVaultRows(db)];
   const failures: DecryptabilityCheck["failures"] = [];
   let checked = 0;
   let key: Buffer;
 
   try {
     key = getKey();
+    vaultId = ensureVaultFormatMatchesKey(db, key);
+    rows = [...iterateNamedEncryptedVaultRows(db)];
   } catch (err: any) {
     for (const row of rows) {
       if (REMOVED_INTERNAL_SECRET_NAMES.has(row.name)) continue;
@@ -708,7 +1314,8 @@ export function checkVaultDecryptability(): DecryptabilityCheck {
     if (REMOVED_INTERNAL_SECRET_NAMES.has(row.name)) continue;
     checked++;
     try {
-      decrypt(row.encrypted_value, row.iv, row.auth_tag, key);
+      if (!vaultId) throw new Error("Vault format is unavailable.");
+      decryptRecord(row, key, vaultId);
     } catch (err: any) {
       failures.push({ name: row.name, error: err?.message ?? "Unable to decrypt" });
     }
@@ -717,15 +1324,22 @@ export function checkVaultDecryptability(): DecryptabilityCheck {
   return { checked, failures };
 }
 
-export function deleteSecret(project: string, environment: string, name: string): boolean {
+function currentVaultForMutation(): { db: Database.Database; key: Buffer; vaultId: Buffer } {
+  const key = getKey();
   const db = getDb();
+  assertKeyUnlocksVault(key);
+  return { db, key, vaultId: ensureVaultFormatMatchesKey(db, key) };
+}
+
+export function deleteSecret(project: string, environment: string, name: string): boolean {
+  const { db } = currentVaultForMutation();
   const result = db.prepare("DELETE FROM secrets WHERE project = ? AND environment = ? AND name = ?").run(project, environment, name);
   return result.changes > 0;
 }
 
 export function deleteProject(project: string): { deleted: number } {
   validateScopeName(project, "project");
-  const db = getDb();
+  const { db } = currentVaultForMutation();
   const result = db.prepare("DELETE FROM secrets WHERE project = ?").run(project);
   return { deleted: result.changes };
 }
@@ -733,14 +1347,14 @@ export function deleteProject(project: string): { deleted: number } {
 export function deleteEnvironmentInProject(project: string, environment: string): { deleted: number } {
   validateScopeName(project, "project");
   validateScopeName(environment, "environment");
-  const db = getDb();
+  const { db } = currentVaultForMutation();
   const result = db.prepare("DELETE FROM secrets WHERE project = ? AND environment = ?").run(project, environment);
   return { deleted: result.changes };
 }
 
 export function deleteEnvironmentAcrossAllProjects(environment: string): { deleted: number } {
   validateScopeName(environment, "environment");
-  const db = getDb();
+  const { db } = currentVaultForMutation();
   const result = db.prepare("DELETE FROM secrets WHERE environment = ?").run(environment);
   return { deleted: result.changes };
 }
@@ -760,7 +1374,7 @@ function bulkDeletePredicate(project?: string, environment?: string): { where: s
 }
 
 export function snapshotBulkDelete(project?: string, environment?: string): ScopedSecret[] {
-  const db = getDb();
+  const { db } = currentVaultForMutation();
   const { where, params } = bulkDeletePredicate(project, environment);
   return db.prepare(
     `SELECT project, environment, name FROM secrets WHERE ${where} ORDER BY project, environment, name`,
@@ -779,7 +1393,7 @@ export function deleteBulkIfUnchanged(
   environment: string | undefined,
   expected: ScopedSecret[],
 ): { deleted: number } {
-  const db = getDb();
+  const { db } = currentVaultForMutation();
   const { where, params } = bulkDeletePredicate(project, environment);
   const tx = db.transaction(() => {
     const current = db.prepare(
@@ -800,10 +1414,53 @@ function collisionMessage(scopeLabel: string, collisions: { environment?: string
   return `Rename aborted. ${collisions.length} secret(s) already exist in ${scopeLabel}:\n  ${list}`;
 }
 
+type CurrentSecretRow = NamedEncryptedVaultRow;
+
+function reencryptMovedRows(
+  db: Database.Database,
+  key: Buffer,
+  vaultId: Buffer,
+  rows: CurrentSecretRow[],
+  target: (row: CurrentSecretRow) => { project: string; environment: string },
+): number {
+  const update = db.prepare(`
+    UPDATE secrets SET
+      project = ?, environment = ?, encrypted_value = ?, iv = ?, auth_tag = ?, updated_at = datetime('now')
+    WHERE project = ? AND environment = ? AND name = ?
+  `);
+  for (const row of rows) {
+    const value = decryptRecord(row, key, vaultId);
+    const destination = target(row);
+    const encrypted = encryptRecord(value, key, {
+      vaultId,
+      recordId: row.record_id!,
+      project: destination.project,
+      environment: destination.environment,
+      name: row.name,
+      recordKind: row.record_kind,
+    });
+    update.run(
+      destination.project,
+      destination.environment,
+      encrypted.encrypted,
+      encrypted.iv,
+      encrypted.authTag,
+      row.project,
+      row.environment,
+      row.name,
+    );
+  }
+  return rows.length;
+}
+
+const CURRENT_SECRET_COLUMNS = "project, environment, name, record_id, record_kind, encrypted_value, iv, auth_tag";
+
 export function renameProject(fromProject: string, toProject: string): { moved: number } {
   validateScopeName(fromProject, "project");
   validateScopeName(toProject, "project");
+  const key = getKey();
   const db = getDb();
+  const vaultId = ensureVaultFormatMatchesKey(db, key);
   const tx = db.transaction(() => {
     const collisions = db.prepare(`
       SELECT s1.environment as environment, s1.name as name
@@ -815,8 +1472,9 @@ export function renameProject(fromProject: string, toProject: string): { moved: 
     if (collisions.length > 0) {
       throw new Error(collisionMessage(`"${toProject}"`, collisions));
     }
-    return db.prepare("UPDATE secrets SET project = ?, updated_at = datetime('now') WHERE project = ?")
-      .run(toProject, fromProject).changes;
+    const rows = db.prepare(`SELECT ${CURRENT_SECRET_COLUMNS} FROM secrets WHERE project = ? ORDER BY environment, name`)
+      .all(fromProject) as CurrentSecretRow[];
+    return reencryptMovedRows(db, key, vaultId, rows, (row) => ({ project: toProject, environment: row.environment }));
   });
   return { moved: tx.immediate() };
 }
@@ -825,7 +1483,9 @@ export function renameEnvironmentInProject(project: string, fromEnvironment: str
   validateScopeName(project, "project");
   validateScopeName(fromEnvironment, "environment");
   validateScopeName(toEnvironment, "environment");
+  const key = getKey();
   const db = getDb();
+  const vaultId = ensureVaultFormatMatchesKey(db, key);
   const tx = db.transaction(() => {
     const collisions = db.prepare(`
       SELECT s1.name as name
@@ -837,8 +1497,9 @@ export function renameEnvironmentInProject(project: string, fromEnvironment: str
     if (collisions.length > 0) {
       throw new Error(collisionMessage(`"${project}/${toEnvironment}"`, collisions));
     }
-    return db.prepare("UPDATE secrets SET environment = ?, updated_at = datetime('now') WHERE project = ? AND environment = ?")
-      .run(toEnvironment, project, fromEnvironment).changes;
+    const rows = db.prepare(`SELECT ${CURRENT_SECRET_COLUMNS} FROM secrets WHERE project = ? AND environment = ? ORDER BY name`)
+      .all(project, fromEnvironment) as CurrentSecretRow[];
+    return reencryptMovedRows(db, key, vaultId, rows, () => ({ project, environment: toEnvironment }));
   });
   return { moved: tx.immediate() };
 }
@@ -846,7 +1507,9 @@ export function renameEnvironmentInProject(project: string, fromEnvironment: str
 export function renameEnvironmentAcrossAllProjects(fromEnvironment: string, toEnvironment: string): { moved: number; projectsAffected: number } {
   validateScopeName(fromEnvironment, "environment");
   validateScopeName(toEnvironment, "environment");
+  const key = getKey();
   const db = getDb();
+  const vaultId = ensureVaultFormatMatchesKey(db, key);
   const tx = db.transaction(() => {
     const collisions = db.prepare(`
       SELECT s1.project as project, s1.name as name
@@ -860,8 +1523,9 @@ export function renameEnvironmentAcrossAllProjects(fromEnvironment: string, toEn
       throw new Error(`Rename aborted. ${collisions.length} secret(s) already exist in environment "${toEnvironment}":\n  ${list}`);
     }
     const affectedProjects = db.prepare("SELECT DISTINCT project FROM secrets WHERE environment = ?").all(fromEnvironment) as { project: string }[];
-    const moved = db.prepare("UPDATE secrets SET environment = ?, updated_at = datetime('now') WHERE environment = ?")
-      .run(toEnvironment, fromEnvironment).changes;
+    const rows = db.prepare(`SELECT ${CURRENT_SECRET_COLUMNS} FROM secrets WHERE environment = ? ORDER BY project, name`)
+      .all(fromEnvironment) as CurrentSecretRow[];
+    const moved = reencryptMovedRows(db, key, vaultId, rows, (row) => ({ project: row.project, environment: toEnvironment }));
     return { moved, projectsAffected: affectedProjects.length };
   });
   return tx.immediate();
@@ -877,7 +1541,9 @@ export function renameScope(
   validateScopeName(fromEnvironment, "environment");
   validateScopeName(toProject, "project");
   validateScopeName(toEnvironment, "environment");
+  const key = getKey();
   const db = getDb();
+  const vaultId = ensureVaultFormatMatchesKey(db, key);
   const tx = db.transaction(() => {
     const collisions = db.prepare(`
       SELECT s1.name as name
@@ -889,9 +1555,9 @@ export function renameScope(
     if (collisions.length > 0) {
       throw new Error(collisionMessage(`"${toProject}/${toEnvironment}"`, collisions));
     }
-    return db.prepare(
-      "UPDATE secrets SET project = ?, environment = ?, updated_at = datetime('now') WHERE project = ? AND environment = ?"
-    ).run(toProject, toEnvironment, fromProject, fromEnvironment).changes;
+    const rows = db.prepare(`SELECT ${CURRENT_SECRET_COLUMNS} FROM secrets WHERE project = ? AND environment = ? ORDER BY name`)
+      .all(fromProject, fromEnvironment) as CurrentSecretRow[];
+    return reencryptMovedRows(db, key, vaultId, rows, () => ({ project: toProject, environment: toEnvironment }));
   });
   return { moved: tx.immediate() };
 }
@@ -901,6 +1567,7 @@ export function closeDb(): void {
     _db.close();
     _db = null;
     _dbPath = null;
+    _dbFileIdentity = null;
   }
 }
 
@@ -916,4 +1583,14 @@ export function clearKey(): void {
 export function setMachineIdentityForTests(identity: { stable?: Buffer; legacy?: Buffer } | null): void {
   _machineIdentityForTests = identity;
   clearKey();
+}
+
+export function setVaultMigrationFaultForTests(
+  fault: "after-backup" | "before-commit" | "after-commit" | null,
+): void {
+  _migrationFaultForTests = fault;
+}
+
+export function setVaultMigrationBackupHookForTests(hook: ((backupPath: string) => void) | null): void {
+  _migrationBackupHookForTests = hook;
 }

@@ -9,6 +9,7 @@ import {
   storeSecret,
   listSecrets,
   resolveSecret,
+  resolveSecretsForRun,
   deleteSecret,
   isInitialized,
   closeDb,
@@ -25,7 +26,8 @@ import {
   validateScopeName,
   type ScopedSecret,
 } from "./vault.js";
-import { parseRunArgs, runCommandWithSecrets } from "./run.js";
+import { parseRunArgs } from "./run.js";
+import { createSoftwareRunRuntime } from "./software/runtime.js";
 import { getDisplayVersion } from "./version.js";
 import { extractGlobalFlags, resolveContext, writeContext, clearContext } from "./context.js";
 import { requireOperatorAuthentication } from "./biometric.js";
@@ -607,31 +609,21 @@ async function main(): Promise<void> {
         }
 
         const { project, environment } = resolveContext(parsed.project, parsed.environment);
-        const scopedNames = listSecrets(project, environment) as string[];
-        if (scopedNames.length === 0) {
-          console.error(`Note: no secrets stored yet for project "${project}" environment "${environment}"; running with zero secrets injected.`);
-        }
-
-        const explicitEnv = parsed.envSpecs.length > 0;
-        if (!explicitEnv && scopedNames.length > 0) {
-          try {
-            await requireOperatorAuthentication(`Inject every Keyclasp secret in ${project}/${environment}`);
-          } catch (err: any) {
-            console.error(`BLOCKED: ${err.message}`);
-            process.exit(2);
-          }
-        }
-        await ensureVaultUnlocked();
-
-        const result = await runCommandWithSecrets({
-          args: cmdArgs,
-          baseEnv: process.env,
-          secretNames: scopedNames,
-          resolveSecret: (name) => resolveSecret(project, environment, name),
+        const runtime = createSoftwareRunRuntime({
+          ensureUnlocked: ensureVaultUnlocked,
+          listSecretNames: (selectedProject, selectedEnvironment) =>
+            listSecrets(selectedProject, selectedEnvironment) as string[],
+          resolveSecret,
+          resolveSecrets: resolveSecretsForRun,
+          baseEnv: () => process.env,
           stdout: (chunk) => process.stdout.write(chunk),
           stderr: (chunk) => process.stderr.write(chunk),
-          scopeLabel: `${project}/${environment}`,
-          operatorAuthenticated: !explicitEnv && scopedNames.length > 0,
+        });
+        const result = await runtime.run({
+          allowUnsafe: parsed.allowUnsafe,
+          envSpecs: parsed.envSpecs,
+          commandArgs: parsed.commandArgs,
+          scope: { project, environment },
         });
         process.exit(result.exitCode);
         break;

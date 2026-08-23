@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import crypto from "node:crypto";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -16,7 +17,7 @@ import {
   verifyVaultPassphrase,
 } from "../src/vault.js";
 
-const KEY_FILE_MAGIC_V3 = Buffer.from("keyclasp:v3\n", "utf8");
+const KEY_FILE_MAGIC_V4 = Buffer.from("keyclasp:v4\n", "utf8");
 const KEY_FILE_MAGIC_V2 = Buffer.from("keyclasp:v2\n", "utf8");
 
 const previousKeyclaspHome = process.env.KEYCLASP_HOME;
@@ -48,13 +49,32 @@ afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
-describe("v3 passphrase wrap", () => {
-  it("writes v3 magic and round-trips a secret in the same process", () => {
+describe("v4 passphrase wrap", () => {
+  it("writes v4 magic and round-trips a secret in the same process", () => {
     initializeVault("wrap-passphrase");
     storeSecret("default", "default", "API_KEY", "sk-live-value");
-    expect(fs.readFileSync(keyPath()).subarray(0, KEY_FILE_MAGIC_V3.length).equals(KEY_FILE_MAGIC_V3)).toBe(true);
+    expect(fs.readFileSync(keyPath()).subarray(0, KEY_FILE_MAGIC_V4.length).equals(KEY_FILE_MAGIC_V4)).toBe(true);
     expect(resolveSecret("default", "default", "API_KEY")).toBe("sk-live-value");
     expect(vaultHasPassphrase()).toBe(true);
+  });
+
+  it("makes a frozen v3 binary refuse the current key format before database access", () => {
+    initializeVault("wrap-passphrase");
+    const dbPath = path.join(vaultHome, "vault.db");
+    const digest = () => crypto.createHash("sha256").update(fs.readFileSync(dbPath)).digest("hex");
+    const sideFiles = () => fs.readdirSync(vaultHome).filter((name) => name.startsWith("vault.db")).sort();
+    const beforeDigest = digest();
+    const beforeSideFiles = sideFiles();
+    const frozenOpen = path.join(process.cwd(), "tests", "fixtures", "frozen-v3-vault-open.mjs");
+    const result = spawnSync(process.execPath, [frozenOpen], {
+      encoding: "utf8",
+      env: { ...process.env, KEYCLASP_HOME: vaultHome },
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("unsupported key format");
+    expect(digest()).toBe(beforeDigest);
+    expect(sideFiles()).toEqual(beforeSideFiles);
   });
 
   it("refuses to resolve after clearKey until unlock succeeds", () => {
@@ -87,7 +107,7 @@ describe("v3 passphrase wrap", () => {
   });
 });
 
-describe("v3 machine wrap", () => {
+describe("v4 machine wrap", () => {
   it("writes machine mode for an empty init passphrase", () => {
     initializeVault("");
     expect(vaultHasPassphrase()).toBe(false);

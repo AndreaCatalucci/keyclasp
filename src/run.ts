@@ -4,6 +4,9 @@ import { StringDecoder } from "node:string_decoder";
 import path from "node:path";
 import { requireOperatorAuthentication } from "./biometric.js";
 import { validateScopeName } from "./vault.js";
+import type { RunEnvSpec, RunResult, RunResultKind, ScopedRunRequest } from "./runtime.js";
+
+export type { RunEnvSpec } from "./runtime.js";
 
 export const REDACTION = "[KEYCLASP_REDACTED]";
 export const MIN_LEAK_VALUE_LENGTH = 8;
@@ -25,6 +28,7 @@ export interface RunEnvironmentInput {
   secretNames: string[];
   envSpecs?: RunEnvSpec[];
   resolveSecret: (name: string) => string | null;
+  resolveSecrets?: (names: readonly string[]) => ReadonlyMap<string, string>;
 }
 
 export interface RunEnvironment {
@@ -32,16 +36,9 @@ export interface RunEnvironment {
   leakValues: string[];
 }
 
-export interface RunEnvSpec {
-  sourceName: string;
-  targetName: string;
-}
+export type RunOutcomeKind = RunResultKind;
 
-export type RunOutcomeKind = "blocked" | "exit" | "leak" | "error";
-
-export interface RunOutcome {
-  kind: RunOutcomeKind;
-  exitCode: number;
+export interface RunOutcome extends RunResult {
   error?: Error;
 }
 
@@ -51,10 +48,15 @@ export interface RunCommandOptions {
   secretNames: string[];
   envSpecs?: RunEnvSpec[];
   resolveSecret: (name: string) => string | null;
+  resolveSecrets?: (names: readonly string[]) => ReadonlyMap<string, string>;
   stdout: (chunk: string) => void;
   stderr: (chunk: string) => void;
   scopeLabel?: string;
-  operatorAuthenticated?: boolean;
+  ensureUnlocked?: () => Promise<void>;
+}
+
+export interface PreparedRunCommandOptions extends Omit<RunCommandOptions, "args" | "envSpecs" | "scopeLabel"> {
+  request: ScopedRunRequest;
 }
 
 interface RedactorResult {
@@ -160,6 +162,31 @@ function validateRunEnvName(name: string, label: "source" | "target"): void {
   }
 }
 
+function validateRunSelection(input: RunEnvironmentInput): RunEnvSpec[] {
+  const explicit = input.envSpecs !== undefined && input.envSpecs.length > 0;
+  const specs = explicit
+    ? input.envSpecs!.map((spec) => ({ ...spec }))
+    : input.secretNames.map((name) => ({ sourceName: name, targetName: name }));
+  const available = new Set(input.secretNames);
+  const seenTargets = new Set<string>();
+
+  for (const spec of specs) {
+    validateRunEnvName(spec.sourceName, "source");
+    validateRunEnvName(spec.targetName, "target");
+    if (seenTargets.has(spec.targetName)) {
+      throw new Error(`Duplicate target environment name "${spec.targetName}".`);
+    }
+    seenTargets.add(spec.targetName);
+  }
+  for (const spec of specs) {
+    if (explicit && !available.has(spec.sourceName)) {
+      throw new Error(`Secret "${spec.sourceName}" not found.`);
+    }
+  }
+
+  return specs;
+}
+
 export function checkUnsafeCommand(commandArgs: string[]): UnsafeCommand | null {
   const command = commandArgs[0];
   if (!command) return { reason: "no command provided" };
@@ -180,36 +207,28 @@ export function checkUnsafeCommand(commandArgs: string[]): UnsafeCommand | null 
 }
 
 export function buildRunEnvironment(input: RunEnvironmentInput): RunEnvironment {
+  return buildValidatedRunEnvironment(input, validateRunSelection(input));
+}
+
+function buildValidatedRunEnvironment(input: RunEnvironmentInput, specs: readonly RunEnvSpec[]): RunEnvironment {
   const env: NodeJS.ProcessEnv = { ...input.baseEnv };
   const leakValues: string[] = [];
   const seenLeakValues = new Set<string>();
-  const explicitSpecs = input.envSpecs !== undefined && input.envSpecs.length > 0;
-  const specs = explicitSpecs
-    ? input.envSpecs!
-    : input.secretNames.map((name) => ({ sourceName: name, targetName: name }));
-  const seenTargets = new Set<string>();
+  const requestedNames = [...new Set(specs.map((spec) => spec.sourceName))];
+  const resolvedByName = input.resolveSecrets
+    ? input.resolveSecrets(requestedNames)
+    : new Map(requestedNames.map((name) => [name, input.resolveSecret(name)]));
+  for (const name of requestedNames) {
+    if (!resolvedByName.has(name) || resolvedByName.get(name) === null) {
+      throw new Error(`Secret "${name}" disappeared before it could be injected.`);
+    }
+  }
+  const resolved = specs.map((spec) => ({ spec, value: resolvedByName.get(spec.sourceName)! }));
 
-  for (const spec of specs) {
-    try {
-      validateRunEnvName(spec.sourceName, "source");
-      validateRunEnvName(spec.targetName, "target");
-    } catch (err) {
-      if (explicitSpecs) throw err;
-      continue;
-    }
-    if (seenTargets.has(spec.targetName)) {
-      throw new Error(`Duplicate target environment name "${spec.targetName}".`);
-    }
-    seenTargets.add(spec.targetName);
-
-    const value = input.resolveSecret(spec.sourceName);
-    if (value === null) {
-      if (explicitSpecs) throw new Error(`Secret "${spec.sourceName}" not found.`);
-      continue;
-    }
+  for (const item of resolved) {
+    const { spec, value } = item;
     if (value.includes("\0")) {
-      if (explicitSpecs) throw new Error(`Secret "${spec.sourceName}" contains a null byte and cannot be injected.`);
-      continue;
+      throw new Error(`Secret "${spec.sourceName}" contains a null byte and cannot be injected.`);
     }
 
     env[spec.targetName] = value;
@@ -278,50 +297,98 @@ export async function runCommandWithSecrets(options: RunCommandOptions): Promise
     options.stderr(`${err.message}\n`);
     return { kind: "error", exitCode: 1 };
   }
-  if (parsed.commandArgs.length === 0) {
+
+  return executePreparedRun({
+    allowUnsafe: parsed.allowUnsafe,
+    envSpecs: parsed.envSpecs.length > 0 ? parsed.envSpecs : options.envSpecs,
+    commandArgs: parsed.commandArgs,
+    scopeLabel: options.scopeLabel,
+  }, options);
+}
+
+export async function runPreparedCommandWithSecrets(
+  options: PreparedRunCommandOptions,
+): Promise<RunOutcome> {
+  return executePreparedRun({
+    allowUnsafe: options.request.allowUnsafe,
+    envSpecs: [...options.request.envSpecs],
+    commandArgs: [...options.request.commandArgs],
+    scopeLabel: `${options.request.scope.project}/${options.request.scope.environment}`,
+  }, options);
+}
+
+interface PreparedRun {
+  allowUnsafe: boolean;
+  envSpecs?: RunEnvSpec[];
+  commandArgs: string[];
+  scopeLabel?: string;
+}
+
+async function executePreparedRun(
+  prepared: PreparedRun,
+  options: Omit<RunCommandOptions, "args" | "envSpecs" | "scopeLabel">,
+): Promise<RunOutcome> {
+  if (prepared.commandArgs.length === 0) {
     options.stderr("Usage: keyclasp run [--project NAME] [--environment NAME] [--allow-unsafe] [--env SOURCE[:TARGET]] <command...>\n");
     return { kind: "error", exitCode: 1 };
   }
 
-  const unsafe = checkUnsafeCommand(parsed.commandArgs);
-  if (!parsed.allowUnsafe && unsafe) {
+  const selectionInput: RunEnvironmentInput = {
+    baseEnv: options.baseEnv,
+    secretNames: options.secretNames,
+    envSpecs: prepared.envSpecs,
+    resolveSecret: options.resolveSecret,
+    resolveSecrets: options.resolveSecrets,
+  };
+  let validatedSpecs: RunEnvSpec[];
+  try {
+    validatedSpecs = validateRunSelection(selectionInput);
+  } catch (err: any) {
+    options.stderr(`${err.message}\n`);
+    return { kind: "error", exitCode: 1 };
+  }
+
+  const unsafe = checkUnsafeCommand(prepared.commandArgs);
+  if (!prepared.allowUnsafe && unsafe) {
     options.stderr(`BLOCKED: ${unsafe.reason}.\n`);
     options.stderr("Operator override: keyclasp run --allow-unsafe -- <command...>\n");
     return { kind: "blocked", exitCode: 2 };
   }
 
-  const envSpecs = parsed.envSpecs.length > 0 ? parsed.envSpecs : options.envSpecs;
-  if ((!envSpecs || envSpecs.length === 0) && options.secretNames.length > 0 && !options.operatorAuthenticated) {
+  const envSpecs = prepared.envSpecs;
+  if ((!envSpecs || envSpecs.length === 0) && options.secretNames.length > 0) {
     try {
-      await requireOperatorAuthentication(`Inject every Keyclasp secret in ${options.scopeLabel ?? "the selected scope"}`);
+      await requireOperatorAuthentication(`Inject every Keyclasp secret in ${prepared.scopeLabel ?? "the selected scope"}`);
     } catch (err: any) {
       options.stderr(`BLOCKED: ${err.message}\n`);
       return { kind: "blocked", exitCode: 2 };
     }
   }
 
-  let env: NodeJS.ProcessEnv;
-  let leakValues: string[];
   try {
-    ({ env, leakValues } = buildRunEnvironment({
-      baseEnv: options.baseEnv,
-      secretNames: options.secretNames,
-      envSpecs,
-      resolveSecret: options.resolveSecret,
-    }));
+    await options.ensureUnlocked?.();
   } catch (err: any) {
     options.stderr(`${err.message}\n`);
     return { kind: "error", exitCode: 1 };
   }
 
-  if (parsed.allowUnsafe) {
+  let env: NodeJS.ProcessEnv;
+  let leakValues: string[];
+  try {
+    ({ env, leakValues } = buildValidatedRunEnvironment(selectionInput, validatedSpecs));
+  } catch (err: any) {
+    options.stderr(`${err.message}\n`);
+    return { kind: "error", exitCode: 1 };
+  }
+
+  if (prepared.allowUnsafe) {
     options.stderr("WARNING: keyclasp run exfiltration protection disabled by --allow-unsafe.\n");
-    const outcome = await spawnRaw(parsed.commandArgs, env);
+    const outcome = await spawnRaw(prepared.commandArgs, env);
     reportSpawnError(outcome, options.stderr);
     return outcome;
   }
 
-  const outcome = await spawnGuarded(parsed.commandArgs, env, leakValues, options.stdout, options.stderr);
+  const outcome = await spawnGuarded(prepared.commandArgs, env, leakValues, options.stdout, options.stderr);
   reportSpawnError(outcome, options.stderr);
   return outcome;
 }

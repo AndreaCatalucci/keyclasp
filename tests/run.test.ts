@@ -150,12 +150,11 @@ describe("run environment preparation", () => {
   it("injects valid secrets and tracks only non-empty leak values", () => {
     const result = buildRunEnvironment({
       baseEnv: { EXISTING: "1" },
-      secretNames: ["API_KEY", "EMPTY_SECRET", "SHORT_SECRET", "NULL_VAL", "NULL\0NAME"],
+      secretNames: ["API_KEY", "EMPTY_SECRET", "SHORT_SECRET"],
       resolveSecret: (name) => {
         if (name === "API_KEY") return "sk-test-secret";
         if (name === "EMPTY_SECRET") return "";
         if (name === "SHORT_SECRET") return "a";
-        if (name === "NULL_VAL") return "before\0after";
         return "ignored";
       },
     });
@@ -163,15 +162,23 @@ describe("run environment preparation", () => {
     expect(result.env.API_KEY).toBe("sk-test-secret");
     expect(result.env.EMPTY_SECRET).toBe("");
     expect(result.env.SHORT_SECRET).toBe("a");
-    expect(result.env.NULL_VAL).toBeUndefined();
-    expect(result.env["NULL\0NAME"]).toBeUndefined();
     expect(result.leakValues).toEqual(["sk-test-secret"]);
+  });
+
+  it("rejects an incomplete whole-scope environment instead of injecting a subset", () => {
+    const resolveSecret = vi.fn((name: string) => name === "GOOD" ? "good-value" : "before\0after");
+    expect(() => buildRunEnvironment({
+      baseEnv: {},
+      secretNames: ["GOOD", "INVALID"],
+      resolveSecret,
+    })).toThrow(/null byte/);
+    expect(resolveSecret).toHaveBeenCalledTimes(2);
   });
 
   it("injects explicit env mappings from source names to target names", () => {
     const result = buildRunEnvironment({
       baseEnv: {},
-      secretNames: ["IGNORED_BY_EXPLICIT_SPECS"],
+      secretNames: ["HELLO", "IGNORED_BY_EXPLICIT_SPECS"],
       envSpecs: [{ sourceName: "HELLO", targetName: "WORLD" }],
       resolveSecret: (name) => (name === "HELLO" ? "mapped-secret" : null),
     });
@@ -199,22 +206,26 @@ describe("run environment preparation", () => {
   });
 
   it("fails explicit env mappings with duplicate targets or missing sources", () => {
+    const resolveSecret = vi.fn(() => "value");
     expect(() => buildRunEnvironment({
       baseEnv: {},
-      secretNames: [],
+      secretNames: ["ONE", "TWO"],
       envSpecs: [
         { sourceName: "ONE", targetName: "WORLD" },
         { sourceName: "TWO", targetName: "WORLD" },
       ],
-      resolveSecret: () => "value",
+      resolveSecret,
     })).toThrow(/Duplicate target environment name/);
+    expect(resolveSecret).not.toHaveBeenCalled();
 
+    resolveSecret.mockClear();
     expect(() => buildRunEnvironment({
       baseEnv: {},
-      secretNames: [],
+      secretNames: ["HELLO"],
       envSpecs: [{ sourceName: "MISSING", targetName: "WORLD" }],
-      resolveSecret: () => null,
+      resolveSecret,
     })).toThrow(/Secret "MISSING" not found/);
+    expect(resolveSecret).not.toHaveBeenCalled();
   });
 });
 
@@ -285,6 +296,7 @@ describe("guarded command execution", () => {
         resolvedNames.push(name);
         return "sk-test-secret";
       },
+      ensureUnlocked: async () => { events.push("unlock"); },
       stdout: () => {},
       stderr: () => {},
     });
@@ -292,7 +304,7 @@ describe("guarded command execution", () => {
     expect(result.kind).toBe("exit");
     expect(biometricMock).toHaveBeenCalledOnce();
     expect(resolvedNames).toEqual(["API_KEY"]);
-    expect(events).toEqual(["biometric", "resolve"]);
+    expect(events).toEqual(["biometric", "unlock", "resolve"]);
   });
 
   it("does not resolve any secret when whole-scope biometric authentication fails", async () => {
@@ -300,6 +312,7 @@ describe("guarded command execution", () => {
       throw new Error("Biometric authentication failed or was cancelled.");
     });
     const resolveSecret = vi.fn(() => "sk-test-secret");
+    const ensureUnlocked = vi.fn(async () => undefined);
     let stderr = "";
 
     const result = await runCommandWithSecrets({
@@ -307,6 +320,7 @@ describe("guarded command execution", () => {
       baseEnv: {},
       secretNames: ["API_KEY"],
       resolveSecret,
+      ensureUnlocked,
       stdout: () => {},
       stderr: (chunk) => { stderr += chunk; },
     });
@@ -314,7 +328,33 @@ describe("guarded command execution", () => {
     expect(result.kind).toBe("blocked");
     expect(result.exitCode).toBe(2);
     expect(resolveSecret).not.toHaveBeenCalled();
+    expect(ensureUnlocked).not.toHaveBeenCalled();
     expect(stderr).toContain("Biometric authentication failed or was cancelled.");
+  });
+
+  it("rejects an invalid complete selection before unlock, decryption, or child launch", async () => {
+    const ensureUnlocked = vi.fn(async () => undefined);
+    const resolveSecret = vi.fn(() => "secret-value");
+    let stdout = "";
+
+    const result = await runCommandWithSecrets({
+      args: [
+        "--env", "FIRST:DUPLICATE",
+        "--env", "SECOND:DUPLICATE",
+        "--", process.execPath, "-e", "process.stdout.write('launched')",
+      ],
+      baseEnv: {},
+      secretNames: ["FIRST", "SECOND"],
+      resolveSecret,
+      ensureUnlocked,
+      stdout: (chunk) => { stdout += chunk; },
+      stderr: () => {},
+    });
+
+    expect(result).toEqual({ kind: "error", exitCode: 1 });
+    expect(ensureUnlocked).not.toHaveBeenCalled();
+    expect(resolveSecret).not.toHaveBeenCalled();
+    expect(stdout).toBe("");
   });
 
   it("keeps explicit least-privilege injection non-interactive", async () => {
@@ -331,22 +371,53 @@ describe("guarded command execution", () => {
     expect(biometricMock).not.toHaveBeenCalled();
   });
 
-  it("skips hyphenated names on whole-scope injection after operator auth", async () => {
+  it("rejects a malformed whole-scope name before auth, unlock, decryption, or child launch", async () => {
     let stdout = "";
+    const ensureUnlocked = vi.fn(async () => undefined);
+    const resolveSecret = vi.fn((name: string) => (name === "API_KEY" ? "ok" : "hyphen-value"));
     const result = await runCommandWithSecrets({
       args: [process.execPath, "-e", "process.stdout.write(process.env.API_KEY === 'ok' && process.env['MY-API-KEY'] === undefined ? 'ok' : 'bad')"],
       baseEnv: {},
       secretNames: ["API_KEY", "MY-API-KEY"],
-      resolveSecret: (name) => (name === "API_KEY" ? "ok" : "hyphen-value"),
+      resolveSecret,
+      ensureUnlocked,
       stdout: (chunk) => { stdout += chunk; },
       stderr: () => {},
-      operatorAuthenticated: true,
     });
 
-    expect(result.kind).toBe("exit");
-    expect(result.exitCode).toBe(0);
-    expect(stdout).toBe("ok");
+    expect(result).toEqual({ kind: "error", exitCode: 1 });
+    expect(stdout).toBe("");
     expect(biometricMock).not.toHaveBeenCalled();
+    expect(ensureUnlocked).not.toHaveBeenCalled();
+    expect(resolveSecret).not.toHaveBeenCalled();
+  });
+
+  it("does not launch a whole-scope child when a listed secret disappears", async () => {
+    let stdout = "";
+    const decrypt = vi.fn((name: string) => `${name}-value`);
+    const resolveSecret = vi.fn(() => { throw new Error("individual resolution must not run"); });
+    const result = await runCommandWithSecrets({
+      args: [process.execPath, "-e", "process.stdout.write('launched')"],
+      baseEnv: {},
+      secretNames: ["FIRST", "SECOND"],
+      resolveSecret,
+      resolveSecrets: (names) => {
+        const existing = new Set(["FIRST"]);
+        for (const name of names) {
+          if (!existing.has(name)) throw new Error(`Secret "${name}" disappeared before it could be injected.`);
+        }
+        return new Map(names.map((name) => [name, decrypt(name)]));
+      },
+      ensureUnlocked: async () => undefined,
+      stdout: (chunk) => { stdout += chunk; },
+      stderr: () => {},
+    });
+
+    expect(result).toEqual({ kind: "error", exitCode: 1 });
+    expect(stdout).toBe("");
+    expect(biometricMock).toHaveBeenCalledOnce();
+    expect(resolveSecret).not.toHaveBeenCalled();
+    expect(decrypt).not.toHaveBeenCalled();
   });
 
   it("reports a child executable that cannot be started", async () => {
@@ -462,7 +533,7 @@ describe("guarded command execution", () => {
         "console.log(process.env.WORLD === 'mapped-secret' ? 'ok' : 'missing');",
       ],
       baseEnv: {},
-      secretNames: [],
+      secretNames: ["HELLO"],
       resolveSecret: (name) => (name === "HELLO" ? "mapped-secret" : null),
       stdout: (chunk) => { stdout += chunk; },
       stderr: () => {},

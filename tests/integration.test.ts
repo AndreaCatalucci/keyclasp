@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import Database from "better-sqlite3";
-import { initializeVault, getKey, closeDb, clearKey, encrypt } from "../src/vault.js";
+import { initializeVault, getKey, closeDb, clearKey, encrypt, resolveSecret, storeSecret, unlockVault, writeLegacyV3KeyFileForTests } from "../src/vault.js";
 
 const cliPath = path.join(process.cwd(), "dist", "cli.js");
 let vaultHome: string;
@@ -51,17 +51,18 @@ function runMissingSecret(name: string, scopeArgs: string[] = [], opts: { env?: 
   ], opts);
 }
 
-function runAsync(args: string[], env: NodeJS.ProcessEnv): Promise<{ status: number | null; stdout: string; stderr: string }> {
+function runAsync(args: string[], env: NodeJS.ProcessEnv, input?: string): Promise<{ status: number | null; stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [cliPath, ...args], {
       cwd: process.cwd(),
       env: { ...process.env, ...env },
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: [input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
     });
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (chunk) => { stdout += chunk; });
     child.stderr.on("data", (chunk) => { stderr += chunk; });
+    if (input !== undefined) child.stdin.end(input);
     child.on("error", reject);
     child.on("close", (status) => resolve({ status, stdout, stderr }));
   });
@@ -113,11 +114,71 @@ describe("CLI end-to-end flow", () => {
     expect(status.status).toBe(0);
     expect(status.stdout).toContain("verified");
   });
+
+  it("keeps one authenticated record identity across concurrent first writes", async () => {
+    expect(run(["init"], { input: "\n" }).status).toBe(0);
+    const [first, second] = await Promise.all([
+      runAsync(["set", "RACE_KEY", "--project", "app", "--environment", "prod"], { KEYCLASP_HOME: vaultHome }, "first-value\n"),
+      runAsync(["set", "RACE_KEY", "--project", "app", "--environment", "prod"], { KEYCLASP_HOME: vaultHome }, "second-value\n"),
+    ]);
+    expect(first.status).toBe(0);
+    expect(second.status).toBe(0);
+
+    const previous = process.env.KEYCLASP_HOME;
+    process.env.KEYCLASP_HOME = vaultHome;
+    closeDb();
+    clearKey();
+    const value = resolveSecret("app", "prod", "RACE_KEY");
+    expect(["first-value", "second-value"]).toContain(value);
+    closeDb();
+    clearKey();
+    if (previous === undefined) delete process.env.KEYCLASP_HOME;
+    else process.env.KEYCLASP_HOME = previous;
+  });
+
+  it("serializes concurrent initialization so exactly one process creates the vault", async () => {
+    const [first, second] = await Promise.all([
+      runAsync(["init"], { KEYCLASP_HOME: vaultHome }, "\n"),
+      runAsync(["init"], { KEYCLASP_HOME: vaultHome }, "\n"),
+    ]);
+    expect([first.status, second.status].sort()).toEqual([0, 1]);
+    expect(`${first.stderr}${second.stderr}`).toMatch(/already initialized|already in progress/i);
+    expect(run(["status"]).status).toBe(0);
+  });
+
+  it("blocks on the live initialization owner and recovers when its advisory lock is released", async () => {
+    fs.mkdirSync(vaultHome, { recursive: true, mode: 0o700 });
+    const lockPath = path.join(vaultHome, ".initialize.db");
+    const owner = new Database(lockPath);
+    fs.chmodSync(lockPath, 0o600);
+    owner.exec("BEGIN EXCLUSIVE");
+    try {
+      const blocked = await runAsync(["init"], { KEYCLASP_HOME: vaultHome }, "\n");
+      expect(blocked.status).toBe(1);
+      expect(blocked.stderr).toMatch(/initialization is already in progress/i);
+      expect(fs.existsSync(path.join(vaultHome, ".keyclasp.key"))).toBe(false);
+    } finally {
+      owner.close();
+    }
+
+    expect(run(["init"], { input: "\n" }).status).toBe(0);
+    expect(run(["status"]).status).toBe(0);
+  });
 });
 
 describe("CLI passphrase vault stays locked across processes", () => {
   beforeEach(() => {
     expect(run(["init"], { input: "wrap-passphrase\n" }).status).toBe(0);
+    const previous = process.env.KEYCLASP_HOME;
+    process.env.KEYCLASP_HOME = vaultHome;
+    closeDb();
+    clearKey();
+    unlockVault("wrap-passphrase");
+    storeSecret("default", "default", "LOCKED_RUN_KEY", "seeded-value");
+    closeDb();
+    clearKey();
+    if (previous === undefined) delete process.env.KEYCLASP_HOME;
+    else process.env.KEYCLASP_HOME = previous;
   });
 
   it("prints locked status without treating it as a decrypt failure", () => {
@@ -142,7 +203,7 @@ describe("CLI passphrase vault stays locked across processes", () => {
     const result = run([
       "run",
       "--env",
-      "API_KEY",
+      "LOCKED_RUN_KEY",
       "--",
       process.execPath,
       "-e",
@@ -159,7 +220,7 @@ describe("CLI passphrase vault stays locked across processes", () => {
       "run",
       "--allow-unsafe",
       "--env",
-      "API_KEY",
+      "LOCKED_RUN_KEY",
       "--",
       process.execPath,
       "-e",
@@ -532,14 +593,16 @@ describe("legacy vault migration race safety", () => {
       process.env.KEYCLASP_HOME = raceHome;
       closeDb();
       clearKey();
-      initializeVault("race-passphrase");
+      initializeVault("");
       const key = getKey();
+      writeLegacyV3KeyFileForTests(key, "");
       closeDb();
 
       const dbPath = path.join(raceHome, "vault.db");
       const raw = new Database(dbPath);
       try {
         raw.exec("DROP TABLE IF EXISTS secrets");
+        raw.exec("DROP TABLE IF EXISTS vault_metadata");
         raw.exec(`
           CREATE TABLE secrets (
             name TEXT PRIMARY KEY,
@@ -562,17 +625,18 @@ describe("legacy vault migration race safety", () => {
       clearKey();
 
       const [first, second] = await Promise.all([
-        runAsync(["list", "--all"], { KEYCLASP_HOME: raceHome }),
-        runAsync(["list", "--all"], { KEYCLASP_HOME: raceHome }),
+        runAsync(["run", "--env", "RACE_ONE", "--", process.execPath, "-e", "process.exit(0)"], { KEYCLASP_HOME: raceHome }),
+        runAsync(["run", "--env", "RACE_TWO", "--", process.execPath, "-e", "process.exit(0)"], { KEYCLASP_HOME: raceHome }),
       ]);
 
-      expect(first.status).toBe(0);
-      expect(second.status).toBe(0);
+      expect(first.status, first.stderr).toBe(0);
+      expect(second.status, second.stderr).toBe(0);
 
       const verifyDb = new Database(dbPath, { readonly: true });
       try {
         const columns = (verifyDb.pragma("table_info(secrets)") as { name: string }[]).map((r) => r.name);
-        expect(columns).toEqual(expect.arrayContaining(["project", "environment", "name"]));
+        expect(columns).toEqual(expect.arrayContaining(["project", "environment", "name", "record_id", "record_kind"]));
+        expect(verifyDb.prepare("SELECT format_version FROM vault_metadata WHERE singleton = 1").pluck().get()).toBe(2);
         const rows = verifyDb.prepare("SELECT project, environment, name FROM secrets ORDER BY name").all() as
           { project: string; environment: string; name: string }[];
         expect(rows).toEqual([

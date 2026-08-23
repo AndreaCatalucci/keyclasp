@@ -5,7 +5,6 @@ import os from "node:os";
 import path from "node:path";
 import {
   clearKey,
-  checkVaultDecryptability,
   closeDb,
   initializeVault,
   isInitialized,
@@ -20,7 +19,7 @@ const previousKeyclaspHome = process.env.KEYCLASP_HOME;
 const previousHome = process.env.HOME;
 let tmpDir: string;
 let vaultHome: string;
-const keyFileMagic = Buffer.from("keyclasp:v3\n", "utf8");
+const keyFileMagic = Buffer.from("keyclasp:v4\n", "utf8");
 
 function resetRuntime(): void {
   closeDb();
@@ -170,7 +169,7 @@ describe("vault key invariants", () => {
     expect(resolveSecret("default", "default", "ONLY_A")).toBeNull();
   });
 
-  it("writes v3 key files that do not depend on the legacy machine identity", () => {
+  it("writes v4 key files that do not depend on the legacy machine identity", () => {
     setMachineIdentityForTests({
       stable: Buffer.from("stable-machine-id-32-byte-value!"),
       legacy: Buffer.from("legacy-before-change-32-byte-val"),
@@ -232,9 +231,7 @@ describe("vault key invariants", () => {
     fs.writeFileSync(path.join(homeA, ".keyclasp.key"), wrongKey, { mode: 0o600 });
     process.env.KEYCLASP_HOME = homeA;
     restartRuntime();
-    unlock("home-b");
-
-    expect(() => storeSecret("default", "default", "NEW_AFTER_DRIFT", "new-value")).toThrow(/does not unlock this vault/);
+    expect(() => unlock("home-b")).toThrow(/does not unlock this vault/);
 
     fs.writeFileSync(path.join(homeA, ".keyclasp.key"), originalKey, { mode: 0o600 });
     restartRuntime();
@@ -243,7 +240,23 @@ describe("vault key invariants", () => {
     expect(resolveSecret("default", "default", "NEW_AFTER_DRIFT")).toBeNull();
   });
 
-  it("detects key/vault drift when names are visible but values are unrecoverable", () => {
+  it("rejects a mismatched key file even when the vault has no secret rows", () => {
+    const homeA = path.join(tmpDir, "empty-a", ".keyclasp");
+    const homeB = path.join(tmpDir, "empty-b", ".keyclasp");
+
+    process.env.KEYCLASP_HOME = homeA;
+    initializeVault("home-a");
+    process.env.KEYCLASP_HOME = homeB;
+    initializeVault("home-b");
+    const wrongKey = fs.readFileSync(path.join(homeB, ".keyclasp.key"));
+    fs.writeFileSync(path.join(homeA, ".keyclasp.key"), wrongKey, { mode: 0o600 });
+
+    process.env.KEYCLASP_HOME = homeA;
+    restartRuntime();
+    expect(() => unlock("home-b")).toThrow(/does not unlock this vault/);
+  });
+
+  it("detects key/vault drift before exposing secret-name metadata", () => {
     const homeA = path.join(tmpDir, "home-a", ".keyclasp");
     const homeB = path.join(tmpDir, "home-b", ".keyclasp");
 
@@ -260,13 +273,7 @@ describe("vault key invariants", () => {
 
     process.env.KEYCLASP_HOME = homeA;
     restartRuntime();
-    expect(listSecrets("default", "default")).toContain("REPRO_SECRET");
+    expect(() => listSecrets("default", "default")).toThrow(/does not unlock this vault/i);
     expect(() => resolveSecret("default", "default", "REPRO_SECRET")).toThrow(/does not unlock this vault|authenticate data|decrypt/i);
-
-    const decryptability = checkVaultDecryptability();
-    expect(decryptability.checked).toBe(1);
-    expect(decryptability.failures).toEqual([
-      expect.objectContaining({ name: "REPRO_SECRET" }),
-    ]);
   });
 });

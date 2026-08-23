@@ -24,6 +24,7 @@ import {
   getKey,
   getDb,
   unlockVault,
+  writeLegacyV3KeyFileForTests,
   verifyVaultPassphrase,
   vaultHasPassphrase,
   validateScopeName,
@@ -366,12 +367,14 @@ describe("legacy schema migration", () => {
 
   it("backfills pre-scoping rows under project=default, environment=default", () => {
     const key = getKey();
+    writeLegacyV3KeyFileForTests(key, "scope-test-passphrase");
     closeDb();
 
     const dbPath = path.join(vault.home, "vault.db");
     const raw = new Database(dbPath);
     try {
       raw.exec("DROP TABLE IF EXISTS secrets");
+      raw.exec("DROP TABLE IF EXISTS vault_metadata");
       raw.exec(`
         CREATE TABLE secrets (
           name TEXT PRIMARY KEY,
@@ -391,6 +394,7 @@ describe("legacy schema migration", () => {
       raw.close();
     }
 
+    unlockVault("scope-test-passphrase");
     // Any call through getDb() lazily migrates the legacy table.
     const names = listSecrets("default", "default");
     expect(names).toContain("LEGACY_ROW");
