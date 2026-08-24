@@ -66,7 +66,7 @@ jobs:
   pack-once:
     name: reproduce the qualified rc6 artifact
     needs: source-tests
-    runs-on: ubuntu-24.04
+    runs-on: macos-15
     outputs:
       filename: ${{ steps.pack.outputs.filename }}
       expected_sha256: ${{ steps.pack.outputs.expected_sha256 }}
@@ -76,8 +76,10 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: 24
+          node-version: 26.7.0
           cache: npm
+      - name: Require the rc6 npm pack toolchain
+        run: test "$(npm --version)" = 11.19.0
       - run: npm ci --ignore-scripts
       - run: npm run build
       - run: npm run release:inventory:check
@@ -101,7 +103,7 @@ jobs:
           mkdir -p artifact
           npm pack --ignore-scripts --json --pack-destination artifact > artifact/npm-pack.json
           filename=$(node -e "const r=require('./artifact/npm-pack.json')[0]; if(!r?.filename) process.exit(1); process.stdout.write(r.filename)")
-          sha256=$(sha256sum "artifact/$filename" | cut -d ' ' -f 1)
+          sha256=$(shasum -a 256 "artifact/$filename" | cut -d ' ' -f 1)
           if [ "$sha256" != "$EXPECTED_RC6_SHA256" ]; then
             echo "Repacked tarball SHA-256 $sha256 does not match qualified rc6 $EXPECTED_RC6_SHA256." >&2
             exit 1
