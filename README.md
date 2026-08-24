@@ -1,23 +1,13 @@
 # Keyclasp: Runtime Secrets for Coding Agents
 
-Keyclasp stores credentials in a local encrypted vault and injects selected values into a trusted child process. Normal storage and guarded-run flows keep values out of project files, prompts, command arguments, and Keyclasp's own output. The operator-only `get` command is the explicit plaintext-output exception.
+You want to run your cli tool, and there's no MCP wrapping it. So you might be tempted to copypaste your api key into the agent's prompt to let it call this CLI.
+Don't do that! Keyclasp lets you safely invoke any cli and pass secrets without the agent ever seeing them!
+
+Keyclasp stores credentials in a local encrypted vault and injects selected values into a trusted child process. Normal storage and guarded-run flows keep values out of project files, prompts, command arguments, and Keyclasp's own output.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-The `0.2.0-beta.1` software beta supports macOS `arm64` and glibc Linux `arm64` or `x64` on Node.js 24 or 26. macOS `x64` and Windows are unsupported: installation and stateful use fail closed before creating vault state. Hardware mode is unavailable; `keyclasp doctor` reports status only.
-
-## How custody works
-
-Each software vault can hold two independent AES-256-GCM data keys:
-
-- The machine key supports unattended agent work. Its wrapping mechanism uses local machine identity, which is not a secret or hardware attestation.
-- The interactive key is wrapped by a non-empty passphrase. Interactive records remain unreadable with the machine key and its metadata.
-
-New records use machine custody unless an effective lock rule assigns them to interactive custody. `lock`, `unlock`, and `inherit` atomically update the rule and re-encrypt matching existing records under the resulting key.
-
-On macOS, interactive operations require Touch ID in a dialog identified as **Keyclasp**, then the vault passphrase. Run dialogs show the command, scope, selected secret names, and output-protection state without showing secret values. On Linux, one passphrase entry authorizes the operation and unlocks the interactive key. A machine-only vault can run an explicitly selected, unlocked secret without a prompt, but cannot perform `get`, broad runs, policy changes, backup, or restore until interactive custody is enrolled.
-
-Explicit selection limits which values reach a child; it does not authenticate another process running as the same OS user. The child receives usable credentials and must be trusted.
+Keyclasp supports macOS `arm64` and glibc Linux `arm64` or `x64` on Node.js 24 or 26. macOS `x64` and Windows are unsupported at the moment
 
 ## Install
 
@@ -27,11 +17,7 @@ npm install -g keyclasp@beta
 keyclasp init
 ```
 
-Before publication, reviewers install only the exact local tarball and SHA-256 named in the release-candidate receipt. The registry command above is not evidence that the candidate has been published or qualified from npm.
-
-Press Enter at `init` for a machine-only vault, or enter a passphrase to create both custody keys. The exact Keyclasp tarball carries reviewed `better-sqlite3` prebuilds for macOS `arm64` and glibc Linux `arm64` or `x64`; installation verifies the selected native binding's SHA-256 before Keyclasp can load it. No native binary is downloaded during installation. To compile the bundled reviewed sources instead, set `npm_config_build_from_source=true`; that path needs Xcode Command Line Tools on macOS or Python plus a C++ toolchain on Linux.
-
-This prerelease has been prepared but is not yet published. Until publication is explicitly authorized, install the exact reviewed tarball by path instead of using `@beta`.
+Press Enter at `init` for a machine-only vault, or enter a passphrase to create the custody keys.
 
 ## Store and use a secret
 
@@ -49,6 +35,20 @@ keyclasp run --project myapp --environment prod \
 ```
 
 Keyclasp launches the command without a shell. It blocks common environment-dump commands and scans stdout and stderr for injected values of at least eight characters. On a match it prints `[KEYCLASP_REDACTED]` and terminates the child. This catches accidental output; it cannot stop a trusted child from sending, storing, or transforming a credential.
+
+
+## How custody works
+
+Each software vault holds two independent AES-256-GCM data keys:
+
+- The machine key supports unattended agent work.
+- The interactive key is wrapped by a non-empty passphrase. Any access to such keys requires interactive authorization, preventing the agent from accessing secrets in this portion without explicit human authorization.
+
+On macOS, interactive operations require Touch ID in a dialog. On Linux, one passphrase entry authorizes the operation and unlocks the interactive key.
+
+A machine-only vault can run an explicitly selected, unlocked secret without a prompt, but cannot perform `get`, broad runs, policy changes, backup, or restore until interactive custody is enrolled.
+
+The  `lock`, `unlock`, and `inherit` move secrets from machine to the interactive key encryption, and always require interactive authorization.
 
 ## Move records between custody classes
 
@@ -81,9 +81,7 @@ keyclasp list --project myapp --environment prod
 keyclasp run --project myapp --environment prod --env SECRET_API_KEY -- npm test
 ```
 
-Agents must stop for locked selections and operator-only commands. They must not call `get`, omit `--env`, change custody rules, manage recovery, prompt for a passphrase, or use `--allow-unsafe` without authorization.
-
-The packaged agent skill is in [`skills/keyclasp-agent`](skills/keyclasp-agent).
+There is a packaged agent skill in [`skills/keyclasp-agent`](skills/keyclasp-agent).
 
 ## Commands
 
