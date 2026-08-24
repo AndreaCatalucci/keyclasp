@@ -1,39 +1,25 @@
-# Publishing keyclasp to npm
+# Publishing Keyclasp to npm
 
-## Brief
+This historical concept is superseded by the `0.2.0-beta.1` exact-artifact release process. Publication remains a protected checkpoint.
 
-Get `keyclasp` onto the npm registry so `npm install -g keyclasp` works, replacing the current `npm install -g github:AndreaCatalucci/keyclasp` install path in README.md.
+## Current contract
 
-## Facts checked
+- Prepare and review one prerelease tarball from the frozen source state.
+- Record its SHA-256, npm integrity, package contents, source revision, lockfile hash, SBOM, licenses, platform receipts, and accepted limitations.
+- Publish that exact `.tgz` with `npm publish /absolute/path/keyclasp-0.2.0-beta.1.tgz --tag beta`. Publishing from the working tree is prohibited because npm would rebuild and repack different bytes.
+- Download the registry tarball without installing it, verify its npm integrity and SHA-256 against the receipt, then run one narrow registry-install named-run/status smoke test.
+- Stop on any mismatch. Rebuilding under the same candidate identity is not allowed.
 
-- `package.json` is already publish-shaped: `name: keyclasp`, `bin.keyclasp -> dist/cli.js`, `main`, `files` (dist, native, install-codex-skill.sh, skills, NOTICE), `prepublishOnly: npm run build`, MIT license, repo/homepage/bugs URLs. No changes needed here.
-- Name check: `npm view keyclasp` → 404, name is free on the public registry.
-- Auth: `npm whoami` → `ENEEDAUTH`, this machine has no npm login/token yet.
-- `native/` holds one plain JS file (`macos-biometric.js`), not a compiled addon. No prebuild/cross-compile problem. The only native dependency is `better-sqlite3`, which ships its own prebuilds and is resolved normally by npm on install.
-- Cross-platform already handled in source: `src/vault.ts` and `src/biometric.ts` branch on `darwin`/`win32`/other; README already states macOS/Linux/Windows support with Touch ID as a macOS-only enhancement. Nothing npm-specific to fix here.
-- No `.github/workflows/` exist yet. There is no CI release pipeline today, so "set up CI publish" is a real build step, not a rename of something existing.
-- `dist/` is current and matches source (checked file listing); `prepublishOnly` rebuilds it anyway on publish.
+## Protected commands
 
-## Decision tree
+These commands require explicit publication authorization and are not part of local candidate preparation:
 
-1. **Auth path**: manual (`npm login` + `npm publish` from this machine) vs. CI-driven (GitHub Actions workflow, npm automation token as repo secret, triggered by a version tag or GitHub Release).
-2. **Initial version**: publish as `1.0.0` (current `package.json` value) vs. drop to `0.1.0` to signal first public release.
-3. **Package scope**: unscoped `keyclasp` (name confirmed free) vs. scoped `@andreacatalucci/keyclasp`.
+```bash
+git commit
+git push
+git tag v0.2.0-beta.1
+npm publish /absolute/path/keyclasp-0.2.0-beta.1.tgz --tag beta
+gh release create v0.2.0-beta.1 /absolute/path/keyclasp-0.2.0-beta.1.tgz
+```
 
-These are independent of each other (no prerequisite ordering), so asked together as round 1.
-
-## Decisions
-
-- Auth path: manual `npm login` + `npm publish` from this machine. CI publish deferred.
-- Initial version: `0.1.0`, not `1.0.0`, to signal first public release. Requires editing `package.json`.
-- Scope: unscoped `keyclasp`.
-
-## Leading concept
-
-Manual `npm login` + `npm publish` first, to get the package live now; CI publish (with `--provenance`) as a fast-follow once the manual path is proven. Unscoped name, version dropped to `0.1.0` for first public release.
-
-## Remaining uncertainty
-
-- Whether 2FA is enabled on the npm account (affects whether `npm publish` needs an OTP prompt or an automation token even for the manual path).
-- Whether `NOTICE` / contributor attribution (Keyblind origin) needs any adjustment for a public registry listing (not checked, likely fine as-is).
-- Long-term: once CI publish exists, whether releases are cut manually (tag push) or via a release-please-style automated versioning bot. Out of scope until the manual path is validated.
+The beta package supports macOS `arm64` and glibc Linux `arm64` or `x64` on Node.js 24 or 26. macOS `x64` and Windows installation and stateful use fail closed.

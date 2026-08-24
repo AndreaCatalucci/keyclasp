@@ -1,10 +1,18 @@
 {
   "name": "keyclasp",
-  "version": "0.1.1",
+  "version": "0.2.0-beta.1",
   "description": "Local encrypted credential vault for coding agents — secrets never touch agent context, only the process boundary",
   "engines": {
-    "node": ">=24"
+    "node": "24.x || 26.x"
   },
+  "os": [
+    "darwin",
+    "linux"
+  ],
+  "cpu": [
+    "arm64",
+    "x64"
+  ],
   "type": "module",
   "bin": {
     "keyclasp": "dist/cli.js"
@@ -21,17 +29,28 @@
     "dist",
     "native/macos-biometric.js",
     "skills",
-    "NOTICE"
+    "NOTICE",
+    "scripts/install-native-binding.mjs",
+    "scripts/native-source-manifest.mjs",
+    "scripts/verify-native-binding.mjs",
+    "software-beta-better-sqlite3-source.json",
+    "software-beta-node-addon-api-source.json",
+    "software-beta-dependencies.json",
+    "software-beta-native-prebuilds.json"
   ],
   "scripts": {
     "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
     "build": "npm run clean --silent && tsc",
     "postbuild": "node -e \"require('node:fs').chmodSync('dist/cli.js', 0o755)\"",
+    "install": "node scripts/install-native-binding.mjs",
     "dev": "tsc --watch",
     "start": "node dist/cli.js",
     "prepare": "npm run build",
     "prepublishOnly": "npm run build",
     "test": "npm run build --silent && vitest run",
+    "test:source": "vitest run --reporter=dot",
+    "release:inventory": "node scripts/generate-software-beta-inventory.mjs",
+    "release:inventory:check": "node scripts/generate-software-beta-inventory.mjs --check",
     "test:watch": "vitest"
   },
   "keywords": [
@@ -60,12 +79,19 @@
     "url": "https://github.com/AndreaCatalucci/keyclasp/issues"
   },
   "dependencies": {
-    "better-sqlite3": "^12.11.1"
+    "better-sqlite3": "13.0.3"
   },
+  "bundleDependencies": [
+    "better-sqlite3"
+  ],
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.13",
-    "@types/node": "^26.1.1",
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^26.2.0",
     "typescript": "^7.0.2",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.11"
+  },
+  "allowScripts": {
+    "better-sqlite3@13.0.3": true,
+    "fsevents@2.3.3": false
   }
 }

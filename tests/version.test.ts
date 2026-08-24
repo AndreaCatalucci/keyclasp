@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import fs from "node:fs";
+import { execFileSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import {
@@ -77,6 +78,21 @@ describe("version metadata", () => {
 
       expect(version).toBe("2.0.0-dev+git.def5678.dirty");
     });
+  });
+
+  it("ignores a dirty parent repository for an installed package", () => {
+    const outer = fs.mkdtempSync(path.join(os.tmpdir(), "keyclasp-version-parent-"));
+    try {
+      execFileSync("git", ["init", "--quiet"], { cwd: outer });
+      fs.writeFileSync(path.join(outer, "dirty.txt"), "untracked\n");
+      const installed = path.join(outer, "node_modules", "keyclasp");
+      fs.mkdirSync(installed, { recursive: true });
+      fs.writeFileSync(path.join(installed, "package.json"), JSON.stringify({ version: "0.2.0-beta.1" }));
+
+      expect(getDisplayVersion({ startDir: installed })).toBe("0.2.0-beta.1");
+    } finally {
+      fs.rmSync(outer, { recursive: true, force: true });
+    }
   });
 
   it("keeps package-lock root version aligned with package version", () => {

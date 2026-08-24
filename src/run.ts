@@ -425,9 +425,18 @@ function isShellCommandFlag(arg: string): boolean {
 function spawnRaw(commandArgs: string[], env: NodeJS.ProcessEnv): Promise<RunOutcome> {
   const [command, ...rest] = commandArgs;
   return new Promise((resolve) => {
-    const child = spawn(command, rest, { stdio: "inherit", env });
-    child.on("error", (error) => resolve({ kind: "error", exitCode: 1, error }));
-    child.on("close", (code, signal) => resolve({ kind: "exit", exitCode: exitCodeForClose(code, signal) }));
+    const child = spawn(command, rest, { stdio: "inherit", env, detached: process.platform !== "win32" });
+    const relay = installTerminationRelay(child);
+    child.on("error", (error) => {
+      relay.cleanup();
+      resolve({ kind: "error", exitCode: 1, error });
+    });
+    child.on("close", async (code, signal) => {
+      const relayedSignal = relay.signal;
+      await relay.waitForTermination();
+      relay.cleanup();
+      resolve({ kind: "exit", exitCode: exitCodeForClose(code, relayedSignal ?? signal) });
+    });
   });
 }
 
@@ -445,8 +454,7 @@ function spawnGuarded(
   const stderrDecoder = new StringDecoder("utf8");
   let leakDetected = false;
   let settled = false;
-  let closed = false;
-  let killTimer: ReturnType<typeof setTimeout> | null = null;
+  let leakTermination: Promise<void> | null = null;
 
   return new Promise((resolve) => {
     const resolveOnce = (outcome: RunOutcome) => {
@@ -458,17 +466,15 @@ function spawnGuarded(
     const child = spawn(command, rest, {
       stdio: ["inherit", "pipe", "pipe"],
       env,
+      detached: process.platform !== "win32",
     });
+    const relay = installTerminationRelay(child);
 
     const handleLeak = () => {
       if (leakDetected) return;
       leakDetected = true;
       writeStderr("\nBLOCKED: command output contained an injected secret; terminated.\n");
-      if (closed) return;
-      child.kill("SIGTERM");
-      killTimer = setTimeout(() => {
-        if (!closed) child.kill("SIGKILL");
-      }, 250);
+      leakTermination = terminateChildGroup(child, "SIGTERM", 250);
     };
 
     child.stdout?.on("data", (chunk: Buffer) => {
@@ -483,13 +489,12 @@ function spawnGuarded(
       if (result.leaked) handleLeak();
     });
 
-    child.on("error", (error) => resolveOnce({ kind: "error", exitCode: 1, error }));
-    child.on("close", (code, signal) => {
-      closed = true;
-      if (killTimer) {
-        clearTimeout(killTimer);
-        killTimer = null;
-      }
+    child.on("error", (error) => {
+      relay.cleanup();
+      resolveOnce({ kind: "error", exitCode: 1, error });
+    });
+    child.on("close", async (code, signal) => {
+      const relayedSignal = relay.signal;
 
       const lastStdout = stdoutDecoder.end();
       if (lastStdout) {
@@ -510,13 +515,85 @@ function spawnGuarded(
       if (finalStderr.output) writeStderr(finalStderr.output);
       if (finalStdout.leaked || finalStderr.leaked) handleLeak();
 
+      await Promise.all([relay.waitForTermination(), leakTermination ?? Promise.resolve()]);
+      relay.cleanup();
+
       if (leakDetected) {
         resolveOnce({ kind: "leak", exitCode: 2 });
       } else {
-        resolveOnce({ kind: "exit", exitCode: exitCodeForClose(code, signal) });
+        resolveOnce({ kind: "exit", exitCode: exitCodeForClose(code, relayedSignal ?? signal) });
       }
     });
   });
+}
+
+function signalChildTree(child: ReturnType<typeof spawn>, signal: NodeJS.Signals): void {
+  if (process.platform !== "win32" && child.pid !== undefined) {
+    try {
+      process.kill(-child.pid, signal);
+      return;
+    } catch {
+      // The child may have exited between the state check and group signal.
+    }
+  }
+  try {
+    child.kill(signal);
+  } catch {
+    // Close/error handlers own process completion.
+  }
+}
+
+async function terminateChildGroup(
+  child: ReturnType<typeof spawn>,
+  signal: NodeJS.Signals,
+  graceMilliseconds: number,
+): Promise<void> {
+  signalChildTree(child, signal);
+  if (process.platform === "win32" || child.pid === undefined) return;
+  const group = -child.pid;
+  const forceAt = Date.now() + graceMilliseconds;
+  let forced = false;
+  while (true) {
+    try {
+      process.kill(group, 0);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === "ESRCH" || code === "EPERM") return;
+      throw error;
+    }
+    if (!forced && Date.now() >= forceAt) {
+      forced = true;
+      signalChildTree(child, "SIGKILL");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
+
+function installTerminationRelay(child: ReturnType<typeof spawn>): {
+  readonly signal: NodeJS.Signals | null;
+  waitForTermination: () => Promise<void>;
+  cleanup: () => void;
+} {
+  let relayedSignal: NodeJS.Signals | null = null;
+  let termination: Promise<void> | null = null;
+  const signals: NodeJS.Signals[] = ["SIGHUP", "SIGINT", "SIGTERM"];
+  const handlers = new Map<NodeJS.Signals, () => void>();
+  for (const signal of signals) {
+    const handler = () => {
+      if (relayedSignal) return;
+      relayedSignal = signal;
+      termination = terminateChildGroup(child, signal, 1_000);
+    };
+    handlers.set(signal, handler);
+    process.on(signal, handler);
+  }
+  return {
+    get signal() { return relayedSignal; },
+    waitForTermination: () => termination ?? Promise.resolve(),
+    cleanup() {
+      for (const [signal, handler] of handlers) process.off(signal, handler);
+    },
+  };
 }
 
 function exitCodeForClose(code: number | null, signal: NodeJS.Signals | null): number {

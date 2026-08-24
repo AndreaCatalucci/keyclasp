@@ -1,157 +1,77 @@
-# Keyclasp Security Design
+# Software beta security model
 
-> Self-audit of the cryptographic architecture. Covers v1.0.0, the minimal hardened core (local vault + guarded `run`).
-> To report a vulnerability privately, open a [GitHub security advisory](https://github.com/AndreaCatalucci/keyclasp/security/advisories/new).
+This document describes the `0.2.0-beta.1` dual-key software vault. Hardware mode is unavailable and status-only.
 
-## Threat Model
+## Supported boundary
 
-**What we protect against:**
-- Secrets being left in project files that coding agents can inspect
-- Keyclasp returning a plaintext secret through the agent's prompt, transcript, command arguments, or its own stdout
-- Unauthorized vault access from other operating-system users
-- Machine theft (encrypted-at-rest)
-- Tampering with vault data
-- Accidental leakage of an injected secret into a guarded command's own stdout/stderr
+The beta supports macOS `arm64` and glibc Linux `arm64` or `x64` on Node.js 24 or 26. macOS `x64` and Windows fail closed. Owner-only Unix modes are enforced as `0700` for directories and `0600` for files; macOS ACL entries are removed and rechecked. Windows remains unsupported because equivalent ACL ownership and operator authorization have not passed qualification.
 
-**What we don't protect against (out of scope):**
-- Kernel-level attacks (rootkits)
-- Physical hardware keyloggers
-- Memory dumping from a running process that has unlocked the vault
-- Supply chain compromise of the installed Keyclasp package itself
-- A trusted child process deliberately exfiltrating a secret it was intentionally given (e.g. via `--allow-unsafe`, or a network call it makes on purpose)
-- Another process running as the same user requesting a known secret name through the default explicit `--env` path
+Keyclasp relies on the operating-system user boundary. It does not defend against root, a compromised kernel, memory inspection of a running authorized process, physical keyloggers, or another process running as the same user and requesting a known unlocked secret.
 
-## Architecture Overview
+## Dual-key custody
 
-```
-┌──────────────────────────────────────────────────────┐
-│                   KEYCLASP VAULT                      │
-├──────────────────────────────────────────────────────┤
-│                                                       │
-│  Random DEK ──► AES-256-GCM ──► SQLite (secret blobs) │
-│                                                       │
-│  Passphrase ──► PBKDF2 (600K) ──► GCM-wrap DEK        │
-│  or machine identity ──► GCM-wrap DEK (weaker mode)   │
-│                                                       │
-│  Secrets stored as:                                   │
-│    { iv, authTag, ciphertext }                        │
-│                                                       │
-└──────────────────────────────────────────────────────┘
-```
+The canonical v5 key bundle holds two independent random 32-byte data keys and a separate policy MAC key:
 
-## Cryptographic Primitives
+- The machine data key is AES-256-GCM wrapped under a key derived from local machine identity. The identity is not secret or hardware-attested.
+- The interactive data key is AES-256-GCM wrapped under PBKDF2-HMAC-SHA256 with a random 32-byte salt, 600,000 iterations, and a non-empty passphrase.
+- The policy key authenticates rules and cannot decrypt a record.
 
-### 1. Key Derivation
+Every record is encrypted with its assigned data key. AES-GCM associated data binds the format version, vault ID, stable record ID, project, environment, secret name, record kind, and custody class. Moving ciphertext or changing `key_class` without authorized re-encryption fails authentication.
 
-The vault data key is 32 random bytes. A passphrase, when set, is used only to wrap that key:
+`lock`, `unlock`, and `inherit` update authenticated policy and re-encrypt matching existing records inside one exclusive lifecycle operation. A journal, key-bundle generation, and database commit point recover interrupted transitions without silently changing custody.
 
-- **Algorithm**: PBKDF2-HMAC-SHA256
-- **Iterations**: 600,000
-- **Salt**: 32 random bytes, stored in the key file
-- **Key length**: 32 bytes (256 bits)
+## Authorization
 
-```ts
-const dek = crypto.randomBytes(32);
-const kek = crypto.pbkdf2Sync(passphrase, salt, 600_000, 32, "sha256");
-```
+Broad runs, `get`, custody changes, passphrase rotation, backup, and restore require operator authorization. A named run requires authorization when any selected record is interactive.
 
-**Rationale**: 600K iterations balances security with startup time (~200ms on modern hardware). Per OWASP guidance, this is at or above the minimum for PBKDF2-SHA256. The data key is independent of the passphrase so a wrap change does not rewrite `vault.db`.
+- macOS evaluates Touch ID with no passphrase-only fallback, then requests the interactive passphrase when that key is needed.
+- Linux requires one non-empty passphrase entry that both authorizes and unlocks the interactive key. A machine-only or non-interactive gated request fails before decryption, mutation, or child launch.
 
-An empty passphrase at `init` selects **machine-only** mode: the data key is GCM-wrapped under a KEK derived from a local machine fingerprint. That mode is weaker (the fingerprint is not a secret) and is the path for agents and CI.
+First Linux enrollment confirms a new passphrase because no previous interactive credential exists. This protects future interactive custody but does not authenticate enrollment against another same-user process with terminal access.
 
-### 2. Authenticated key-file wrap
+Policy resolution prefers exact secret, exact project/environment, project-only or environment-only, then unlocked. Locked wins when project-only and environment-only rules conflict at equal specificity. Rules cover future records. The policy document is authenticated, vault-bound, generation-bound, and committed into the database.
 
-The on-disk key file stores `encrypt(DEK, KEK)` with AES-256-GCM. `KEK` is either `PBKDF2(passphrase)` or `SHA256(magic || salt || machineIdentity)`. Mode is stored in the header and bound as AAD. Unlock of a passphrase vault requires that passphrase; there is no XOR fallback.
+## Child-process boundary
 
-`machineIdentity` prefers a stable hardware/OS identifier (e.g. `IOPlatformUUID` on macOS, `/etc/machine-id` on Linux, `MachineGuid` on Windows) and falls back to a hash of hostname/user/platform/arch. It is used only in machine-only mode.
+Keyclasp validates the complete selection before decrypting any selected value and launches the child without a shell. Explicit `--env SOURCE[:TARGET]` mappings limit disclosure; they do not authenticate the caller.
 
-**Caveat**: Machine-only wrap is not hardware attestation. An attacker with the key file and this machine's identity can unwrap a machine-only vault. A passphrase vault cannot be unwrapped without the passphrase.
+The default guard blocks common environment-dump commands and scans stdout and stderr for injected values of at least eight characters. A match is redacted and the child receives `SIGTERM`, followed by `SIGKILL` if needed. Shorter values cannot be scanned reliably. `--allow-unsafe` disables command preflight and output scanning, but never authorization.
 
-### 3. Symmetric Encryption (AES-256-GCM)
+The selected child is trusted. It can deliberately send, persist, transform, or indirectly disclose its credentials. Keyclasp cannot make untrusted code safe.
 
-Every secret value stored in the SQLite database is individually encrypted:
+## Storage, migration, and recovery
 
-- **Algorithm**: AES-256-GCM
-- **Key**: 256-bit vault key
-- **IV**: 96-bit random (`crypto.randomBytes(12)`) per value
-- **Auth tag**: 128-bit (GCM default)
+Secret names, scopes, timestamps, custody classes, and policy metadata are plaintext. Secret values are individually encrypted in SQLite.
 
-```ts
-const iv = crypto.randomBytes(12);
-const cipher = crypto.createCipheriv("aes-256-gcm", key, iv, { authTagLength: 16 });
-const encrypted = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
-const authTag = cipher.getAuthTag();
-```
+One-key vault migration creates a consistent backup before mutation. A passphrase-wrapped legacy data key becomes the interactive key; effectively unlocked records move to a fresh machine key. A machine-wrapped legacy key remains the machine key; locked records require interactive enrollment before migration. Older binaries refuse the new format.
 
-**GCM over CBC**: GCM provides built-in authentication (AEAD). Tampering with ciphertext or the auth tag is detected on decryption and throws, rather than silently returning corrupted plaintext.
+Managed backups authenticate the database, complete key bundle, policy, manifest, and record-class inventory. Mixed or machine-only backups restore only with the source machine identity. All-interactive backups can restore on another supported machine with the passphrase; they receive a fresh target-machine key and remain interactive. Restore verifies all required authenticators before replacing live state and never drops an unavailable record.
 
-## Storage Security
+Direct same-inode overwrite of an open SQLite database is unsupported. Managed restore serializes replacement through the lifecycle lock.
 
-- **Location**: `~/.keyclasp/vault.db` and `~/.keyclasp/.keyclasp.key`
-- **Directory permissions**: `0700` (owner-only)
-- **File permissions**: `0600` (owner read/write only) on both the database and the key file
-- **What's stored in plaintext**: project, environment, and secret names (needed to scope, list, and query)
-- **What's encrypted**: every secret value, individually, with its own IV
+## Package boundary and dependencies
 
-## `keyclasp run`: the Process Boundary
+The public package exports parsing, context, biometric-result classification, path reporting, and scope validation only. It does not export data keys, generic decryption, policy mutation, plaintext resolution, or child launch.
 
-`keyclasp run` is the only supported way for a coding agent to cause a secret to reach a process. Keyclasp does not return the plaintext directly to the agent; the selected child receives it and must be trusted:
+`better-sqlite3@13.0.3` is the only direct runtime dependency; `node-addon-api` is its only production transitive dependency. Their complete reviewed production tree, including native prebuilds, is bundled in the Keyclasp tarball. The default install verifies the selected prebuild against the packaged OS-and-architecture SHA-256 allowlist, so it downloads no native code. An explicit `npm_config_build_from_source=true` request compiles the bundled source with npm's `node-gyp`, removes the target prebuild, and verifies that the compiled path will be loaded. Package qualification covers both paths, install scripts, lockfile advisories, licenses, N-API support on Node 24 and 26, public exports, and exact tarball contents. Native hardware experiments, tests, vaults, transcripts, and release credentials are excluded from the npm package.
 
-1. Secret names (not values) are the only thing an agent can discover, via `keyclasp list --project <project> --environment <environment>`.
-2. `keyclasp run --project <project> --environment <environment> --env SOURCE[:TARGET] -- <command>` resolves and decrypts only the explicitly named secrets and injects them directly into the spawned child's environment. An effectively unlocked named request uses normal vault-mode behavior; an effectively locked request requires platform operator authorization first. The value never passes through the CLI's own stdout, shell command line, or process arguments.
-3. Before spawning, the command is checked against a small denylist of programs and shell one-liners known to dump the full environment (`env`, `printenv`, `export`, `bash -c 'env'`, etc.) and refused unless `--allow-unsafe` is passed explicitly.
-4. While the child runs, its stdout and stderr are scanned for any injected value at least 8 characters long. A match is redacted in the stream and the child is terminated (`SIGTERM`, then `SIGKILL` after a grace period) so a partial leak cannot continue.
+## Explicit limitations
 
-Explicit `--env` selection limits which secrets reach the child; it does not authenticate the caller. Another process running as the same user can request a known secret name under the default policy. The approved child receives a usable credential and remains trusted.
+- Machine custody is software-bound and weaker than passphrase custody.
+- Interactive custody is portable with its passphrase when a backup contains no machine record.
+- The same-user boundary permits another local process to request an unlocked known secret.
+- Output scanning is accidental-leak containment, not an exfiltration boundary.
+- `get` prints plaintext into terminal scrollback after authorization.
+- Hardware mode, Windows, passphrase removal, registry-install evidence, and publication are unavailable or unverified at this checkpoint.
+- Keyclasp has not received a professional third-party security audit.
 
-Software validates the complete explicit selection before decrypting any value. A missing value, malformed mapping, duplicate target variable, or unresolved secret fails before child launch and never falls back to a broad run. The planned hardware core must preserve this invariant inside the native authority.
+## Cryptographic inventory
 
-## Operator Authorization Gates
+| Primitive | Use |
+|---|---|
+| AES-256-GCM | Record encryption and data-key wrapping |
+| PBKDF2-HMAC-SHA256, 600,000 iterations | Interactive wrapping key derivation |
+| HMAC-SHA256 | Authenticated policy and lifecycle metadata |
+| SHA-256 | Machine-wrap derivation, hashes, and domain separation |
 
-Two broad plaintext-access paths require operator authentication before Keyclasp resolves any secret value:
-
-- `keyclasp get <name>`, which prints plaintext for a human operator.
-- `keyclasp run` without `--env`, which injects every secret in the selected scope.
-
-Broad runs, `get`, policy mutations, backup, and restore always require platform operator authorization. Named runs require it when any selected secret is effectively locked. On macOS, Keyclasp evaluates the biometric-only device-owner policy; unavailable, unenrolled, cancelled, denied, or failed Touch ID has no fallback, and a passphrase vault then requires its normal passphrase. On Linux, one non-empty live-vault or backup passphrase entry both authorizes and unlocks; machine-only and non-interactive gated operations fail closed. Windows operator authorization is deferred to the Slice 3 support-matrix decision.
-
-The authenticated policy stores lock or unlock rules for exact secrets, exact project/environment pairs, one project, or one environment. Matching prefers exact secret, then exact scope, then project-only or environment-only, then unlocked. Locked wins equal-specificity conflicts, while a more-specific unlock overrides a broader lock. Rules cover future secrets. The document is domain-separated and bound to the vault ID and generation; its owner-only key anchor plus the database commitment detect tampering, scope transplant, deletion, and replay. An interruption journal restores the last committed generation. Rename, backup, and restore must preserve or fail closed on effective policy.
-
-`keyclasp status` reads only names and authenticated metadata. It reports the software mode and effective authorization state but never unlocks the data key or decrypts secret values. Supported package exports are limited to parsing, context, biometric-result classification, path reporting, and name validation; vault database access, policy decisions, mutation, plaintext resolution, and child launch remain behind the lifecycle-serialized CLI boundary.
-
-Policy mutations and managed backup/restore require Touch ID and take an exclusive lifecycle lock. Normal commands take shared locks, preserving concurrent request behavior while preventing restore from replacing an open vault. Managed backup manifests are authenticated with the vault data key, and passphrase or machine binding must unlock the backup before replacement. Backup creation syncs every staged file and directory before reporting success; a failure after destination publication is reported as indeterminate and leaves the destination for inspection. Restore uses an authenticated durable journal, retains the old set until the new set is complete, and keeps cleanup retryable after commit. The authenticated policy, vault database, and key must be backed up and restored as one set.
-
-## Attack Surface Analysis
-
-| Attack Vector | Risk | Mitigation |
-|---------------|------|------------|
-| Agent asks for a secret value directly | **HIGH** | `keyclasp get` requires Touch ID or an interactive vault passphrase before resolving the value, and the agent skill prohibits invoking it |
-| Agent requests every secret in a scope | **HIGH** | A broad run always requires platform operator authorization; agent workflows must use explicit scope and `--env` mappings |
-| Child process reads injected secrets | **HIGH** | Run only trusted commands; guarded execution reduces accidental disclosure but does not make malicious software safe |
-| Injected command prints secrets to its own output | **HIGH** | `keyclasp run` blocks obvious environment dumps, redacts detected injected values from stdout/stderr, and terminates the child process by default; `--allow-unsafe` disables this and must be explicit |
-| Vault.db + key file stolen, passphrase vault, no passphrase | **LOW** | GCM wrap under PBKDF2-SHA256 600k; brute force is the remaining path |
-| Vault.db + key file stolen, machine-only, same machine identity | **HIGH** | Machine fingerprint is not a secret; this mode is for agents/CI, not theft resistance |
-| Same-user process after unlock, or machine-only vault | **HIGH** | OS user isolation is the boundary; the wrap does not hide values from that user |
-| Memory dump of a running process that has unlocked the vault | **MEDIUM** | Out of scope; limit the lifetime of trusted processes |
-| Dependency compromise | **MEDIUM** | Dependency set is intentionally minimal (`better-sqlite3` is the only runtime dependency); review lockfile changes before installing |
-
-`keyclasp run` tracks injected values of at least 8 characters for output leak detection. Shorter values are still injected, but they are too ambiguous to scan safely without false positives in ordinary command output.
-
-## Operational Recommendations
-
-1. **Never commit `.keyclasp/`** to version control.
-2. **Set a real passphrase at `keyclasp init`** unless you specifically want a machine-bound vault with no passphrase to remember.
-3. **Use `keyclasp run`** instead of printing secrets into the shell or pasting them into an agent prompt.
-4. **Always use explicit `--project`, `--environment`, and `--env SOURCE[:TARGET]` for agent commands** so both the namespace and requested secrets are unambiguous. Broad and locked named runs require platform operator authorization. A macOS passphrase vault still requires its passphrase after Touch ID.
-5. **Run only trusted child processes** with injected credentials.
-6. **Rotate affected secrets** (`keyclasp set <name>` again) if you suspect compromise.
-
-## Cryptographic Inventory
-
-| Algorithm | Key Size | Used For | Node API |
-|-----------|----------|----------|----------|
-| AES-256-GCM | 256 bit | Secret value encryption | `crypto.createCipheriv` |
-| PBKDF2-SHA256 | 256 bit | Key derivation from passphrase | `crypto.pbkdf2Sync` |
-| SHA256 | 256 bit | Machine fingerprint for machine-only wrap | `crypto.createHash` |
-
-All algorithms use Node.js's built-in `crypto` module. No third-party crypto libraries.
+Node's built-in `crypto` module supplies these primitives. No third-party cryptographic library is used.

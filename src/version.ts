@@ -91,7 +91,12 @@ export function formatDisplayVersion(packageVersion: string, gitState: GitState,
 }
 
 export function getDisplayVersion(options: DisplayVersionOptions = {}): string {
-  const packageVersion = getDeclaredPackageVersion({ startDir: options.startDir });
-  const gitState = getGitState({ cwd: options.cwd, runGit: options.runGit });
+  const packageJsonPath = findPackageJson(options.startDir ?? DEFAULT_PACKAGE_START_DIR);
+  const packageRoot = path.dirname(packageJsonPath);
+  const packageVersion = getDeclaredPackageVersion({ startDir: packageRoot });
+  const hasOwnGitMetadata = fs.existsSync(path.join(packageRoot, ".git"));
+  const gitState = options.cwd !== undefined || options.runGit !== undefined || hasOwnGitMetadata
+    ? getGitState({ cwd: options.cwd ?? packageRoot, runGit: options.runGit })
+    : { available: false, dirty: false };
   return formatDisplayVersion(packageVersion, gitState, { plain: options.plain });
 }

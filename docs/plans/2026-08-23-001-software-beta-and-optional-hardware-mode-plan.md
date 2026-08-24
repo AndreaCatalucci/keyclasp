@@ -301,17 +301,17 @@ Slice 3 is complete. Start Slice 4 in a fresh task using the exact artifact iden
 
 ## Slice 4: Qualify and ship the software beta
 
-**Status:** ready for a fresh task; Slice 3 is accepted, and Slice 4 has not started.
+**Status:** behavioral qualification complete on 2026-08-24. The frozen candidate passed automated macOS/Linux qualification, interactive Linux verification, exact-artifact macOS arm64 Touch ID verification, dependency/package review, and final independent reviews. Durable staging, CI identity correction and execution, committed-source provenance, and publication remain protected gates, so the tagged and published acceptance gate remains open.
 
 Deliver one installable, supportable public prerelease for the software dual-key vault. Hardware mode remains unavailable.
 
 ### Implementation
 
 - Freeze the support matrix before release work. Qualify macOS and Linux on the declared Node versions. Time-box verified owner-only Windows ACL and operator-authorization support; include Windows only if the same packed artifact passes those gates. Otherwise fail closed on Windows and publish macOS/Linux as the explicit beta matrix.
-- Build the npm tarball once from a reviewed clean source revision. Inspect its contents and install that exact file into clean environments. Keep native experiments, hardware status binaries, development fixtures, vaults, transcripts, and release credentials outside the package.
+- Build the npm tarball once from reviewed source inputs and freeze it. Inspect its contents and install that exact file into clean environments. Before tagging, commit those unchanged candidate-bearing inputs and verify the commit through a retained canonical source-input manifest without rebuilding the tarball. Keep native experiments, hardware status binaries, development fixtures, vaults, transcripts, and release credentials outside the package.
 - Exercise fresh initialization, migration from the last public one-key format, same-machine mixed backup/restore, all-interactive portable restore, uninstall/reinstall, spaces and Unicode in paths, shell metacharacters, child signals, cancellation, interrupted writes, and representative coding-agent workflows.
 - Audit the exact lockfile and package lifecycle: `better-sqlite3` prebuilt and source-build paths, every install script, deprecated `prebuild-install`, licenses, advisories, native-addon ABI support, public exports, package contents, and reproducibility. Resolve blockers or record a bounded accepted risk with an owner and follow-up.
-- Add software-beta CI that separates source tests from exact-tarball tests on every supported OS and Node version. A platform skip is acceptable only when the platform is explicitly unsupported and the package fails closed there.
+- Add software-beta CI that separates source tests from exact-tarball tests on every supported OS and Node version. Treat any CI repack as a reproducibility check: require its SHA-256 to equal the frozen candidate, use that expected hash in every downstream job, and keep the frozen candidate as the only publishable artifact. A platform skip is acceptable only when the platform is explicitly unsupported and the package fails closed there.
 - Reconcile README, command reference, getting started, FAQ, security model, agent skill, status/help text, migration and recovery guidance, and release notes with the exact two-key contract. State the same-user boundary, machine-key weakness, interactive-key portability, mixed-backup limitation, trusted-child behavior, output-redaction limit, unsupported Windows status if applicable, and hardware unavailability.
 - Produce one release-candidate receipt containing source revision, dependency lockfile hash, tarball integrity and SHA-256, package manifest, SBOM/license inventory, test and review results, support matrix, physical authorization transcript, migration evidence, and known limitations.
 - Prepare `0.2.0-beta.1` or the next available prerelease version, but stop before committing, pushing, tagging, creating a release, or publishing to npm until the user explicitly authorizes those actions.
@@ -321,7 +321,7 @@ Deliver one installable, supportable public prerelease for the software dual-key
 - Clean-install receipts identify the exact candidate hash and distinguish source, compiled, mocked-platform, physical-device, CI, and installed-package evidence.
 - macOS and Linux repeat the named machine-key run, locked interactive-key run, broad run, `get`, lock/unlock/inherit, backup, restore, migration, cancellation, signals, and cleanup against that file. Excluded Windows fails before creating or mutating vault state.
 - A final release review finds no unresolved critical or high-severity correctness, simplicity, security, test, concurrency, dependency, packaging, or documentation issue and no hardware, same-user-isolation, or zero-exposure claim.
-- After explicit publication authorization, tag and publish the reviewed file without rebuilding it. Install from the registry, verify its integrity against the receipt, and repeat a narrow named-run/status smoke test. A mismatch stops the release.
+- After explicit publication authorization, verify the durable rc4 SHA-256 immediately before the network call and publish that explicit tarball path with `npm publish "$DURABLE_RC4_PATH" --tag beta`. Publishing `.`, a rebuilt local file, or a CI artifact is forbidden. Install from the registry, verify its integrity against the receipt, and repeat a narrow named-run/status smoke test. A mismatch stops the release before publication.
 
 ### Acceptance
 
@@ -329,7 +329,15 @@ Walking-skeleton step 6 passes on the published support matrix. The tag, npm pac
 
 ### Agent handoff
 
-Use a fresh task after Slice 4. Qualification may prepare a release candidate without publication authority. Publication is a separate protected checkpoint requiring an explicit user instruction.
+Candidate: `/private/tmp/keyclasp-0.2.0-beta.1-rc4/keyclasp-0.2.0-beta.1.tgz`, SHA-256 `d9028fe2d3ea6ed539d43304558ae6afa8233e1a07d076d9613e00105a7a5b45`, npm integrity `sha512-1moxgK22YPzZoyV+HZlUFW6Ray4bITM9QJD/gvN08BYuMVDwkg9UnfKE0h7byJle3GhuEf6u0XJ+vafkWmAnZg==`.
+
+Supported: macOS arm64 and glibc Linux arm64/x64, Node 24 and 26. macOS x64, musl Linux, Windows, other targets, and hardware mode are unsupported. No Rosetta, Windows-host, CI, registry, publication, or hardware-custody execution is claimed.
+
+Evidence complete: 451 source tests passed with 2 deliberate physical-platform skips; the exact candidate passed every supported local Node/target combination through prebuilt and forced source paths; Linux arm64 interactive custody and Linux x64 emulation passed; musl Node 24/26 failed closed; audits report zero advisories; SBOM, licenses, package contents, native hashes, install scripts, exports, signals, migration, recovery, interrupted writes, unusual paths, reinstall, and agent workflows are receipted. Fresh correctness, simplicity, security, test, concurrency, dependency, packaging, and documentation reviews are clean. The macOS arm64 physical transcript at `/var/folders/8c/t2tmqjw11gx8pkf90z3p3rbc0000gn/T/keyclasp-slice4-touch-id-EJWfn4/transcript.txt` has mode `0600`, SHA-256 `51a216714d0639399fbd3945a30d728afd231921a198652a8eef7fa1c25cb73c`, identifies the rc4 artifact SHA-256, and ends in `PASS`.
+
+Qualification limits: CI has not run, its current pack job does not compare its rebuilt tarball to rc4, and Windows has no host evidence and remains unsupported. Release-preservation gates remain open: rc4 and its transcript need authorized durable staging; CI must treat any rebuilt tarball as a reproducibility check that must equal rc4; and the unchanged reviewed inputs need the `C1` candidate commit, source-tree manifest, metadata-only `C2` commit, and unchanged-path verification defined in the candidate receipt. No candidate-bearing source or package file changed after packing; the tarball and lockfile hashes still match the frozen receipt.
+
+Protected gates remaining: durable staging of the exact tarball and transcript; the CI identity correction and rc4-equal execution; creation and verification of `C1`, the source-tree manifest, and metadata-only `C2`; `git commit`; `git push`; Git tag creation; GitHub release creation; immediate pre-publication verification followed by `npm publish "$DURABLE_RC4_PATH" --tag beta`; registry installation; and registry smoke testing. Each requires explicit user authorization; none has occurred.
 
 ## Slice 5: Add the optional macOS hardware beta
 

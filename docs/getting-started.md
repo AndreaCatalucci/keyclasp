@@ -1,96 +1,63 @@
-# Getting Started
+# Getting started
 
-Requires **Node.js 24+**. An unlocked named `keyclasp run --env ...` uses normal vault-mode behavior: passphrase mode prompts normally and machine mode is unattended. Locked named runs and broad runs require Touch ID on macOS or one non-empty passphrase on Linux; Linux machine-only fails closed. Windows operator authorization is deferred.
+The software beta supports macOS `arm64` and glibc Linux `arm64` or `x64` with Node.js 24 or 26. macOS `x64`, Windows, musl Linux, and every other platform are unsupported. Hardware mode remains unavailable.
 
-## Install Keyclasp
+## Install and initialize
 
 ```bash
-npm install -g keyclasp
+# After protected beta publication and registry-integrity verification:
+npm install -g keyclasp@beta
 keyclasp init
 ```
 
-Enter a passphrase, or press Enter for a machine-only key. A passphrase vault needs that passphrase again in each new terminal (`set`, `get`, `run`, `status`). A machine-only vault stays on this machine and is the mode agents and CI should use. Keyclasp cannot recover a lost passphrase.
+Before publication, install only the exact local tarball and SHA-256 named in the release-candidate receipt. Do not treat the registry command as evidence that this beta has been published.
 
-If a new CLI refuses an old XOR key file, clone this repository and run `scripts/migrate-vault-key-wrap.mjs` on the original machine.
+Press Enter for a machine-only vault, or enter a non-empty passphrase to create both the machine and interactive keys. The machine key serves unattended records. The passphrase wraps the separate interactive key; losing it makes interactive records unrecoverable unless a tested backup exists.
 
-The install compiles a native SQLite binding. If it fails, install a C++ toolchain (Xcode Command Line Tools on macOS, `build-essential` plus Python on Linux) and retry.
+The install uses `better-sqlite3@13.0.3`. Its reviewed prebuilds are carried inside the exact Keyclasp tarball, and Keyclasp verifies the selected native binding's SHA-256 before loading it. Installation does not download native code. Set `npm_config_build_from_source=true` to compile the bundled reviewed sources instead. A source build needs Xcode Command Line Tools on macOS or Python plus a C++ toolchain on Linux.
 
-Or clone, build, and link:
+The beta is not published yet. Before publication, install the reviewed `.tgz` file directly.
 
-```bash
-git clone https://github.com/AndreaCatalucci/keyclasp.git
-cd keyclasp
-npm install
-npm run build
-npm link
-keyclasp init
-```
-
-## Try It Without a Real API Key
-
-Use the secure prompt so the value does not enter shell history. Paste the value and press Enter, not Ctrl+D.
+## Add and run a dummy secret
 
 ```bash
 keyclasp set DEMO_SECRET - --project demo --environment local
-# Paste any 8+ character string, then press Enter
-
 keyclasp list --project demo --environment local
 keyclasp status --project demo --environment local
-```
-
-`list` prints names only. Prove injection without printing the value:
-
-```bash
 keyclasp run --project demo --environment local --env DEMO_SECRET -- \
-  node -e 'const v = process.env.DEMO_SECRET; console.log(v ? "injected, " + v.length + " chars" : "missing")'
+  node -e 'const v=process.env.DEMO_SECRET; console.log(v ? `injected ${v.length} chars` : "missing")'
 ```
 
-`env`, `printenv`, and `export` are blocked on purpose. If the child prints the secret, Keyclasp redacts it as `[KEYCLASP_REDACTED]` and terminates the process.
+The secure prompt keeps the value out of shell history. `list` and `status` read names and metadata only. They do not prove that a value can be decrypted.
 
-## Store a Real Secret
+Use `--env STORED_NAME:CHILD_NAME` when the child expects a different variable. Always pass explicit project and environment flags in scripts and agent work.
+
+## Enroll interactive custody
+
+If the vault started machine-only, enroll the interactive key before locking records:
 
 ```bash
-keyclasp set SECRET_API_KEY - --project myapp --environment prod
-# Paste the value, then press Enter
-
-keyclasp list --project myapp --environment prod
-keyclasp status --project myapp --environment prod
+keyclasp passphrase set
+keyclasp lock --project demo --environment local DEMO_SECRET
 ```
 
-## Run Commands With Secrets
+macOS requires Touch ID and then the passphrase for a locked run. Linux uses one passphrase entry for both authorization and key unlock. Return a record to machine custody with `unlock`; remove its exact override with `inherit`.
 
 ```bash
-keyclasp run --project myapp --environment prod --env SECRET_API_KEY -- npm test
-keyclasp run --project myapp --environment prod --env SECRET_API_KEY -- npm start
+keyclasp unlock --project demo --environment local DEMO_SECRET
+keyclasp inherit --project demo --environment local DEMO_SECRET
 ```
 
-Keyclasp injects stored secrets into the child process environment. It blocks obvious environment-dump commands by default and watches stdout and stderr for injected values. If it detects a leak, it redacts the value and terminates the child process.
-
-When a command expects another variable name:
-
-```bash
-keyclasp run --project myapp --environment prod --env SECRET_API_KEY:API_TOKEN -- npm test
-```
-
-Explicit `--env` mappings use each selected secret's effective lock state. Unlocked mappings use normal vault-mode behavior. If any mapping is locked, the entire run requires platform operator authorization before unlock. Omitting `--env` is a broad run and always requires authorization. Coding agents must always use explicit scope flags and mappings.
-
-To require operator authorization for matching named production runs, or override a broader rule for one secret:
-
-```bash
-keyclasp lock --project myapp --environment prod
-keyclasp unlock --project myapp --environment prod READ_ONLY_TOKEN
-keyclasp status --project myapp --environment prod
-```
-
-Before depending on the vault as the only local copy, create a managed backup:
+## Back up the complete vault
 
 ```bash
 keyclasp backup create /secure/path/keyclasp-backup
 ```
 
-## Next Steps
+Keep the database, key bundle, policy, and manifest together by using the managed command. Mixed backups are same-machine only. An all-interactive backup can be restored on another supported machine with its passphrase.
 
-- [CLI command reference](commands.md)
-- [Recipes](recipes.md)
-- [Security design](security.md)
-- [FAQ](faq.md)
+## Agent use
+
+An agent may run a named selection only when its effective state is unlocked. It must stop for `get`, broad runs, locked selections, passphrase entry, policy changes, and recovery operations. The child process is trusted and can use every injected value.
+
+Next: [commands](commands.md), [security](security.md), [FAQ](faq.md), and [recipes](recipes.md).

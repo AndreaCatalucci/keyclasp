@@ -52,6 +52,7 @@ import readline from "node:readline";
 import { StringDecoder } from "node:string_decoder";
 import path from "node:path";
 import { stdin, stdout } from "node:process";
+import { assertSoftwarePlatformSupported } from "./platform.js";
 
 async function ensureVaultUnlocked(): Promise<void> {
   if (!vaultHasPassphrase()) throw new Error("Interactive custody is not enrolled. Run: keyclasp passphrase set");
@@ -84,6 +85,8 @@ function printHelp(): void {
   console.log(`
 🔑 Keyclasp: Local encrypted credential vault for coding agents
 
+Software beta: macOS arm64 and glibc Linux arm64 or x64, Node.js 24 or 26. Hardware mode is unavailable.
+
 Usage:
   keyclasp init                Initialize the encrypted vault
   keyclasp set <name>          Store a secret (value read from stdin)
@@ -103,13 +106,13 @@ Usage:
   keyclasp lock [--project P] [--environment E] [SECRET]
   keyclasp unlock [--project P] [--environment E] [SECRET]
   keyclasp inherit [--project P] [--environment E] [SECRET]
-                              Set an authenticated authorization rule
+                              Change authenticated policy and record custody
   keyclasp passphrase set|rotate
                               Enroll or rotate interactive custody
   keyclasp backup create|restore <directory>
                               Create or restore a managed vault backup
   keyclasp status               Show vault status
-  keyclasp doctor               Diagnose macOS hardware-mode readiness
+  keyclasp doctor               Inspect the status-only hardware boundary
   keyclasp version              Show Keyclasp version
   keyclasp help                 Show this help
 
@@ -451,6 +454,8 @@ async function main(): Promise<void> {
     printHelp();
     return;
   }
+
+  if (command !== "doctor") assertSoftwarePlatformSupported();
 
   let lifecycleLock: VaultLifecycleLock | null = null;
   if (command !== "doctor") {

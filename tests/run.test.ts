@@ -1,4 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { requireBiometricAuthentication } from "../src/biometric.js";
 import {
   buildRunEnvironment,
@@ -725,6 +728,35 @@ describe("guarded command execution", () => {
 
     expect(result.kind).toBe("leak");
     expect(result.exitCode).toBe(2);
+  });
+
+  it("kills a detached-output descendant when a trailing buffered leak appears after its leader exits", async () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "keyclasp-leak-group-"));
+    const workerPidPath = path.join(directory, "worker-pid");
+    const result = await runCommandWithSecrets({
+      args: [
+        process.execPath,
+        "-e",
+        [
+          "const fs = require('node:fs');",
+          "const { spawn } = require('node:child_process');",
+          "const worker = spawn(process.execPath, ['-e', `process.on('SIGTERM',()=>{}); setInterval(()=>{},1000)`], { stdio: 'ignore' });",
+          "fs.writeFileSync(process.argv[1], String(worker.pid));",
+          "process.stdout.write(process.env.API_KEY);",
+        ].join(" "),
+        workerPidPath,
+      ],
+      baseEnv: {},
+      secretNames: ["API_KEY"],
+      resolveSecret: () => "sk-test-secret",
+      authorize: approveOperator,
+      stdout: () => {},
+      stderr: () => {},
+    });
+
+    expect(result).toMatchObject({ kind: "leak", exitCode: 2 });
+    const workerPid = Number(fs.readFileSync(workerPidPath, "utf8"));
+    expect(() => process.kill(workerPid, 0)).toThrow(expect.objectContaining({ code: "ESRCH" }));
   });
 
   it("preserves child signal exit codes for clean guarded commands", async () => {

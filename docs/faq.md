@@ -1,74 +1,41 @@
 # FAQ
 
-## What is Keyclasp?
+## Which systems are supported?
 
-Keyclasp is a local encrypted secrets vault and CLI. It keeps real credentials outside project files and injects secrets into child processes only when a command needs them.
+The software beta supports macOS `arm64` and glibc Linux `arm64` or `x64` on Node.js 24 and 26. macOS `x64`, Node 25, and musl Linux are outside the beta matrix. Windows is unsupported because the beta does not verify owner-only Windows ACLs or provide a qualified operator-authorization mechanism. Unsupported installs and forced diagnostic stateful use fail closed before vault creation.
 
-## How is this different from a `.env` file?
+## Is the machine key hardware-backed?
 
-A `.env` file stores plaintext inside the project directory, where coding agents, logs, shell tools, and accidental commits can expose it. Keyclasp stores values in an AES-256-GCM encrypted vault and only decrypts a value into a trusted child process's environment via `keyclasp run`.
+No. It is wrapped with a value derived from local machine identity. That value is not secret, attested, or protected by Secure Enclave or TPM. The mode supports unattended local agents; it does not provide theft resistance against someone who can reproduce the source machine identity.
 
-## Is Keyclasp open source?
+## What does the interactive key add?
 
-Yes. Keyclasp uses the MIT license. The source is available at [github.com/AndreaCatalucci/keyclasp](https://github.com/AndreaCatalucci/keyclasp).
+It is a separate random data key wrapped only by a non-empty passphrase. Possession of the machine key and its metadata cannot decrypt an interactive record. macOS requires Touch ID plus the passphrase for interactive use. Linux uses the passphrase as authorization and key unlock.
 
-## Where is my data stored?
+## Can an agent use a dual-key vault?
 
-An AES-256-GCM encrypted SQLite vault at `~/.keyclasp/vault.db`, with an owner-only-readable key file beside it. No account, network connection, or telemetry is required or used.
+Yes, for an explicitly selected record whose effective rule is unlocked and whose custody is machine. The agent must stop for locked selections, `get`, broad runs, passphrase prompts, custody changes, and backup or restore. Explicit selection limits disclosure but does not authenticate another process running as the same user.
 
-## What happens if I lose my passphrase or change machines?
+## Can a backup move to another machine?
 
-There is no recovery email, backdoor, or "forgot password" flow. A passphrase vault cannot be opened without that passphrase. A machine-only vault (empty passphrase at `init`) is bound to this machine's identity and will not unlock on different hardware. Keep a tested backup or recovery plan before treating the local vault as the only copy of an important credential.
+Only when every record is interactive. A mixed or machine-only backup requires its source machine identity and fails before replacing live state elsewhere. An all-interactive backup can restore with its passphrase and receives a fresh target-machine key without changing record custody.
 
-If a new CLI refuses an old XOR key file, clone this repository and run `scripts/migrate-vault-key-wrap.mjs` on the original machine.
+## What happens if I lose the passphrase?
 
-## Can a coding agent safely use Keyclasp?
+There is no recovery email, bypass, or passphrase removal. Recover the underlying credentials from their issuers or restore a tested eligible backup. Keep the database, key bundle, policy, and manifest together through `keyclasp backup`.
 
-Yes, when the vault is machine-only and every explicitly selected secret is effectively unlocked. Selection limits disclosure but does not authenticate another same-user process. Passphrase vaults and locked rules require human input, so agents must stop. Agents must never call `get`, change lock rules, manage backups, or omit `--env`.
+## Does `keyclasp run` make a child safe?
 
-## What happens if recovery is needed?
+No. The child receives usable credentials. Keyclasp blocks common environment dumps and terminates on detected output leaks, but a child can transmit, store, transform, or leak a value shorter than eight characters without detection. Run only trusted code.
 
-- A forgotten passphrase has no bypass. Restore does not remove it; recover the credential from its issuer or another trusted source, then create a new vault.
-- A passphrase-mode managed backup is portable with its passphrase. A machine-mode backup remains bound to the original machine identity; restore preflight rejects it on another machine without replacing usable live state.
-- Restored lock rules remain authenticated and effective. On Linux they require a passphrase vault; on macOS they require usable Touch ID; unsupported gated operations fail closed.
-- A missing, corrupt, or mismatched current key can be replaced by `keyclasp backup restore` because restore validates the backup rather than consulting the damaged live key. Database, key, and policy files must always come from the same managed backup.
+## Why was `[KEYCLASP_REDACTED]` printed?
 
-## Does `keyclasp run` make any program safe?
+The child wrote an injected value to stdout or stderr. Keyclasp replaced the value and terminated the child. Fix the child's logging. `--allow-unsafe` disables the guard and should be used only for a specifically authorized invocation.
 
-No. A child process that receives a secret can still misuse it. Keyclasp blocks common environment-dump commands and scans output for injected values, terminating the process on a detected leak. These are safeguards, not a security boundary against malicious code.
+## Is hardware mode available?
 
-## What Node.js version do I need?
-
-Node.js 24 or newer. The package declares `"engines": { "node": ">=24" }`.
-
-## Does it work on Linux and Windows?
-
-Unlocked named runs work on macOS, Linux, and Windows using normal vault-mode behavior. Locked named runs and broad runs use Touch ID on macOS or one non-empty vault passphrase on Linux. Linux machine-only and Windows gated operations fail closed. Use explicit mappings on every platform.
-
-## Why did `env` or `printenv` get blocked?
-
-Those commands dump the process environment, which would print injected secrets. That is intentional. Prove injection with the target command, or with a check that reports only whether the variable is set, not its value.
-
-## Why did my command print `[KEYCLASP_REDACTED]` and exit?
-
-The child process wrote an injected secret to stdout or stderr. Keyclasp redacts the value and terminates the child. Fix the command so it does not print the credential; do not pass `--allow-unsafe` to hide the leak.
-
-## How do I install Keyclasp?
-
-```bash
-npm install -g keyclasp
-```
-
-Or clone, build, and link:
-
-```bash
-git clone https://github.com/AndreaCatalucci/keyclasp.git
-cd keyclasp
-npm install
-npm run build
-npm link
-```
+No. The native macOS component is status-only. It cannot enroll, open a vault, decrypt a record, accept recovery material, or launch a child. Hardware qualification is a later protected slice.
 
 ## How do I report a security issue?
 
-Open a [private GitHub security advisory](https://github.com/AndreaCatalucci/keyclasp/security/advisories/new). Do not open a public issue for security vulnerabilities.
+Open a [private GitHub security advisory](https://github.com/AndreaCatalucci/keyclasp/security/advisories/new). Use a public issue only for non-sensitive defects.

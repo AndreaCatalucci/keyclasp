@@ -509,7 +509,7 @@ describe("CLI projects and environments scoping", () => {
     expect(JSON.parse(result.stdout)).toEqual(["child", "-p", "3000", "--environment", "child-value"]);
   });
 
-  it("requires Touch ID for a whole-scope request even when the scope is empty", () => {
+  it.skipIf(process.platform === "darwin")("fails closed for a non-interactive whole-scope request even when the scope is empty", () => {
     const result = run([
       "run",
       "--project",
@@ -523,7 +523,7 @@ describe("CLI projects and environments scoping", () => {
     ]);
     expect(result.status).toBe(2);
     expect(result.stderr).toContain('no secrets stored yet for project "brandnew" environment "brandnew"');
-    expect(result.stderr).toMatch(/Touch ID|Biometric/i);
+    expect(result.stderr).toMatch(/passphrase|Touch ID|Biometric/i);
     expect(result.stdout.trim()).toBe("");
   });
 });
