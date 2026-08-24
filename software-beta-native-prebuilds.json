@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "package": "better-sqlite3@13.0.3",
+  "prebuilds": {
+    "darwin-arm64": {
+      "bindingSha256": "98e0e8acd01c632fe5615243e1296af0372826f8783b18fc31c506f73c47459c"
+    },
+    "linux-arm64": {
+      "bindingSha256": "8ba771f284dfd9430e3ef8e2ffc373ed7cc5a92fc7c4c0c7baf39dd672863485"
+    },
+    "linux-x64": {
+      "bindingSha256": "6fd4292c6c5f352436cd85c9e1cb286978efa43c20ae350973f83414ced9991d"
+    }
+  }
+}

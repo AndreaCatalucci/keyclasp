@@ -263,6 +263,48 @@ describe("authenticated authorization policy", () => {
     expect(events).toEqual(["validate", "authorize", "unlock", "mutate:inherit"]);
   });
 
+  it("renders unusual selector names without injecting prompt structure", async () => {
+    const authorize = vi.fn(() => ({ method: "touch-id" as const }));
+    await mutateAuthorizationRuleAuthorized({ project: "app", environment: "prod", secret: 'A"\\\nB\u202E' }, "lock", {
+      validatePolicy: () => undefined,
+      authorize,
+      ensureUnlocked: async () => undefined,
+      mutate: () => "locked",
+    });
+    expect(authorize).toHaveBeenCalledWith('Lock Keyclasp authorization for "app"/"prod"/"A\\"\\\\\\u{A}B\\u{202E}"');
+  });
+
+  it.each([
+    [{ project: "app" }, 'Lock Keyclasp authorization for "app"/*/*'],
+    [{ environment: "prod" }, 'Lock Keyclasp authorization for */"prod"/*'],
+    [{ project: "app", environment: "prod" }, 'Lock Keyclasp authorization for "app"/"prod"/*'],
+    [{ project: "app", environment: "prod", secret: "API_KEY" }, 'Lock Keyclasp authorization for "app"/"prod"/"API_KEY"'],
+  ] as const)("describes the exact selector breadth for %j", async (selector, expectedReason) => {
+    const authorize = vi.fn(() => ({ method: "touch-id" as const }));
+    await mutateAuthorizationRuleAuthorized(selector, "lock", {
+      validatePolicy: () => undefined,
+      authorize,
+      ensureUnlocked: async () => undefined,
+      mutate: () => "locked",
+    });
+    expect(authorize).toHaveBeenCalledWith(expectedReason);
+  });
+
+  it.each([
+    ["lock", "Lock"],
+    ["unlock", "Unlock"],
+    ["inherit", "Inherit"],
+  ] as const)("labels the %s custody mutation precisely", async (action, verb) => {
+    const authorize = vi.fn(() => ({ method: "touch-id" as const }));
+    await mutateAuthorizationRuleAuthorized({ project: "app", environment: "prod" }, action, {
+      validatePolicy: () => undefined,
+      authorize,
+      ensureUnlocked: async () => undefined,
+      mutate: () => action === "inherit" ? "inherited" : action === "lock" ? "locked" : "unlocked",
+    });
+    expect(authorize).toHaveBeenCalledWith(`${verb} Keyclasp authorization for "app"/"prod"/*`);
+  });
+
   it("passes the custody callback through the authorized mutation only after authorization and unlock", async () => {
     setAuthorizationRule({ project: "app" }, false);
     const callback = vi.fn();

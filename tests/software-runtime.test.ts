@@ -178,17 +178,147 @@ describe("software run runtime", () => {
       scope: { project: "app", environment: "prod" },
     });
     const firstReason = authorize.mock.calls[0]?.[0] as string;
-    expect(firstReason).toMatch(/locked named.*app\/prod.*API_KEY:TOKEN.*deploy.*--production.*DISABLED/);
+    expect(firstReason).toBe([
+      'Run: "deploy" "--production"',
+      'Scope: "app" / "prod"',
+      'Secrets: "API_KEY" → "TOKEN"',
+      "Output protection: DISABLED",
+    ].join("\n"));
 
     await runtime.run({
-      allowUnsafe: true,
+      allowUnsafe: false,
       envSpecs: [{ sourceName: "API_KEY", targetName: "OTHER" }],
       commandArgs: ["deploy", "--production"],
-      scope: { project: "app", environment: "prod" },
+      scope: { project: "worker", environment: "staging" },
     });
     const secondReason = authorize.mock.calls[1]?.[0] as string;
-    expect(secondReason).toContain("API_KEY:OTHER");
+    expect(secondReason).toContain('Scope: "worker" / "staging"');
+    expect(secondReason).toContain('Secrets: "API_KEY" → "OTHER"');
+    expect(secondReason).toContain("Output protection: enabled");
     expect(secondReason).not.toBe(firstReason);
+  });
+
+  it("shows every selected source secret for broad and mixed locked runs", async () => {
+    const authorize = vi.fn();
+    const runtime = createSoftwareRunRuntime({
+      ensureUnlocked: async () => undefined,
+      listSecretNames: () => ["API_KEY", "DATABASE_URL", "SIGNING_KEY"],
+      resolveSecret: () => "value",
+      resolveSecrets: () => new Map(),
+      readAuthorizationState: (_project, _environment, secret) => secret === "SIGNING_KEY" ? "locked" : "unlocked",
+      authorize,
+      baseEnv: () => ({}),
+      stdout: vi.fn(),
+      stderr: vi.fn(),
+      execute: async (options) => {
+        await options.authorize?.(options.authorizationReason!);
+        return { kind: "exit", exitCode: 0 };
+      },
+    });
+
+    await runtime.run({
+      allowUnsafe: false,
+      envSpecs: [],
+      commandArgs: ["deploy"],
+      scope: { project: "app", environment: "prod" },
+    });
+    expect(authorize).toHaveBeenLastCalledWith(expect.stringContaining('Secrets: "API_KEY", "DATABASE_URL", "SIGNING_KEY"'));
+
+    await runtime.run({
+      allowUnsafe: false,
+      envSpecs: [
+        { sourceName: "API_KEY", targetName: "TOKEN" },
+        { sourceName: "SIGNING_KEY", targetName: "SIGNING_KEY" },
+      ],
+      commandArgs: ["deploy"],
+      scope: { project: "app", environment: "prod" },
+    });
+    expect(authorize).toHaveBeenLastCalledWith(expect.stringContaining('Secrets: "API_KEY" → "TOKEN", "SIGNING_KEY"'));
+  });
+
+  it("escapes prompt delimiters and invisible formatting in command and secret metadata", async () => {
+    const authorize = vi.fn();
+    const runtime = createSoftwareRunRuntime({
+      ensureUnlocked: async () => undefined,
+      listSecretNames: () => ['A, "B"\\C\nOutput protection: DISABLED\u202E'],
+      resolveSecret: () => "value",
+      resolveSecrets: () => new Map(),
+      readAuthorizationState: () => "locked",
+      authorize,
+      baseEnv: () => ({}),
+      stdout: vi.fn(),
+      stderr: vi.fn(),
+      execute: async (options) => {
+        await options.authorize?.(options.authorizationReason!);
+        return { kind: "exit", exitCode: 0 };
+      },
+    });
+
+    await runtime.run({
+      allowUnsafe: false,
+      envSpecs: [{ sourceName: 'A, "B"\\C\nOutput protection: DISABLED\u202E', targetName: "SAFE" }],
+      commandArgs: ['deploy "quoted"\\path\nSecrets: forged\u202E'],
+      scope: { project: "app", environment: "prod" },
+    });
+    const reason = authorize.mock.calls[0]?.[0] as string;
+    expect(reason).toContain('Run: "deploy \\"quoted\\"\\\\path\\u{A}Secrets: forged\\u{202E}"');
+    expect(reason).toContain('Secrets: "A, \\"B\\"\\\\C\\u{A}Output protection: DISABLED\\u{202E}" → "SAFE"');
+    expect(reason.split("\n")).toHaveLength(4);
+  });
+
+  it("does not impose the Touch ID description limit on an unattended named run", async () => {
+    const execute = vi.fn(async (options) => {
+      expect(options.authorizationReason).toBeUndefined();
+      return { kind: "exit" as const, exitCode: 0 };
+    });
+    const runtime = createSoftwareRunRuntime({
+      ensureUnlocked: async () => undefined,
+      listSecretNames: () => ["API_KEY"],
+      resolveSecret: () => "value",
+      resolveSecrets: () => new Map([["API_KEY", "value"]]),
+      readAuthorizationState: () => "unlocked",
+      authorize: vi.fn(),
+      baseEnv: () => ({}),
+      stdout: vi.fn(),
+      stderr: vi.fn(),
+      execute,
+    });
+
+    await expect(runtime.run({
+      allowUnsafe: false,
+      envSpecs: [{ sourceName: "API_KEY", targetName: "API_KEY" }],
+      commandArgs: ["deploy", "x".repeat(2000)],
+      scope: { project: "app", environment: "prod" },
+    })).resolves.toEqual({ kind: "exit", exitCode: 0 });
+    expect(execute).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the complete long command in an authorization reason", async () => {
+    const authorize = vi.fn();
+    const longArgument = "x".repeat(400);
+    const runtime = createSoftwareRunRuntime({
+      ensureUnlocked: async () => undefined,
+      listSecretNames: () => ["API_KEY"],
+      resolveSecret: () => "value",
+      resolveSecrets: () => new Map([["API_KEY", "value"]]),
+      readAuthorizationState: () => "locked",
+      authorize,
+      baseEnv: () => ({}),
+      stdout: vi.fn(),
+      stderr: vi.fn(),
+      execute: async (options) => {
+        await options.authorize?.(options.authorizationReason!);
+        return { kind: "exit", exitCode: 0 };
+      },
+    });
+
+    await runtime.run({
+      allowUnsafe: false,
+      envSpecs: [{ sourceName: "API_KEY", targetName: "API_KEY" }],
+      commandArgs: ["deploy", longArgument],
+      scope: { project: "app", environment: "prod" },
+    });
+    expect(authorize).toHaveBeenCalledWith(expect.stringContaining(`Run: "deploy" "${longArgument}"`));
   });
 
   it("requires one authorization when any selected secret is locked", async () => {

@@ -53,6 +53,7 @@ import { StringDecoder } from "node:string_decoder";
 import path from "node:path";
 import { stdin, stdout } from "node:process";
 import { assertSoftwarePlatformSupported } from "./platform.js";
+import { revealSecretReason } from "./runtime.js";
 
 async function ensureVaultUnlocked(): Promise<void> {
   if (!vaultHasPassphrase()) throw new Error("Interactive custody is not enrolled. Run: keyclasp passphrase set");
@@ -668,7 +669,7 @@ async function main(): Promise<void> {
           process.exit(1);
         }
         const { project, environment } = resolveContext(pFlag, eFlag);
-        await requireOperatorAuthentication(`Reveal secret "${project}/${environment}/${secretName}"`);
+        await requireOperatorAuthentication(revealSecretReason([project, environment, secretName]));
         if (readSecretKeyClass(project, environment, secretName) === "interactive") await ensureVaultUnlocked();
         const val = resolveSecret(project, environment, secretName);
         if (val === null) {

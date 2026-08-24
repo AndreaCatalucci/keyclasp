@@ -12,11 +12,9 @@ export type { OperatorAuthorization } from "./runtime.js";
 export interface BiometricRunnerResult {
   status: number | null;
   error?: Error;
-  stdout?: string;
-  stderr?: string;
 }
 
-export type BiometricRunner = (command: string, args: string[]) => BiometricRunnerResult;
+export type BiometricRunner = (command: string, args: string[], input: string) => BiometricRunnerResult;
 
 export interface BiometricAuthenticationOptions {
   platform?: NodeJS.Platform;
@@ -28,7 +26,9 @@ export type BiometricEvaluation =
   | { kind: "ok" }
   | { kind: "unavailable"; message: string }
   | { kind: "cancelled"; message: string }
-  | { kind: "denied"; message: string };
+  | { kind: "denied"; message: string }
+  | { kind: "timeout"; message: string }
+  | { kind: "invalid"; message: string };
 
 export interface OperatorAuthenticationOptions extends BiometricAuthenticationOptions {
   promptPassphrase?: () => string | Promise<string>;
@@ -36,23 +36,20 @@ export interface OperatorAuthenticationOptions extends BiometricAuthenticationOp
   vaultHasPassphrase?: () => boolean;
 }
 
-type SecretResolver = (name: string) => string | null;
-type OperatorAuthenticator = (reason: string) => unknown | Promise<unknown>;
+const MACOS_HELPER_PATH = fileURLToPath(new URL(
+  "../native/Keyclasp.app/Contents/MacOS/keyclasp-biometric",
+  import.meta.url,
+));
 
-const MACOS_HELPER_PATH = fileURLToPath(
-  new URL("../native/macos-biometric.js", import.meta.url),
-);
-
-function runMacOSHelper(command: string, args: string[]): BiometricRunnerResult {
+function runMacOSHelper(command: string, args: string[], input: string): BiometricRunnerResult {
   const result = spawnSync(command, args, {
-    encoding: "utf8",
+    input,
+    stdio: ["pipe", "ignore", "ignore"],
     timeout: 60_000,
   });
   return {
     status: result.status,
     error: result.error,
-    stdout: result.stdout,
-    stderr: result.stderr,
   };
 }
 
@@ -66,47 +63,32 @@ export function evaluateBiometricAuthentication(
   }
 
   const runner = options.runner ?? runMacOSHelper;
-  const result = runner(
-    "/usr/bin/osascript",
-    ["-l", "JavaScript", options.helperPath ?? MACOS_HELPER_PATH, reason],
-  );
+  const helperPath = options.helperPath ?? MACOS_HELPER_PATH;
+  const result = runner(helperPath, [], reason);
 
   if (result.error) {
+    if ((result.error as NodeJS.ErrnoException).code === "ETIMEDOUT") {
+      return { kind: "timeout", message: "Biometric authentication timed out." };
+    }
     return { kind: "unavailable", message: "The macOS biometric authentication helper could not start." };
   }
   if (result.status === 0) {
     return { kind: "ok" };
   }
 
-  const output = `${result.stderr ?? ""}\n${result.stdout ?? ""}`;
-  if (output.includes("KEYCLASP_BIOMETRIC_USER_CANCELLED")) {
+  if (result.status === 2) {
     return { kind: "cancelled", message: "Biometric authentication was cancelled by the operator." };
   }
-  if (output.includes("KEYCLASP_BIOMETRIC_UNAVAILABLE")) {
+  if (result.status === 3) {
     return { kind: "unavailable", message: "Touch ID is unavailable or not enrolled." };
   }
-  if (/unavailable|not enrolled/i.test(output)) {
-    return { kind: "unavailable", message: "Touch ID is unavailable or not enrolled." };
+  if (result.status === 5) {
+    return { kind: "timeout", message: "Biometric authentication timed out." };
+  }
+  if (result.status === 64) {
+    return { kind: "invalid", message: "The macOS biometric authentication helper rejected its input." };
   }
   return { kind: "denied", message: "Biometric authentication failed." };
-}
-
-export function requireBiometricAuthentication(
-  reason: string,
-  options: BiometricAuthenticationOptions = {},
-): void {
-  const result = evaluateBiometricAuthentication(reason, options);
-  if (result.kind === "ok") return;
-  if (result.kind === "unavailable" && (options.platform ?? process.platform) !== "darwin") {
-    throw new Error("This operation requires macOS Touch ID; no fallback authentication is allowed.");
-  }
-  if (result.kind === "unavailable" && result.message.includes("could not start")) {
-    throw new Error("The macOS biometric authentication helper could not start.");
-  }
-  if (result.kind === "unavailable") {
-    throw new Error("Touch ID is unavailable or not enrolled.");
-  }
-  throw new Error(result.message);
 }
 
 let passphrasePromptTail: Promise<void> = Promise.resolve();
@@ -250,13 +232,4 @@ export async function requireOperatorAuthentication(
     throw new Error("Vault passphrase is incorrect.");
   }
   return { method: "passphrase", passphrase: entered };
-}
-
-export async function resolveSecretForOperator(
-  name: string,
-  resolveSecret: SecretResolver,
-  authenticate: OperatorAuthenticator = requireOperatorAuthentication,
-): Promise<string | null> {
-  await authenticate(`Reveal secret "${name}"`);
-  return resolveSecret(name);
 }

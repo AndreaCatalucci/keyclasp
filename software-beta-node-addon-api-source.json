@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "package": "node-addon-api@8.9.2",
+  "files": [
+    {
+      "path": "common.gypi",
+      "sha256": "c2588f59f1d4eebe14331b2cfabcfdff85e8c282f9f66028385cffece8aa85e9"
+    },
+    {
+      "path": "except.gypi",
+      "sha256": "ddbc09f5b66fe24dd898fbe659085a6ff72e9575025004fc3762271dba781e8b"
+    },
+    {
+      "path": "index.js",
+      "sha256": "afbfa96b5c40c643828f212610129d2911095eff1e86e63ccfe81658d6fe61d9"
+    },
+    {
+      "path": "LICENSE.md",
+      "sha256": "89024017b88a9f2b763f79b941a4f2db3b4428edfcacdc0b23866b2da633ad0c"
+    },
+    {
+      "path": "napi-inl.deprecated.h",
+      "sha256": "b66ed1e565e735bbfabcc2f72d466ab7c5414d3ef8851d1af440b81be7f2375c"
+    },
+    {
+      "path": "napi-inl.h",
+      "sha256": "83f7520e9028cee918ca876def8cd982ee67906f2b587c60a9d8d79183b881eb"
+    },
+    {
+      "path": "napi.h",
+      "sha256": "5e0eff20229ba021fa7c5ff6f62dfecc36f8c29f2da365b25cde3d6489d8b924"
+    },
+    {
+      "path": "node_addon_api.gyp",
+      "sha256": "6d34b9bae562103233f650d8a041edc0ca6b44d90898cd232b38745adfb7edfc"
+    },
+    {
+      "path": "node_api.gyp",
+      "sha256": "3cd2c44fb0974f016376b676d46bbebbca7c89d4383b09ece30e4cb4122a1499"
+    },
+    {
+      "path": "noexcept.gypi",
+      "sha256": "0e815179b5d2697e0acdc8f3c3a5d0a1ed050d48a295ee000454cf5352357f66"
+    },
+    {
+      "path": "nothing.c",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "package-support.json",
+      "sha256": "b1cb7da23cca1681c7392a3c889eb0cc4916c53d2d7692d4b654ae751f3442f3"
+    },
+    {
+      "path": "package.json",
+      "sha256": "f26c85879016dd0cd6c2599d4cc79d579383051a82fc2684837cff2e1b6a0d29"
+    },
+    {
+      "path": "README.md",
+      "sha256": "9c9fcf38e120933aac37fe2cbdcb85abb59ecb1a674abe944c9b627dff8539a6"
+    },
+    {
+      "path": "tools/check-napi.js",
+      "sha256": "9e1207808023cd998fe9e377aefbe77d6c59fa129f94e6acbf24907149d8c11e"
+    },
+    {
+      "path": "tools/clang-format.js",
+      "sha256": "3e0b5e6d6f1a0c5ed106115871d0fd48f37bac5554effdacaf8d2439f4ed0c65"
+    },
+    {
+      "path": "tools/conversion.js",
+      "sha256": "9f375b0f9d9ec93c2ded07470478b3f523a2661c6ca707c28b0e9dae15009002"
+    },
+    {
+      "path": "tools/README.md",
+      "sha256": "65e9ea918538f453166b10a1d609cf44cec3d2d01f23fecb5265fb3a4bf303d5"
+    }
+  ]
+}

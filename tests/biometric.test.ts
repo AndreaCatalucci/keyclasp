@@ -7,12 +7,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
-  requireBiometricAuthentication,
+  evaluateBiometricAuthentication,
   requireOperatorAuthentication,
   processPassphraseInput,
-  resolveSecretForOperator,
   type BiometricRunner,
 } from "../src/biometric.js";
+import { revealSecretReason } from "../src/runtime.js";
 import { closeDb, clearKey, getKey, initializeVault } from "../src/vault.js";
 
 describe("biometric authentication", () => {
@@ -35,84 +35,89 @@ describe("biometric authentication", () => {
   });
 
   it("resolves the real bundled helper next to the compiled module", () => {
-    const runner = vi.fn<BiometricRunner>((_command, args) => {
-      expect(args.slice(0, 2)).toEqual(["-l", "JavaScript"]);
-      expect(args[2]).toMatch(/native\/macos-biometric\.js$/);
-      expect(fs.existsSync(args[2])).toBe(true);
+    const runner = vi.fn<BiometricRunner>((command, args, input) => {
+      expect(command).toMatch(/native\/Keyclasp\.app\/Contents\/MacOS\/keyclasp-biometric$/);
+      expect(fs.existsSync(command)).toBe(true);
+      expect(args).toEqual([]);
+      expect(input).toBe("Reveal API_KEY");
       return { status: 0 };
     });
 
-    requireBiometricAuthentication("Reveal API_KEY", {
+    expect(evaluateBiometricAuthentication("Reveal API_KEY", {
       platform: "darwin",
       runner,
-    });
+    })).toEqual({ kind: "ok" });
   });
 
-  it.runIf(process.platform === "darwin")("compiles the real JXA helper", () => {
-    const helperPath = path.join(process.cwd(), "native", "macos-biometric.js");
-    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), "keyclasp-biometric-compile-"));
-    const outputPath = path.join(outputDir, "macos-biometric.scpt");
+  it.runIf(process.platform === "darwin")("ships an arm64 ad-hoc-signed Keyclasp app", () => {
+    const bundle = path.join(process.cwd(), "native", "Keyclasp.app");
+    const executable = path.join(bundle, "Contents", "MacOS", "keyclasp-biometric");
+    const signature = spawnSync("/usr/bin/codesign", ["--verify", "--strict", bundle], { encoding: "utf8" });
+    const architectures = spawnSync("/usr/bin/lipo", ["-archs", executable], { encoding: "utf8" });
+    const sourceBuild = spawnSync(process.execPath, ["scripts/build-macos-biometric-helper.mjs", "--check"], { encoding: "utf8" });
+    const displayName = spawnSync("/usr/bin/plutil", ["-extract", "CFBundleDisplayName", "raw", path.join(bundle, "Contents", "Info.plist")], { encoding: "utf8" });
+    const uiAgent = spawnSync("/usr/bin/plutil", ["-extract", "LSUIElement", "raw", path.join(bundle, "Contents", "Info.plist")], { encoding: "utf8" });
+    const backgroundOnly = spawnSync("/usr/bin/plutil", ["-extract", "LSBackgroundOnly", "raw", path.join(bundle, "Contents", "Info.plist")], { encoding: "utf8" });
+    const signatureDetails = spawnSync("/usr/bin/codesign", ["-dvvv", bundle], { encoding: "utf8" });
 
-    try {
-      const result = spawnSync(
-        "/usr/bin/osacompile",
-        ["-l", "JavaScript", "-o", outputPath, helperPath],
-        { encoding: "utf8" },
-      );
-
-      expect(result.status, result.stderr).toBe(0);
-      expect(fs.existsSync(outputPath)).toBe(true);
-    } finally {
-      fs.rmSync(outputDir, { recursive: true, force: true });
-    }
+    expect(signature.status, signature.stderr).toBe(0);
+    expect(architectures.status, architectures.stderr).toBe(0);
+    expect(sourceBuild.status, sourceBuild.stderr).toBe(0);
+    expect(architectures.stdout.trim()).toBe("arm64");
+    expect(fs.constants.X_OK & fs.statSync(executable).mode).not.toBe(0);
+    expect(displayName.stdout.trim()).toBe("Keyclasp");
+    expect(uiAgent.stdout.trim()).toBe("true");
+    expect(backgroundOnly.status).not.toBe(0);
+    expect(signatureDetails.stderr).toContain("Identifier=dev.keyclasp.biometric");
+    expect(signatureDetails.stderr).toContain("Signature=adhoc");
   });
 
   it("runs the bundled macOS helper with a human-readable reason", () => {
     const runner = vi.fn<BiometricRunner>(() => ({ status: 0 }));
 
-    requireBiometricAuthentication("Reveal API_KEY", {
+    expect(evaluateBiometricAuthentication("Reveal API_KEY", {
       platform: "darwin",
-      helperPath: "/package/native/macos-biometric.js",
+      helperPath: "/package/native/Keyclasp.app/Contents/MacOS/keyclasp-biometric",
       runner,
-    });
+    })).toEqual({ kind: "ok" });
 
     expect(runner).toHaveBeenCalledWith(
-      "/usr/bin/osascript",
-      ["-l", "JavaScript", "/package/native/macos-biometric.js", "Reveal API_KEY"],
+      "/package/native/Keyclasp.app/Contents/MacOS/keyclasp-biometric",
+      [],
+      "Reveal API_KEY",
     );
   });
 
   it("fails closed outside macOS without starting a helper", () => {
     const runner = vi.fn<BiometricRunner>();
 
-    expect(() => requireBiometricAuthentication("Reveal API_KEY", {
+    expect(evaluateBiometricAuthentication("Reveal API_KEY", {
       platform: "linux",
       runner,
-    })).toThrow("requires macOS Touch ID");
+    })).toEqual({ kind: "unavailable", message: "Touch ID is unavailable on this platform." });
     expect(runner).not.toHaveBeenCalled();
   });
 
   it("fails closed when biometric authentication is denied", () => {
-    const runner = vi.fn<BiometricRunner>(() => ({ status: 1 }));
+    const runner = vi.fn<BiometricRunner>(() => ({ status: 4 }));
 
-    expect(() => requireBiometricAuthentication("Reveal API_KEY", {
+    expect(evaluateBiometricAuthentication("Reveal API_KEY", {
       platform: "darwin",
-      helperPath: "/package/native/macos-biometric.js",
+      helperPath: "/package/native/Keyclasp.app/Contents/MacOS/keyclasp-biometric",
       runner,
-    })).toThrow("Biometric authentication failed.");
+    })).toEqual({ kind: "denied", message: "Biometric authentication failed." });
   });
 
   it("distinguishes an explicit operator cancellation from denial", () => {
     const runner = vi.fn<BiometricRunner>(() => ({
-      status: 1,
-      stderr: "execution error: Error: KEYCLASP_BIOMETRIC_USER_CANCELLED (-2700)",
+      status: 2,
     }));
 
-    expect(() => requireBiometricAuthentication("Reveal API_KEY", {
+    expect(evaluateBiometricAuthentication("Reveal API_KEY", {
       platform: "darwin",
-      helperPath: "/package/native/macos-biometric.js",
+      helperPath: "/package/native/Keyclasp.app/Contents/MacOS/keyclasp-biometric",
       runner,
-    })).toThrow("Biometric authentication was cancelled by the operator.");
+    })).toEqual({ kind: "cancelled", message: "Biometric authentication was cancelled by the operator." });
   });
 
   it("reports a missing LocalAuthentication runtime without falling back", () => {
@@ -121,36 +126,48 @@ describe("biometric authentication", () => {
       error: Object.assign(new Error("spawn failed"), { code: "ENOENT" }),
     }));
 
-    expect(() => requireBiometricAuthentication("Reveal API_KEY", {
+    expect(evaluateBiometricAuthentication("Reveal API_KEY", {
       platform: "darwin",
-      helperPath: "/package/native/macos-biometric.js",
+      helperPath: "/package/native/Keyclasp.app/Contents/MacOS/keyclasp-biometric",
       runner,
-    })).toThrow("could not start");
+    })).toEqual({ kind: "unavailable", message: "The macOS biometric authentication helper could not start." });
   });
 
-  it("authenticates before resolving a secret for get", async () => {
-    const events: string[] = [];
-    const authenticate = vi.fn(() => { events.push("biometric"); });
-    const resolveSecret = vi.fn(() => {
-      events.push("resolve");
-      return "secret-value";
+  it("maps native invalid-input status without authentication fallback", () => {
+    const runner = vi.fn<BiometricRunner>(() => ({ status: 64 }));
+    expect(evaluateBiometricAuthentication("valid reason", { platform: "darwin", runner })).toEqual({
+      kind: "invalid",
+      message: "The macOS biometric authentication helper rejected its input.",
     });
-
-    expect(await resolveSecretForOperator("API_KEY", resolveSecret, authenticate)).toBe("secret-value");
-    expect(authenticate).toHaveBeenCalledWith('Reveal secret "API_KEY"');
-    expect(events).toEqual(["biometric", "resolve"]);
   });
 
-  it("never resolves a get when biometric authentication fails", async () => {
-    const resolveSecret = vi.fn(() => "secret-value");
-    const authenticate = vi.fn(() => {
-      throw new Error("Biometric authentication failed or was cancelled.");
+  it.each([
+    [{ status: 5 }, "Biometric authentication timed out."],
+    [{ status: null, error: Object.assign(new Error("timed out"), { code: "ETIMEDOUT" }) }, "Biometric authentication timed out."],
+  ])("maps a helper deadline without treating it as a launch failure", (result, message) => {
+    const runner = vi.fn<BiometricRunner>(() => result);
+    expect(evaluateBiometricAuthentication("valid reason", { platform: "darwin", runner })).toEqual({
+      kind: "timeout",
+      message,
     });
+  });
 
-    await expect(resolveSecretForOperator("API_KEY", resolveSecret, authenticate)).rejects.toThrow(
-      "failed or was cancelled",
+  it.runIf(process.platform === "darwin")("rejects invalid native-helper protocol input without showing Touch ID", () => {
+    const executable = path.join(process.cwd(), "native", "Keyclasp.app", "Contents", "MacOS", "keyclasp-biometric");
+    const cases = [
+      spawnSync(executable, ["unexpected-argument"], { input: "valid reason" }),
+      spawnSync(executable, [], { input: "bad\tcontrol" }),
+      spawnSync(executable, [], { input: "bad\u0085control" }),
+      spawnSync(executable, [], { input: "x".repeat(1025) }),
+      spawnSync(executable, [], { input: Buffer.from([0xff]) }),
+    ];
+    expect(cases.map((result) => result.status)).toEqual([64, 64, 64, 64, 64]);
+  });
+
+  it("renders unusual get names without injecting prompt structure", () => {
+    expect(revealSecretReason(['project"', "prod\\", "A\nB\u202E"])).toBe(
+      'Reveal secret "project\\""/"prod\\\\"/"A\\u{A}B\\u{202E}"',
     );
-    expect(resolveSecret).not.toHaveBeenCalled();
   });
 
   it("uses one Linux passphrase entry for authorization", async () => {
@@ -193,11 +210,11 @@ describe("biometric authentication", () => {
 
   it("does not fall back to the passphrase when Touch ID is denied", async () => {
     const promptPassphrase = vi.fn(async () => "correct-passphrase");
-    const runner = vi.fn<BiometricRunner>(() => ({ status: 1 }));
+    const runner = vi.fn<BiometricRunner>(() => ({ status: 4 }));
 
     await expect(requireOperatorAuthentication("Reveal API_KEY", {
       platform: "darwin",
-      helperPath: "/package/native/macos-biometric.js",
+      helperPath: "/package/native/Keyclasp.app/Contents/MacOS/keyclasp-biometric",
       runner,
       promptPassphrase,
       verifyPassphrase: () => true,
@@ -209,13 +226,12 @@ describe("biometric authentication", () => {
   it("does not fall back to a passphrase when Touch ID is not enrolled", async () => {
     const promptPassphrase = vi.fn(async () => "correct-passphrase");
     const runner = vi.fn<BiometricRunner>(() => ({
-      status: 1,
-      stderr: "execution error: Touch ID is unavailable or not enrolled. (-2700)",
+      status: 3,
     }));
 
     await expect(requireOperatorAuthentication("Reveal API_KEY", {
       platform: "darwin",
-      helperPath: "/package/native/macos-biometric.js",
+      helperPath: "/package/native/Keyclasp.app/Contents/MacOS/keyclasp-biometric",
       runner,
       promptPassphrase,
       verifyPassphrase: () => true,

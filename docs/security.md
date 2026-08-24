@@ -24,7 +24,7 @@ Every record is encrypted with its assigned data key. AES-GCM associated data bi
 
 Broad runs, `get`, custody changes, passphrase rotation, backup, and restore require operator authorization. A named run requires authorization when any selected record is interactive.
 
-- macOS evaluates Touch ID with no passphrase-only fallback, then requests the interactive passphrase when that key is needed.
+- macOS evaluates Touch ID in a short-lived, ad-hoc-signed `Keyclasp.app` helper with no passphrase-only fallback, then requests the interactive passphrase when that key is needed. For a run, the dialog identifies Keyclasp and shows the command, scope, complete selected secret-name mappings, and output-protection state. The helper receives metadata only, never a secret value, passphrase, or data key.
 - Linux requires one non-empty passphrase entry that both authorizes and unlocks the interactive key. A machine-only or non-interactive gated request fails before decryption, mutation, or child launch.
 
 First Linux enrollment confirms a new passphrase because no previous interactive credential exists. This protects future interactive custody but does not authenticate enrollment against another same-user process with terminal access.
@@ -53,7 +53,7 @@ Direct same-inode overwrite of an open SQLite database is unsupported. Managed r
 
 The public package exports parsing, context, biometric-result classification, path reporting, and scope validation only. It does not export data keys, generic decryption, policy mutation, plaintext resolution, or child launch.
 
-`better-sqlite3@13.0.3` is the only direct runtime dependency; `node-addon-api` is its only production transitive dependency. Their complete reviewed production tree, including native prebuilds, is bundled in the Keyclasp tarball. The default install verifies the selected prebuild against the packaged OS-and-architecture SHA-256 allowlist, so it downloads no native code. An explicit `npm_config_build_from_source=true` request compiles the bundled source with npm's `node-gyp`, removes the target prebuild, and verifies that the compiled path will be loaded. Package qualification covers both paths, install scripts, lockfile advisories, licenses, N-API support on Node 24 and 26, public exports, and exact tarball contents. Native hardware experiments, tests, vaults, transcripts, and release credentials are excluded from the npm package.
+`better-sqlite3@13.0.3` is the only direct runtime dependency; `node-addon-api` is its only production transitive dependency. Their complete reviewed production tree, including native prebuilds, is bundled in the Keyclasp tarball. The default install verifies the selected prebuild against the packaged OS-and-architecture SHA-256 allowlist, so it downloads no native code. An explicit `npm_config_build_from_source=true` request compiles the bundled source with npm's `node-gyp`, removes the target prebuild, and verifies that the compiled path will be loaded. The package also carries the thin arm64 `Keyclasp.app` Touch ID helper and a reviewed source/bundle hash manifest. Package qualification covers both SQLite paths, helper identity and signature, install scripts, lockfile advisories, licenses, N-API support on Node 24 and 26, public exports, package contents, and exact tarball contents. Native hardware experiments, tests, vaults, transcripts, and release credentials are excluded from the npm package.
 
 ## Explicit limitations
 

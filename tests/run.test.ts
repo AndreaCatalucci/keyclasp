@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { requireBiometricAuthentication } from "../src/biometric.js";
 import {
   buildRunEnvironment,
   checkUnsafeCommand,
@@ -11,11 +10,7 @@ import {
   runCommandWithSecrets,
 } from "../src/run.js";
 
-vi.mock("../src/biometric.js", () => ({
-  requireBiometricAuthentication: vi.fn(),
-}));
-
-const biometricMock = vi.mocked(requireBiometricAuthentication);
+const biometricMock = vi.fn();
 const approveOperator = () => ({ method: "touch-id" } as const);
 
 beforeEach(() => {

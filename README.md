@@ -15,7 +15,7 @@ Each software vault can hold two independent AES-256-GCM data keys:
 
 New records use machine custody unless an effective lock rule assigns them to interactive custody. `lock`, `unlock`, and `inherit` atomically update the rule and re-encrypt matching existing records under the resulting key.
 
-On macOS, interactive operations require Touch ID and then the vault passphrase. On Linux, one passphrase entry authorizes the operation and unlocks the interactive key. A machine-only vault can run an explicitly selected, unlocked secret without a prompt, but cannot perform `get`, broad runs, policy changes, backup, or restore until interactive custody is enrolled.
+On macOS, interactive operations require Touch ID in a dialog identified as **Keyclasp**, then the vault passphrase. Run dialogs show the command, scope, selected secret names, and output-protection state without showing secret values. On Linux, one passphrase entry authorizes the operation and unlocks the interactive key. A machine-only vault can run an explicitly selected, unlocked secret without a prompt, but cannot perform `get`, broad runs, policy changes, backup, or restore until interactive custody is enrolled.
 
 Explicit selection limits which values reach a child; it does not authenticate another process running as the same OS user. The child receives usable credentials and must be trusted.
 

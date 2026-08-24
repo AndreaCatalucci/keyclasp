@@ -30,7 +30,7 @@ An authorized child necessarily receives a usable credential. Keyclasp can restr
 - [`src/run.ts`](../../src/run.ts) resolves plaintext in the Node process, builds the child's environment, spawns it, and scans output.
 - [`src/cli.ts`](../../src/cli.ts) duplicates authorization decisions before calling `runCommandWithSecrets`.
 - [`src/index.ts`](../../src/index.ts) exports key, plaintext, mutation, parsing, and execution functions from the npm package.
-- [`native/macos-biometric.js`](../../native/macos-biometric.js) proves Touch ID can be invoked, but it does not own or release the cryptographic key.
+- [`native/macos-biometric/main.m`](../../native/macos-biometric/main.m) implements the software-mode Touch ID authorization helper, but it does not own or release the cryptographic key.
 - [`scripts/migrate-vault-key-wrap.mjs`](../../scripts/migrate-vault-key-wrap.mjs) is the existing offline migration seam.
 - [`docs/plans/2026-08-13-001-fix-passphrase-key-wrap-plan.md`](./2026-08-13-001-fix-passphrase-key-wrap-plan.md) established the random-DEK envelope and portable passphrase mode. This plan supersedes its machine-only security boundary.
 

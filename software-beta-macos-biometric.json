@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "bundle": "Keyclasp.app",
+  "bundleIdentifier": "dev.keyclasp.biometric",
+  "architecture": "arm64",
+  "signature": "ad-hoc",
+  "sourceFiles": [
+    {
+      "path": "native/macos-biometric/Info.plist",
+      "sha256": "c63b4af98be112a4e2d7fa06fcb460e74baf9cb9628700f74a8f7d68d8fe12c7"
+    },
+    {
+      "path": "native/macos-biometric/main.m",
+      "sha256": "f558aa4b3e36cc083a2c00e35eb20c0e14f5d2522c18670cede0baef34761e52"
+    }
+  ],
+  "bundleFiles": [
+    {
+      "path": "native/Keyclasp.app/Contents/_CodeSignature/CodeResources",
+      "sha256": "6686de10a28a2fe11b36cbb86dcbacc827cfc4ea116b4dabf1845e5aee629e9b"
+    },
+    {
+      "path": "native/Keyclasp.app/Contents/Info.plist",
+      "sha256": "c63b4af98be112a4e2d7fa06fcb460e74baf9cb9628700f74a8f7d68d8fe12c7"
+    },
+    {
+      "path": "native/Keyclasp.app/Contents/MacOS/keyclasp-biometric",
+      "sha256": "54b1019285ef18cb0c985404843e3a4e7f9ebce6f86aca1a114e0cf1e33853e0"
+    }
+  ]
+}

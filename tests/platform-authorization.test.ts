@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { requireOperatorAuthentication, resolveSecretForOperator, type BiometricRunner } from "../src/biometric.js";
+import { requireOperatorAuthentication, type BiometricRunner } from "../src/biometric.js";
+import { revealSecretReason } from "../src/runtime.js";
 import { setAuthorizationRuleAuthorized } from "../src/policy.js";
 import { createManagedBackup, createManagedBackupAuthorized, restoreManagedBackupAuthorized, verifyManagedBackupPassphrase } from "../src/recovery.js";
 import { createSoftwareRunRuntime } from "../src/software/runtime.js";
@@ -171,9 +172,9 @@ describe("platform operator authorization", () => {
   });
 
   it.each([
-    ["cancelled", "execution error: Error: KEYCLASP_BIOMETRIC_USER_CANCELLED (-2700)"],
-    ["unavailable", "execution error: Error: KEYCLASP_BIOMETRIC_UNAVAILABLE (-2700)"],
-  ])("blocks a macOS run before unlock, decryption, or child launch when Touch ID is %s", async (_label, stderr) => {
+    ["cancelled", 2],
+    ["unavailable", 3],
+  ])("blocks a macOS run before unlock, decryption, or child launch when Touch ID is %s", async (_label, status) => {
     initializeVault("");
     storeSecret("app", "prod", "API_KEY", "machine-secret");
     const ensureUnlocked = vi.fn(async () => undefined);
@@ -187,7 +188,7 @@ describe("platform operator authorization", () => {
       readAuthorizationState: () => "locked",
       authorize: (reason) => requireOperatorAuthentication(reason, {
         platform: "darwin",
-        runner: () => ({ status: 1, stderr }),
+        runner: () => ({ status }),
       }),
       baseEnv: () => ({}),
       stdout: () => {},
@@ -205,6 +206,48 @@ describe("platform operator authorization", () => {
     expect(ensureUnlocked).not.toHaveBeenCalled();
     expect(resolveSecrets).not.toHaveBeenCalled();
     expect(fs.existsSync(sentinel)).toBe(false);
+  });
+
+  it("blocks an oversized complete broad-run disclosure before Touch ID, unlock, decryption, or child launch", async () => {
+    initializeVault("");
+    const secretNames = Array.from({ length: 80 }, (_, index) => `VERY_LONG_SECRET_NAME_${String(index).padStart(3, "0")}`);
+    let helperInput = "";
+    const runner = vi.fn<BiometricRunner>((_command, _args, input) => {
+      helperInput = input;
+      return { status: Buffer.byteLength(input, "utf8") > 1024 ? 64 : 0 };
+    });
+    let authorizationReason = "";
+    const ensureUnlocked = vi.fn(async () => undefined);
+    const resolveSecrets = vi.fn(resolveSecretsForRun);
+    const stderr = vi.fn();
+    const runtime = createSoftwareRunRuntime({
+      ensureUnlocked,
+      listSecretNames: () => secretNames,
+      resolveSecret,
+      resolveSecrets,
+      readAuthorizationState: () => "unlocked",
+      authorize: (reason) => {
+        authorizationReason = reason;
+        return requireOperatorAuthentication(reason, { platform: "darwin", runner });
+      },
+      baseEnv: () => ({}),
+      stdout: () => {},
+      stderr,
+    });
+
+    await expect(runtime.run({
+      allowUnsafe: false,
+      envSpecs: [],
+      commandArgs: ["deploy"],
+      scope: { project: "app", environment: "prod" },
+    })).resolves.toEqual({ kind: "blocked", exitCode: 2 });
+    expect(authorizationReason.split("\n")[2]).toBe(`Secrets: ${secretNames.map((name) => JSON.stringify(name)).join(", ")}`);
+    expect(Buffer.byteLength(authorizationReason, "utf8")).toBeGreaterThan(1024);
+    expect(helperInput).toBe(authorizationReason);
+    expect(stderr).toHaveBeenCalledWith("BLOCKED: The macOS biometric authentication helper rejected its input.\n");
+    expect(runner).toHaveBeenCalledOnce();
+    expect(ensureUnlocked).not.toHaveBeenCalled();
+    expect(resolveSecrets).not.toHaveBeenCalled();
   });
 
   it("fails every Linux machine-only operator path before unlock, resolution, mutation, recovery, or child launch", async () => {
@@ -236,7 +279,7 @@ describe("platform operator authorization", () => {
       expect(result).toEqual({ kind: "blocked", exitCode: 2 });
     }
     const reveal = vi.fn(() => "machine-secret");
-    await expect(resolveSecretForOperator("API_KEY", reveal, authorize)).rejects.toThrow(/machine-only vaults fail closed/i);
+    await expect(authorize(revealSecretReason(["app", "prod", "API_KEY"]))).rejects.toThrow(/machine-only vaults fail closed/i);
     const mutate = vi.fn();
     await expect(setAuthorizationRuleAuthorized({ project: "app" }, true, {
       authorize,
@@ -298,10 +341,9 @@ describe("platform operator authorization", () => {
     initializeVault("noninteractive-passphrase");
     clearKey();
     const reveal = vi.fn(() => "secret");
-    await expect(resolveSecretForOperator(
-      "API_KEY",
-      reveal,
-      (reason) => requireOperatorAuthentication(reason, { platform: "linux" }),
+    await expect(requireOperatorAuthentication(
+      revealSecretReason(["app", "prod", "API_KEY"]),
+      { platform: "linux" },
     )).rejects.toThrow(/interactive terminal/i);
     expect(reveal).not.toHaveBeenCalled();
   });

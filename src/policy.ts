@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { getVaultDescriptor, getVaultLocation, validateScopeName } from "./vault.js";
 import { enforceOwnerOnlyPath } from "./owner-only-path.js";
-import type { OperatorAuthorizer } from "./runtime.js";
+import { displayOperatorField, type OperatorAuthorizer } from "./runtime.js";
 
 const POLICY_VERSION = 2;
 const POLICY_TRANSACTION_VERSION = 1;
@@ -549,7 +549,9 @@ export async function mutateAuthorizationRuleAuthorized(
 ): Promise<AuthorizationState | "inherited"> {
   validateAuthorizationSelector(selector);
   (dependencies.validatePolicy ?? validateLiveAuthorizationPolicy)();
-  const target = [selector.project ?? "*", selector.environment ?? "*", selector.secret].filter((part) => part !== undefined).join("/");
+  const target = [selector.project, selector.environment, selector.secret]
+    .map((part) => part === undefined ? "*" : displayOperatorField(part))
+    .join("/");
   const verb = action === "lock" ? "Lock" : action === "unlock" ? "Unlock" : "Inherit";
   await dependencies.authorize(`${verb} Keyclasp authorization for ${target}`);
   await dependencies.ensureUnlocked();

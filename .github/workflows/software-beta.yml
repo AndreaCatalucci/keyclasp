@@ -1,0 +1,207 @@
+name: software beta qualification
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-tests:
+    name: source / ${{ matrix.os }} / Node ${{ matrix.node }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, ubuntu-24.04]
+        node: [24, 26]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - name: Rebuild and verify the packaged Touch ID helper
+        if: runner.os == 'macOS'
+        run: node scripts/build-macos-biometric-helper.mjs --check
+      - run: npm run release:inventory:check
+      - run: npm run test:source
+      - run: git diff --check
+
+  pack-once:
+    name: reproduce the qualified rc6 artifact
+    needs: source-tests
+    runs-on: ubuntu-24.04
+    outputs:
+      filename: ${{ steps.pack.outputs.filename }}
+      expected_sha256: ${{ steps.pack.outputs.expected_sha256 }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run build
+      - run: npm run release:inventory:check
+      - name: Require only the reviewed bundled native bindings
+        shell: bash
+        run: |
+          set -euo pipefail
+          if npm pack --dry-run --json --ignore-scripts | node -e "let input=''; process.stdin.on('data', c => input += c); process.stdin.on('end', () => { const paths=JSON.parse(input)[0].files.map(f=>f.path); const native=paths.filter(p=>p.endsWith('.node')); process.exit(native.length===8 && native.every(p=>p.startsWith('node_modules/better-sqlite3/prebuilds/')) && !paths.some(p=>p.startsWith('node_modules/better-sqlite3/build/')) ? 0 : 1) })"; then
+            :
+          else
+            echo "The candidate native bindings differ from the reviewed bundled set." >&2
+            exit 1
+          fi
+      - id: pack
+        name: Repack source and require the qualified rc6 identity
+        shell: bash
+        env:
+          EXPECTED_RC6_SHA256: 3cef4ddc6c21175e786c9b1bac95d649d1bf3881845d08804914bcff0999ee79
+        run: |
+          set -euo pipefail
+          mkdir -p artifact
+          npm pack --ignore-scripts --json --pack-destination artifact > artifact/npm-pack.json
+          filename=$(node -e "const r=require('./artifact/npm-pack.json')[0]; if(!r?.filename) process.exit(1); process.stdout.write(r.filename)")
+          sha256=$(sha256sum "artifact/$filename" | cut -d ' ' -f 1)
+          if [ "$sha256" != "$EXPECTED_RC6_SHA256" ]; then
+            echo "Repacked tarball SHA-256 $sha256 does not match qualified rc6 $EXPECTED_RC6_SHA256." >&2
+            exit 1
+          fi
+          printf 'filename=%s\nexpected_sha256=%s\n' "$filename" "$EXPECTED_RC6_SHA256" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: software-beta-exact-tarball
+          path: artifact/*
+          if-no-files-found: error
+
+  exact-tarball-tests:
+    name: exact tarball / ${{ matrix.native }} / ${{ matrix.target.platform }}-${{ matrix.target.arch }} / Node ${{ matrix.node }}
+    needs: pack-once
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - runner: macos-15
+            platform: darwin
+            arch: arm64
+          - runner: ubuntu-24.04-arm
+            platform: linux
+            arch: arm64
+          - runner: ubuntu-24.04
+            platform: linux
+            arch: x64
+        node: [24, 26]
+        native: [prebuilt, source]
+    runs-on: ${{ matrix.target.runner }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: ${{ matrix.node }}
+      - uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          name: software-beta-exact-tarball
+          path: artifact
+      - name: Verify downloaded artifact identity
+        shell: bash
+        env:
+          EXPECTED_SHA256: ${{ needs.pack-once.outputs.expected_sha256 }}
+          ARTIFACT_NAME: ${{ needs.pack-once.outputs.filename }}
+        run: test "$(shasum -a 256 "artifact/$ARTIFACT_NAME" | cut -d ' ' -f 1)" = "$EXPECTED_SHA256"
+      - name: Exercise the installed package
+        env:
+          EXPECTED_SHA256: ${{ needs.pack-once.outputs.expected_sha256 }}
+          ARTIFACT_NAME: ${{ needs.pack-once.outputs.filename }}
+          KEYCLASP_NATIVE_INSTALL_MODE: ${{ matrix.native }}
+          EXPECTED_PLATFORM: ${{ matrix.target.platform }}
+          EXPECTED_ARCH: ${{ matrix.target.arch }}
+        run: node scripts/verify-packed-software-beta.mjs "artifact/$ARTIFACT_NAME"
+
+  musl-fails-closed:
+    name: exact tarball / musl unsupported / Node ${{ matrix.node }}
+    needs: pack-once
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - node: 24
+            image: node:24-alpine@sha256:d32cdf619f63fe0471182d08996dd516c6275bb5fd31ae06e55a570bd9e1ad43
+          - node: 26
+            image: node:26-alpine@sha256:aadf416b2cdce311a8811ba3f0608a61b77dbf997500e2eafe781b51f6a0b019
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          name: software-beta-exact-tarball
+          path: artifact
+      - name: Reject installation and stateful use on musl
+        shell: bash
+        env:
+          ARTIFACT_NAME: ${{ needs.pack-once.outputs.filename }}
+          EXPECTED_SHA256: ${{ needs.pack-once.outputs.expected_sha256 }}
+        run: >-
+          docker run --rm
+          -e EXPECTED_SHA256
+          -v "$PWD:/work:ro"
+          -w /work
+          ${{ matrix.image }}
+          sh scripts/verify-unsupported-unix-fail-closed.sh "artifact/$ARTIFACT_NAME" musl
+
+  macos-x64-fails-closed:
+    name: exact tarball / macOS x64 unsupported
+    needs: pack-once
+    runs-on: macos-15-intel
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          name: software-beta-exact-tarball
+          path: artifact
+      - name: Reject installation and stateful use on macOS x64
+        shell: bash
+        env:
+          ARTIFACT_NAME: ${{ needs.pack-once.outputs.filename }}
+          EXPECTED_SHA256: ${{ needs.pack-once.outputs.expected_sha256 }}
+        run: sh scripts/verify-unsupported-unix-fail-closed.sh "artifact/$ARTIFACT_NAME" macos-x64
+
+  windows-fails-closed:
+    name: exact tarball / Windows unsupported
+    needs: pack-once
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          name: software-beta-exact-tarball
+          path: artifact
+      - name: Reject normal installation and stateful use
+        shell: pwsh
+        env:
+          ARTIFACT_NAME: ${{ needs.pack-once.outputs.filename }}
+          EXPECTED_SHA256: ${{ needs.pack-once.outputs.expected_sha256 }}
+        run: ./scripts/verify-windows-fail-closed.ps1 "artifact/$env:ARTIFACT_NAME"

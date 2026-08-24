@@ -17,11 +17,11 @@ Ship a solid public beta without making the unfinished macOS hardware work a pre
 
 An unlocked named `keyclasp run --env ...` uses only the machine key and remains unattended. A locked named run uses only the interactive key and requires operator authorization. Broad `run`, `get`, policy mutation, backup, and restore also require operator authorization even when they touch only machine-key records. Explicit selection limits disclosure to the child; it does not authenticate the caller or defend against every process running as the same user.
 
-Slice 3 adds the missing two-key custody boundary. Slice 4 qualifies and ships the public software beta. Hardware work remains outside the software-beta critical path.
+Slice 3 added the two-key custody boundary. Slice 4 qualified rc6; publication remains a protected release action. Hardware work remains outside the software-beta critical path.
 
 The detailed hardware evidence and eventual Developer ID/notarization work remain in [`2026-08-22-001-macos-hardware-beta-to-ga-plan.md`](./2026-08-22-001-macos-hardware-beta-to-ga-plan.md). This delivery map supersedes that plan's hardware-first release ordering.
 
-## Relevant current codebase
+## Codebase at plan creation
 
 - [`src/runtime.ts`](../../src/runtime.ts) defines the normalized command-level request and result shared by implementations.
 - [`src/software/runtime.ts`](../../src/software/runtime.ts) implements passphrase and machine execution without exposing keys or plaintext through the shared contract.
@@ -35,7 +35,7 @@ The detailed hardware evidence and eventual Developer ID/notarization work remai
 
 The shared runtime seam and module boundary are already complete and verified. They are prerequisites to this map, not another delivery slice.
 
-## Gap
+## Original gap at plan creation
 
 Slice 2 now enforces the requested authorization policy through supported commands, but one machine- or passphrase-wrapped data key still decrypts every record. A lock is therefore a command gate, not cryptographic separation from the unattended machine path. The final beta also lacks physical Touch ID evidence against the two-key artifact, a declared clean-platform matrix, Windows disposition, dependency/install-script qualification, and release-candidate evidence.
 
@@ -127,7 +127,7 @@ A packed local build can complete the walking skeleton through step 3, and no te
 - Migration interruption coverage uses deterministic faults at each durable boundary plus two-process contention and backup restoration. A real power-loss test remains part of the clean-platform release work.
 - Direct in-place overwrite of an open database is unsupported. Slice 2 owns managed restore and serialization between restore and vault lifecycle operations.
 - One intermediate parallel full-suite run transiently failed the existing single-secret delete integration test. Its isolated rerun and the final complete 300-test run passed; no reproducible Slice 1 defect was found.
-- The packed artifact is a local verification artifact, not a published beta. Publication remains Slice 3.
+- At the Slice 1 handoff, the packed artifact was a local verification artifact. Later slices owned release qualification and publication remained protected.
 
 ## Slice 2: Add scoped authorization locks and recoverable operations
 
@@ -211,7 +211,7 @@ The supported command paths enforce the scoped authorization matrix and fail bef
 
 ## Slice 3: Separate machine and interactive custody
 
-**Status:** accepted on 2026-08-24. Implementation, automated verification, physical macOS Touch ID verification, and exact-artifact interactive Linux verification are complete. Slice 4 has not started.
+**Status:** accepted on 2026-08-24. Implementation, automated verification, physical macOS Touch ID verification, and exact-artifact interactive Linux verification are complete. At the Slice 3 handoff, Slice 4 had not started.
 
 Deliver one migrated software vault in which the unattended machine path cannot decrypt records assigned to the interactive key.
 
@@ -301,7 +301,7 @@ Slice 3 is complete. Start Slice 4 in a fresh task using the exact artifact iden
 
 ## Slice 4: Qualify and ship the software beta
 
-**Status:** behavioral qualification complete on 2026-08-24. The frozen candidate passed automated macOS/Linux qualification, interactive Linux verification, exact-artifact macOS arm64 Touch ID verification, dependency/package review, and final independent reviews. Durable staging, CI identity correction and execution, committed-source provenance, and publication remain protected gates, so the tagged and published acceptance gate remains open.
+**Status:** qualification completed on 2026-08-24 against exact candidate rc6. Source tests, the complete supported exact-artifact matrix, unsupported musl rejection, independent review, and the physical Keyclasp Touch ID receipt pass. The authorized shipping task completed durable staging and the CI identity correction; committed-source provenance and release execution are in progress. Slice 5 has not started.
 
 Deliver one installable, supportable public prerelease for the software dual-key vault. Hardware mode remains unavailable.
 
@@ -321,7 +321,7 @@ Deliver one installable, supportable public prerelease for the software dual-key
 - Clean-install receipts identify the exact candidate hash and distinguish source, compiled, mocked-platform, physical-device, CI, and installed-package evidence.
 - macOS and Linux repeat the named machine-key run, locked interactive-key run, broad run, `get`, lock/unlock/inherit, backup, restore, migration, cancellation, signals, and cleanup against that file. Excluded Windows fails before creating or mutating vault state.
 - A final release review finds no unresolved critical or high-severity correctness, simplicity, security, test, concurrency, dependency, packaging, or documentation issue and no hardware, same-user-isolation, or zero-exposure claim.
-- After explicit publication authorization, verify the durable rc4 SHA-256 immediately before the network call and publish that explicit tarball path with `npm publish "$DURABLE_RC4_PATH" --tag beta`. Publishing `.`, a rebuilt local file, or a CI artifact is forbidden. Install from the registry, verify its integrity against the receipt, and repeat a narrow named-run/status smoke test. A mismatch stops the release before publication.
+- After explicit publication authorization, verify the durable final-candidate SHA-256 immediately before the network call and publish that explicit tarball path with `npm publish "$DURABLE_CANDIDATE_PATH" --tag beta`. Publishing `.`, a rebuilt local file, or a CI artifact is forbidden. Install from the registry, verify its integrity against the receipt, and repeat a narrow named-run/status smoke test. A mismatch stops the release before publication.
 
 ### Acceptance
 
@@ -329,15 +329,15 @@ Walking-skeleton step 6 passes on the published support matrix. The tag, npm pac
 
 ### Agent handoff
 
-Candidate: `/private/tmp/keyclasp-0.2.0-beta.1-rc4/keyclasp-0.2.0-beta.1.tgz`, SHA-256 `d9028fe2d3ea6ed539d43304558ae6afa8233e1a07d076d9613e00105a7a5b45`, npm integrity `sha512-1moxgK22YPzZoyV+HZlUFW6Ray4bITM9QJD/gvN08BYuMVDwkg9UnfKE0h7byJle3GhuEf6u0XJ+vafkWmAnZg==`.
+Historical candidate: rc4 at `/private/tmp/keyclasp-0.2.0-beta.1-rc4/keyclasp-0.2.0-beta.1.tgz`, SHA-256 `d9028fe2d3ea6ed539d43304558ae6afa8233e1a07d076d9613e00105a7a5b45`. Its qualification evidence remains valid for that file but cannot authorize publication after the biometric-helper change.
 
 Supported: macOS arm64 and glibc Linux arm64/x64, Node 24 and 26. macOS x64, musl Linux, Windows, other targets, and hardware mode are unsupported. No Rosetta, Windows-host, CI, registry, publication, or hardware-custody execution is claimed.
 
-Evidence complete: 451 source tests passed with 2 deliberate physical-platform skips; the exact candidate passed every supported local Node/target combination through prebuilt and forced source paths; Linux arm64 interactive custody and Linux x64 emulation passed; musl Node 24/26 failed closed; audits report zero advisories; SBOM, licenses, package contents, native hashes, install scripts, exports, signals, migration, recovery, interrupted writes, unusual paths, reinstall, and agent workflows are receipted. Fresh correctness, simplicity, security, test, concurrency, dependency, packaging, and documentation reviews are clean. The macOS arm64 physical transcript at `/var/folders/8c/t2tmqjw11gx8pkf90z3p3rbc0000gn/T/keyclasp-slice4-touch-id-EJWfn4/transcript.txt` has mode `0600`, SHA-256 `51a216714d0639399fbd3945a30d728afd231921a198652a8eef7fa1c25cb73c`, identifies the rc4 artifact SHA-256, and ends in `PASS`.
+Qualified candidate: rc6 at `/private/tmp/keyclasp-0.2.0-beta.1-rc6/keyclasp-0.2.0-beta.1.tgz`, SHA-256 `3cef4ddc6c21175e786c9b1bac95d649d1bf3881845d08804914bcff0999ee79`, SHA-1 `6ffa8dce3d707c316961312758094a995e92f472`, npm integrity `sha512-1MAvtM0DZzkjY5qdQ0pxxcFDDbok7odMmmLwPCFRwkiNq7Y0LIIeNJLJMX2TbIRT+N6pEOYc4wmQMlRjQNFy8Q==`. rc5 is historical and unqualified because `LSBackgroundOnly` caused physical `LAErrorSystemCancel`; rc6 uses a no-Dock accessory `NSApplication` and passed physical authorization.
 
-Qualification limits: CI has not run, its current pack job does not compare its rebuilt tarball to rc4, and Windows has no host evidence and remains unsupported. Release-preservation gates remain open: rc4 and its transcript need authorized durable staging; CI must treat any rebuilt tarball as a reproducibility check that must equal rc4; and the unchanged reviewed inputs need the `C1` candidate commit, source-tree manifest, metadata-only `C2` commit, and unchanged-path verification defined in the candidate receipt. No candidate-bearing source or package file changed after packing; the tarball and lockfile hashes still match the frozen receipt.
+Evidence: 29 source test files pass with 467 tests and 2 deliberate platform skips. macOS arm64 and glibc Linux arm64/x64 pass Node 24 and 26 with reviewed prebuilt and forced source paths. Musl Node 24/26 fails closed before vault creation. The exact rc6 physical run passed all ten interactions; evidence directory `/var/folders/8c/t2tmqjw11gx8pkf90z3p3rbc0000gn/T/keyclasp-slice4-touch-id-GHTyPO`, transcript mode `0600`, SHA-256 `3e99bab30700ef7f12c3e7a2085476ca0a7678048f2235a5b0ec340394eb0d86`. CI has not run, and Windows remains unsupported without host evidence.
 
-Protected gates remaining: durable staging of the exact tarball and transcript; the CI identity correction and rc4-equal execution; creation and verification of `C1`, the source-tree manifest, and metadata-only `C2`; `git commit`; `git push`; Git tag creation; GitHub release creation; immediate pre-publication verification followed by `npm publish "$DURABLE_RC4_PATH" --tag beta`; registry installation; and registry smoke testing. Each requires explicit user authorization; none has occurred.
+The authorized shipping task copied the exact tarball and transcript to `/Users/andreacatalucci/.local/share/keyclasp/releases/0.2.0-beta.1/`, preserved mode `0600`, and reverified both SHA-256 values. It also changed the CI repack into an rc6-equality gate whose expected hash flows to every downstream exact-artifact job. Committed-source provenance, CI execution, Git actions, GitHub release creation, npm publication, and registry verification remain in progress.
 
 ## Slice 5: Add the optional macOS hardware beta
 

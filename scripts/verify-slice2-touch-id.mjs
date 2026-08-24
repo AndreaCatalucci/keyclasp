@@ -203,7 +203,7 @@ async function main() {
   requireSuccess(lockResult, "scope lock");
   requirePassphrasePrompt(lockResult, "Approved lock");
 
-  note("2/10 When the Touch ID dialog appears, click Cancel. Do not touch the sensor. The child must not launch and no passphrase prompt may appear.");
+  note("2/10 Confirm the Touch ID dialog title is Keyclasp and its body shows the command, physical/touch-id scope, SLICE3_TEST, and enabled output protection. Then click Cancel without touching the sensor. The child must not launch and no passphrase prompt may appear.");
   const cancelled = await run("locked-run-cancel", [
     "run", "--project", "physical", "--environment", "touch-id", "--env", "SLICE3_TEST", "--",
     process.execPath, "-e", "require('node:fs').writeFileSync(process.argv[1], 'launched')", sentinel,
@@ -223,7 +223,7 @@ async function main() {
   requireSuccess(approvedLockedRun, "approved locked named run");
   requirePassphrasePrompt(approvedLockedRun, "Approved locked run");
 
-  note(`4/10 Approve Touch ID for the broad run, then enter ${disposablePassphrase}.`);
+  note(`4/10 Confirm the Keyclasp dialog again lists the broad run command, physical/touch-id scope, and complete SLICE3_TEST selection. Approve Touch ID, then enter ${disposablePassphrase}.`);
   const broadRun = await run("broad-run-approved", [
     "run", "--project", "physical", "--environment", "touch-id", "--",
     process.execPath, "-e", "process.exit(process.env.SLICE3_TEST === 'disposable-test-value' ? 0 : 9)",

@@ -8,6 +8,7 @@ import { collectNativeSourceFiles } from "../scripts/native-source-manifest.mjs"
 
 interface PackedFile {
   path: string;
+  mode?: number;
 }
 
 describe("npm package contents", () => {
@@ -53,6 +54,18 @@ describe("npm package contents", () => {
     const nodeAddonApiManifest = JSON.parse(
       fs.readFileSync(path.join(process.cwd(), "software-beta-node-addon-api-source.json"), "utf8"),
     );
+    const biometricManifest = JSON.parse(
+      fs.readFileSync(path.join(process.cwd(), "software-beta-macos-biometric.json"), "utf8"),
+    );
+    expect(biometricManifest).toEqual(expect.objectContaining({
+      bundle: "Keyclasp.app",
+      bundleIdentifier: "dev.keyclasp.biometric",
+      architecture: "arm64",
+      signature: "ad-hoc",
+    }));
+    for (const descriptor of [...biometricManifest.sourceFiles, ...biometricManifest.bundleFiles]) {
+      expect(crypto.createHash("sha256").update(fs.readFileSync(path.join(process.cwd(), descriptor.path))).digest("hex")).toBe(descriptor.sha256);
+    }
     expect(nodeAddonApiManifest.package).toBe("node-addon-api@8.9.2");
     expect(nodeAddonApiManifest.files).toEqual(
       collectNativeSourceFiles(path.join(process.cwd(), "node_modules", "node-addon-api")),
@@ -83,6 +96,9 @@ describe("npm package contents", () => {
   });
 
   it("ships the active biometric helper and excludes development and native-spike files", () => {
+    const biometricManifest = JSON.parse(
+      fs.readFileSync(path.join(process.cwd(), "software-beta-macos-biometric.json"), "utf8"),
+    );
     const result = spawnSync(
       "npm",
       ["--silent", "pack", "--dry-run", "--json", "--ignore-scripts"],
@@ -103,6 +119,7 @@ describe("npm package contents", () => {
     expect(files).toContain("software-beta-better-sqlite3-source.json");
     expect(files).toContain("software-beta-node-addon-api-source.json");
     expect(files).toContain("software-beta-native-prebuilds.json");
+    expect(files).toContain("software-beta-macos-biometric.json");
     expect(files).toContain("scripts/install-native-binding.mjs");
     expect(files).toContain("scripts/native-source-manifest.mjs");
     expect(files).toContain("scripts/verify-native-binding.mjs");
@@ -117,7 +134,15 @@ describe("npm package contents", () => {
       "node_modules/better-sqlite3/prebuilds/win32-arm64.node",
       "node_modules/better-sqlite3/prebuilds/win32-x64.node",
     ]);
-    expect(files).toContain("native/macos-biometric.js");
+    expect(files).toContain("native/Keyclasp.app/Contents/Info.plist");
+    expect(files).toContain("native/Keyclasp.app/Contents/MacOS/keyclasp-biometric");
+    expect(files).toContain("native/Keyclasp.app/Contents/_CodeSignature/CodeResources");
+    expect(files.filter((file) => file.startsWith("native/Keyclasp.app/"))).toEqual(
+      biometricManifest.bundleFiles.map((descriptor: { path: string }) => descriptor.path),
+    );
+    const helperEntry = packages[0]?.files.find((file) => file.path === "native/Keyclasp.app/Contents/MacOS/keyclasp-biometric") as PackedFile & { mode?: number };
+    expect(helperEntry.mode).toBe(0o755);
+    expect(files).not.toContain("native/macos-biometric.js");
     expect(files.some((file) => file.startsWith("native/keyclasp-core/"))).toBe(false);
     expect(files.some((file) => file.startsWith("tests/"))).toBe(false);
     expect(files.some((file) => file.startsWith("docs/"))).toBe(false);

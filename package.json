@@ -27,7 +27,7 @@
   },
   "files": [
     "dist",
-    "native/macos-biometric.js",
+    "native/Keyclasp.app",
     "skills",
     "NOTICE",
     "scripts/install-native-binding.mjs",
@@ -36,6 +36,7 @@
     "software-beta-better-sqlite3-source.json",
     "software-beta-node-addon-api-source.json",
     "software-beta-dependencies.json",
+    "software-beta-macos-biometric.json",
     "software-beta-native-prebuilds.json"
   ],
   "scripts": {

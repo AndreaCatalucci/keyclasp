@@ -2,18 +2,33 @@ import {
   runPreparedCommandWithSecrets,
   type PreparedRunCommandOptions,
 } from "../run.js";
+import { displayOperatorField } from "../runtime.js";
 import type { OperatorAuthorizer, RunRuntime, ScopedRunRequest } from "../runtime.js";
 
 type RunExecutor = (
   options: PreparedRunCommandOptions,
 ) => ReturnType<typeof runPreparedCommandWithSecrets>;
 
-function authorizationReason(request: ScopedRunRequest, locked: boolean): string {
-  const selection = request.envSpecs.length === 0
-    ? "every secret in scope"
-    : `mappings ${JSON.stringify(request.envSpecs.map((spec) => `${spec.sourceName}:${spec.targetName}`))}`;
-  const command = JSON.stringify(request.commandArgs);
-  return `Keyclasp ${locked ? "locked named" : "broad"} run ${request.scope.project}/${request.scope.environment}; ${selection}; command ${command}; output protection ${request.allowUnsafe ? "DISABLED" : "enabled"}`;
+function displayCommand(commandArgs: readonly string[]): string {
+  return commandArgs.map(displayOperatorField).join(" ");
+}
+
+function authorizationReason(
+  request: ScopedRunRequest,
+  selectedNames: readonly string[],
+): string {
+  const displayedSecrets = request.envSpecs.length === 0
+    ? selectedNames.map(displayOperatorField)
+    : request.envSpecs.map((spec) => spec.sourceName === spec.targetName
+      ? displayOperatorField(spec.sourceName)
+      : `${displayOperatorField(spec.sourceName)} → ${displayOperatorField(spec.targetName)}`);
+  const reason = [
+    `Run: ${displayCommand(request.commandArgs)}`,
+    `Scope: ${displayOperatorField(request.scope.project)} / ${displayOperatorField(request.scope.environment)}`,
+    `Secrets: ${displayedSecrets.join(", ") || "none"}`,
+    `Output protection: ${request.allowUnsafe ? "DISABLED" : "enabled"}`,
+  ].join("\n");
+  return reason;
 }
 
 export interface SoftwareRunRuntimeDependencies {
@@ -54,6 +69,11 @@ export function createSoftwareRunRuntime(
         );
       }
 
+      let reason: string | undefined;
+      if (request.envSpecs.length === 0 || locked) {
+        reason = authorizationReason(request, selectedNames);
+      }
+
       const outcome = await execute({
         request,
         baseEnv: dependencies.baseEnv(),
@@ -64,7 +84,7 @@ export function createSoftwareRunRuntime(
         stderr: dependencies.stderr,
         ensureUnlocked: needsInteractive ? dependencies.ensureUnlocked : async () => undefined,
         authorizationRequired: locked,
-        authorizationReason: authorizationReason(request, locked),
+        authorizationReason: reason,
         authorize: dependencies.authorize,
       });
       return { kind: outcome.kind, exitCode: outcome.exitCode };
