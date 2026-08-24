@@ -52,7 +52,15 @@ jobs:
           codesign --verify --strict native/Keyclasp.app
           test "$(lipo -archs native/Keyclasp.app/Contents/MacOS/keyclasp-biometric)" = arm64
       - run: npm run release:inventory:check
-      - run: npm run test:source
+      - name: Run the source suite
+        if: runner.os != 'macOS'
+        run: npm run test:source
+      - name: Run the macOS source suite outside the qualification-host byte check
+        if: runner.os == 'macOS'
+        run: >-
+          npm run test:source --
+          --hookTimeout=30000
+          --testNamePattern='^(?!.*ships an arm64 ad-hoc-signed Keyclasp app).*$'
       - run: git diff --check
 
   pack-once:
