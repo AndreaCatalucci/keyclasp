@@ -27,9 +27,30 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: npm
       - run: npm ci
-      - name: Rebuild and verify the packaged Touch ID helper
+      - name: Compile the Touch ID source and verify the reviewed helper
         if: runner.os == 'macOS'
-        run: node scripts/build-macos-biometric-helper.mjs --check
+        shell: bash
+        run: |
+          set -euo pipefail
+          build_root=$(mktemp -d)
+          trap 'rm -rf "$build_root"' EXIT
+          bundle="$build_root/Keyclasp.app"
+          mkdir -p "$bundle/Contents/MacOS"
+          cp native/macos-biometric/Info.plist "$bundle/Contents/Info.plist"
+          clang \
+            -arch arm64 \
+            -mmacosx-version-min=13.0 \
+            -fobjc-arc \
+            -framework Foundation \
+            -framework AppKit \
+            -framework LocalAuthentication \
+            native/macos-biometric/main.m \
+            -o "$bundle/Contents/MacOS/keyclasp-biometric"
+          codesign --force --sign - --timestamp=none --identifier dev.keyclasp.biometric "$bundle"
+          codesign --verify --strict "$bundle"
+          test "$(lipo -archs "$bundle/Contents/MacOS/keyclasp-biometric")" = arm64
+          codesign --verify --strict native/Keyclasp.app
+          test "$(lipo -archs native/Keyclasp.app/Contents/MacOS/keyclasp-biometric)" = arm64
       - run: npm run release:inventory:check
       - run: npm run test:source
       - run: git diff --check
