@@ -1,12 +1,12 @@
 # Keyclasp security hardening checklist
 
-This checklist gates the optional macOS hardware-backed release described in [`docs/plans/2026-08-22-001-macos-hardware-beta-to-ga-plan.md`](plans/2026-08-22-001-macos-hardware-beta-to-ga-plan.md). The canonical release order and separate software-beta milestone are defined in [`docs/plans/2026-08-23-001-software-beta-and-optional-hardware-mode-plan.md`](plans/2026-08-23-001-software-beta-and-optional-hardware-mode-plan.md). Unchecked hardware controls do not block that software beta, and the software beta must make no hardware-custody claim.
+This checklist gates Slice 5, the optional macOS hardware-backed release described in [`docs/plans/2026-08-22-001-macos-hardware-beta-to-ga-plan.md`](plans/2026-08-22-001-macos-hardware-beta-to-ga-plan.md). The canonical release order and separate software-beta milestone are defined in [`docs/plans/2026-08-23-001-software-beta-and-optional-hardware-mode-plan.md`](plans/2026-08-23-001-software-beta-and-optional-hardware-mode-plan.md). Unchecked hardware controls do not block that software beta, and the software beta must make no hardware-custody claim.
 
 The distribution assumption is explicit:
 
 - **Beta (`B`)** requires a physically qualified pre-GA signing and persistence path. The tested ad-hoc artifact is not accepted: it failed permanent Secure Enclave creation with `errSecMissingEntitlement`. Developer ID and notarization remain general-availability requirements unless qualification proves they are needed earlier.
 - **General availability (`G`)** uses Developer ID, hardened runtime, notarization, and direct distribution outside the Mac App Store.
-- **Future (`F`)** covers brokered capabilities that constrain malicious same-user callers and Windows/Linux hardware modes. Explicit named hardware-mode `--env` runs are non-interactive by design and do not depend on those future capabilities.
+- **Future (`F`)** covers brokered capabilities that constrain malicious same-user callers and Windows/Linux hardware modes. Exact machine-only hardware-mode `--env` runs are non-interactive and do not depend on those future capabilities.
 
 An unchecked `B` item blocks a beta intended for real secrets. An unchecked `G` item blocks general availability. Mark an item complete only when the evidence link names the test, reviewed commit, physical-device result, or release artifact that proves it. A pre-GA signing choice changes the distribution trust model; it does not relax any cryptographic or authorization control.
 
@@ -23,9 +23,10 @@ An unchecked `B` item blocks a beta intended for real secrets. An unchecked `G` 
 
 ## 2. Hardware key custody
 
-- [ ] **B** The Secure Enclave creates a unique non-exportable P-256 private key for each hardware-mode vault.
+- [ ] **B** The Secure Enclave creates independent non-exportable P-256 machine and interactive private keys for each hardware-mode vault; interactive private-key use is bound to `biometryCurrentSet`.
 - [ ] **B** Files store only public material, opaque handles, salts, nonces, wrapped keys, and authenticated metadata.
-- [ ] **B** Copying every Keyclasp file to a second physical Mac fails to unwrap the vault data key.
+- [ ] **B** Copying every Keyclasp file to a second physical Mac fails to unwrap either vault data key.
+- [ ] **B** Possession of the machine private-key path and every machine-key metadata file cannot decrypt an interactive-class record.
 - [ ] **B** Operations whose policy requires Touch ID fail closed on denial, cancellation, timeout, missing enrollment, or enrollment change. Deleted hardware keys and corrupted handles fail closed for every operation.
 - [ ] **B** Hardware unavailability selects no weaker mode automatically. The user may explicitly create or recover into portable mode.
 - [ ] **B** The Keyclasp-owned adapter verifies that the selected key is Secure Enclave-backed; a reported macOS hardware mode cannot use a software implementation.
@@ -34,8 +35,8 @@ An unchecked `B` item blocks a beta intended for real secrets. An unchecked `G` 
 
 ## 3. Key hierarchy and cryptography
 
-- [ ] **B** A cryptographically secure RNG creates the 256-bit vault root key, salts, record UUIDs, and every GCM nonce.
-- [ ] **B** The hardware key wraps the random vault root key; the hardware key is not used to encrypt the SQLite database directly.
+- [ ] **B** A cryptographically secure RNG creates independent 256-bit machine and interactive data keys, salts, record UUIDs, and every GCM nonce.
+- [ ] **B** Each hardware key wraps only its matching random data key; hardware keys are not used to encrypt the SQLite database directly.
 - [ ] **B** HKDF or an equivalent reviewed construction derives separate content, metadata, lookup, manifest, audit, and policy keys where those domains exist.
 - [ ] **B** AES-256-GCM uses a fresh 96-bit nonce and 128-bit tag for every encryption under a given key.
 - [ ] **B** Tests detect nonce reuse, malformed lengths, truncated records, tag changes, and wrong-key decryption.
@@ -52,11 +53,11 @@ An unchecked `B` item blocks a beta intended for real secrets. An unchecked `G` 
 ## 4. Authorization and operation policy
 
 - [ ] **B** The native core owns authorization; the TypeScript CLI cannot assert `operatorAuthenticated` or an equivalent trusted boolean.
-- [ ] **B** The native core evaluates authorization and releases secrets in one operation: effectively unlocked named `--env` requests use normal vault-mode behavior, while broad and effectively locked requests complete Touch ID before decrypting or spawning.
+- [ ] **B** The native core evaluates authorization and releases secrets in one operation: machine-only named `--env` requests are non-interactive, while broad requests and every selection containing an interactive record complete Touch ID before either selected class is unwrapped, any record is decrypted, or a child is spawned.
 - [ ] **B** When policy requires Touch ID, the authorization prompt shows the operation, project, environment, selected secret names or whole-scope request, executable, and arguments before approval.
-- [ ] **B** `init`, enrollment, `set`, `get`, export, delete, bulk delete, rename, rekey, migration, recovery, mode changes, and every `run` pass through native authorization appropriate to the operation. Named runs require an exact non-empty `--env` selection; broad and effectively locked named runs require Touch ID.
+- [ ] **B** `init`, enrollment, `set`, `get`, export, delete, bulk delete, rename, rekey, migration, recovery, mode changes, `lock`, `unlock`, `inherit`, and every `run` pass through native authorization appropriate to the operation. Named runs require an exact non-empty `--env` selection; broad and interactive-containing named runs require Touch ID.
 - [ ] **B** An explicit `--env` selection with a missing value, malformed mapping, duplicate target variable, or unresolved secret fails without decrypting, spawning, or falling back to whole-scope injection.
-- [ ] **B** Strict mode is stored per project/environment in authenticated storage, is reported by CLI status, and cannot be weakened by flags, environment variables, context, unsafe mode, or supported library imports. Enabling or disabling it requires operator authorization, and migration preserves it without downgrade.
+- [ ] **B** Authenticated lock/unlock/inherit rules support project-only, environment-only, exact-scope, and exact-secret selectors with the shared precedence contract. Mutations always require Touch ID and atomically re-encrypt affected records under the resulting hardware custody class while assigning that class to future matching records.
 - [ ] **B** `list`, `projects`, `environments`, and scoped `status` are the only unauthenticated metadata operations; secret names are explicitly classified as discoverable metadata, and these operations cannot mutate storage or reach a value-decrypt function.
 - [ ] **B** Whole-scope access is operator-only and never available to agent mode.
 - [ ] **B** Every agent operation requires explicit project, environment, and secret names; persisted context grants no authority.
@@ -169,7 +170,7 @@ An unchecked `B` item blocks a beta intended for real secrets. An unchecked `G` 
 
 - [ ] **B** Unit tests cover every key, serialization, protocol, policy, and error transition through injected adapters.
 - [ ] **B** Tests exercise the real compiled macOS authorization helper or core decision logic; a status-zero mock alone cannot prove authorization.
-- [ ] **B** Black-box CLI tests prove effectively unlocked named runs use normal vault-mode behavior, broad and effectively locked named runs require Touch ID, and every denied `get`, `run`, mutation, recovery, or migration releases no plaintext and spawns no child.
+- [ ] **B** Black-box CLI tests prove machine-only named runs are non-interactive; broad, interactive, and mixed-class runs require Touch ID; machine-key material cannot decrypt an interactive record; and every denied `get`, `run`, custody mutation, recovery, or migration releases no plaintext and spawns no child.
 - [ ] **B** Package tests run against the packed artifact and public exports rather than privileged source imports.
 - [ ] **B** Property tests cover encryption round trips, unique nonces, state-machine transitions, migration, rename, and concurrent operations.
 - [ ] **B** Fuzzing covers the native protocol, vault headers, encrypted records, manifests, recovery metadata, and malformed SQLite rows.

@@ -7,7 +7,7 @@ export type VaultLifecycleLock = { release(): void };
 let _freshSchemaBarrierForTests: (() => void) | null = null;
 
 export function lifecycleModeForCommand(command: string): "shared" | "exclusive" {
-  return ["init", "lock", "unlock", "backup", "rename"].includes(command) ? "exclusive" : "shared";
+  return ["init", "lock", "unlock", "inherit", "passphrase", "backup", "rename"].includes(command) ? "exclusive" : "shared";
 }
 
 export function setFreshLifecycleSchemaBarrierForTests(barrier: (() => void) | null): void {

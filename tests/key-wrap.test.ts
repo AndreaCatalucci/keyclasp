@@ -17,7 +17,7 @@ import {
   authorizeAndUnlockVaultPassphrase,
 } from "../src/vault.js";
 
-const KEY_FILE_MAGIC_V4 = Buffer.from("keyclasp:v4\n", "utf8");
+const KEY_FILE_MAGIC_V5 = Buffer.from("keyclasp:v5\n", "utf8");
 const KEY_FILE_MAGIC_V2 = Buffer.from("keyclasp:v2\n", "utf8");
 
 const previousKeyclaspHome = process.env.KEYCLASP_HOME;
@@ -49,11 +49,11 @@ afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
-describe("v4 passphrase wrap", () => {
-  it("writes v4 magic and round-trips a secret in the same process", () => {
+describe("v5 dual-key passphrase wrap", () => {
+  it("writes v5 magic and round-trips a machine-class secret in the same process", () => {
     initializeVault("wrap-passphrase");
     storeSecret("default", "default", "API_KEY", "sk-live-value");
-    expect(fs.readFileSync(keyPath()).subarray(0, KEY_FILE_MAGIC_V4.length).equals(KEY_FILE_MAGIC_V4)).toBe(true);
+    expect(fs.readFileSync(keyPath()).subarray(0, KEY_FILE_MAGIC_V5.length).equals(KEY_FILE_MAGIC_V5)).toBe(true);
     expect(resolveSecret("default", "default", "API_KEY")).toBe("sk-live-value");
     expect(vaultHasPassphrase()).toBe(true);
   });
@@ -77,14 +77,14 @@ describe("v4 passphrase wrap", () => {
     expect(sideFiles()).toEqual(beforeSideFiles);
   });
 
-  it("refuses to resolve after clearKey until unlock succeeds", () => {
+  it("keeps machine-class records available after clearKey while rejecting a wrong interactive passphrase", () => {
     initializeVault("wrap-passphrase");
     storeSecret("default", "default", "API_KEY", "sk-live-value");
     resetRuntime();
 
-    expect(() => resolveSecret("default", "default", "API_KEY")).toThrow(/locked|passphrase/i);
+    expect(resolveSecret("default", "default", "API_KEY")).toBe("sk-live-value");
     expect(() => unlockVault("wrong-passphrase")).toThrow(/passphrase/i);
-    expect(() => resolveSecret("default", "default", "API_KEY")).toThrow(/locked|passphrase/i);
+    expect(resolveSecret("default", "default", "API_KEY")).toBe("sk-live-value");
 
     unlockVault("wrap-passphrase");
     expect(resolveSecret("default", "default", "API_KEY")).toBe("sk-live-value");
@@ -107,7 +107,7 @@ describe("v4 passphrase wrap", () => {
   });
 });
 
-describe("v4 machine wrap", () => {
+describe("v5 machine wrap", () => {
   it("writes machine mode for an empty init passphrase", () => {
     initializeVault("");
     expect(vaultHasPassphrase()).toBe(false);

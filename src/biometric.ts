@@ -132,7 +132,6 @@ async function readPassphraseFromTerminal(): Promise<string> {
   }
 
   const wasRaw = stdin.isRaw === true;
-  const wasPaused = stdin.isPaused();
   return new Promise((resolve, reject) => {
     stdout.write("Enter vault passphrase: ");
     let value = "";
@@ -156,7 +155,7 @@ async function readPassphraseFromTerminal(): Promise<string> {
       cleanup(() => stdin.removeListener("close", onClose));
       cleanup(() => stdin.removeListener("error", onError));
       cleanup(() => stdin.setRawMode?.(wasRaw));
-      if (wasPaused) cleanup(() => stdin.pause());
+      cleanup(() => stdin.pause());
       cleanup(() => { stdout.write("\n"); });
       if (finalError) reject(finalError);
       else resolve(value);

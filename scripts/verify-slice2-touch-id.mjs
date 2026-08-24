@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
@@ -24,7 +24,7 @@ export function assertCancelledLockedRun(result) {
 export function createTranscriptRecorder(evidenceDirectory, now = () => new Date()) {
   const transcriptPath = path.join(evidenceDirectory, "transcript.txt");
   const transcript = [
-    "Slice 2 physical Touch ID verification",
+    "Slice 3 dual-key physical Touch ID verification",
     `started_at=${now().toISOString()}`,
     `evidence_directory=${evidenceDirectory}`,
   ];
@@ -65,13 +65,47 @@ export function evidenceSummary(evidenceDirectory, transcriptPath) {
   return [`Evidence: ${evidenceDirectory}`, `Transcript: ${transcriptPath}`];
 }
 
-function main() {
+export function spawnWithLiveTranscript(command, args, options = {}) {
+  const {
+    display = true,
+    stdoutSink = process.stdout,
+    stderrSink = process.stderr,
+    ...spawnOptions
+  } = options;
+  return new Promise((resolve) => {
+    const child = spawn(command, args, {
+      ...spawnOptions,
+      stdio: ["inherit", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    let spawnError;
+    child.stdout.on("data", (chunk) => {
+      const text = chunk.toString();
+      stdout += text;
+      if (display) stdoutSink.write(text);
+    });
+    child.stderr.on("data", (chunk) => {
+      const text = chunk.toString();
+      stderr += text;
+      if (display) stderrSink.write(text);
+    });
+    child.on("error", (error) => {
+      spawnError = error;
+    });
+    child.on("close", (status, signal) => {
+      resolve({ status, signal, stdout, stderr, ...(spawnError ? { error: spawnError } : {}) });
+    });
+  });
+}
+
+async function main() {
   if (process.platform !== "darwin") {
-    throw new Error("Slice 2 physical verification requires macOS with Touch ID.");
+    throw new Error("Slice 3 physical verification requires macOS with Touch ID.");
   }
 
   const repository = path.resolve(import.meta.dirname, "..");
-  const testRoot = fs.mkdtempSync(path.join(os.tmpdir(), "keyclasp-slice2-touch-id-"));
+  const testRoot = fs.mkdtempSync(path.join(os.tmpdir(), "keyclasp-slice3-touch-id-"));
   const transcript = createTranscriptRecorder(testRoot);
   const sentinel = path.join(testRoot, "child-launched");
   const environment = { ...process.env, KEYCLASP_HOME: path.join(testRoot, ".keyclasp") };
@@ -80,20 +114,12 @@ function main() {
     transcript.note(message);
   }
 
-  function run(label, args, options = {}) {
-    const { display = true, ...spawnOptions } = options;
-    const result = spawnSync(process.execPath, [cli, ...args], {
+  async function run(label, args, options = {}) {
+    const result = await spawnWithLiveTranscript(process.execPath, [cli, ...args], {
       cwd: repository,
       env: environment,
-      encoding: "utf8",
-      ...spawnOptions,
+      ...options,
     });
-    const stdout = result.stdout ?? "";
-    const stderr = result.stderr ?? "";
-    if (display) {
-      if (stdout) process.stdout.write(stdout);
-      if (stderr) process.stderr.write(stderr);
-    }
     transcript.record(label, result);
     return result;
   }
@@ -146,31 +172,35 @@ function main() {
   if (!fs.existsSync(cli)) fail("Packed-artifact installation did not contain dist/cli.js.");
   transcript.note(`packed_cli=${cli}`);
 
-  const disposablePassphrase = "slice2-disposable-passphrase";
+  const disposablePassphrase = "slice3-disposable-passphrase";
   const setupPath = path.join(testRoot, "setup-passphrase-vault.mjs");
   const vaultModule = pathToFileURL(path.join(installDirectory, "node_modules", "keyclasp", "dist", "vault.js")).href;
   fs.writeFileSync(setupPath, [
     `import { initializeVault, storeSecret, closeDb, clearKey } from ${JSON.stringify(vaultModule)};`,
     `initializeVault(${JSON.stringify(disposablePassphrase)});`,
-    `storeSecret("physical", "touch-id", "SLICE2_TEST", "disposable-test-value");`,
+    `storeSecret("physical", "touch-id", "SLICE3_TEST", "disposable-test-value");`,
     "closeDb();",
     "clearKey();",
   ].join("\n"), { mode: 0o600 });
   fs.chmodSync(setupPath, 0o600);
   requireSuccess(runExternal("setup-passphrase-vault", process.execPath, [setupPath]), "temporary passphrase-vault setup");
 
-  note(`1/3 Approve Touch ID to lock the physical/touch-id scope. Then enter ${disposablePassphrase} when prompted.`);
-  const lockResult = run("scope-lock", ["lock", "--project", "physical", "--environment", "touch-id"], {
-    stdio: ["inherit", "pipe", "pipe"],
-  });
+  const unattendedBefore = await run("unattended-before-lock", [
+    "run", "--project", "physical", "--environment", "touch-id", "--env", "SLICE3_TEST", "--",
+    process.execPath, "-e", "process.exit(process.env.SLICE3_TEST === 'disposable-test-value' ? 0 : 9)",
+  ]);
+  requireSuccess(unattendedBefore, "unattended named run before lock");
+
+  note(`1/4 Approve Touch ID to lock the physical/touch-id scope. Then enter ${disposablePassphrase} when prompted.`);
+  const lockResult = await run("scope-lock", ["lock", "--project", "physical", "--environment", "touch-id"]);
   requireSuccess(lockResult, "scope lock");
   if (!lockResult.stdout.includes("Enter vault passphrase:")) fail("The approved lock did not request the passphrase after Touch ID.");
 
-  note("2/3 When the Touch ID dialog appears, click Cancel. Do not touch the sensor. The child must not launch.");
-  const cancelled = run("locked-run-cancel", [
-    "run", "--project", "physical", "--environment", "touch-id", "--env", "SLICE2_TEST", "--",
+  note("2/4 When the Touch ID dialog appears, click Cancel. Do not touch the sensor. The child must not launch and no passphrase prompt may appear.");
+  const cancelled = await run("locked-run-cancel", [
+    "run", "--project", "physical", "--environment", "touch-id", "--env", "SLICE3_TEST", "--",
     process.execPath, "-e", "require('node:fs').writeFileSync(process.argv[1], 'launched')", sentinel,
-  ], { stdio: ["inherit", "pipe", "pipe"] });
+  ]);
   try {
     assertCancelledLockedRun(cancelled);
   } catch (error) {
@@ -178,30 +208,47 @@ function main() {
   }
   if (fs.existsSync(sentinel)) fail(`The cancelled locked run launched its child: ${sentinel}`);
 
-  const enabledStatus = run("status-enabled", ["status", "--project", "physical", "--environment", "touch-id"], { display: false });
+  note(`3/4 Approve Touch ID for the locked named run, then enter ${disposablePassphrase}.`);
+  const approvedLockedRun = await run("locked-run-approved", [
+    "run", "--project", "physical", "--environment", "touch-id", "--env", "SLICE3_TEST", "--",
+    process.execPath, "-e", "process.exit(process.env.SLICE3_TEST === 'disposable-test-value' ? 0 : 9)",
+  ]);
+  requireSuccess(approvedLockedRun, "approved locked named run");
+  if (!approvedLockedRun.stdout.includes("Enter vault passphrase:")) fail("The approved locked run did not request the passphrase after Touch ID.");
+
+  const enabledStatus = await run("status-enabled", ["status", "--project", "physical", "--environment", "touch-id"], { display: false });
   requireSuccess(enabledStatus, "enabled status check");
-  if (!enabledStatus.stdout.includes("Mode:       software-passphrase") ||
+  if (!enabledStatus.stdout.includes("Mode:       software-dual-key") ||
       !enabledStatus.stdout.includes("Authorization: locked")) {
-    fail("Status did not report software-passphrase with the scope locked.");
+    fail("Status did not report software-dual-key with the scope locked.");
   }
 
-  note(`3/3 Approve Touch ID to unlock the physical/touch-id scope. Then enter ${disposablePassphrase} when prompted.`);
-  const unlockResult = run("scope-unlock", ["unlock", "--project", "physical", "--environment", "touch-id"], {
-    stdio: ["inherit", "pipe", "pipe"],
-  });
+  note(`4/4 Approve Touch ID to unlock the physical/touch-id scope. Then enter ${disposablePassphrase} when prompted.`);
+  const unlockResult = await run("scope-unlock", ["unlock", "--project", "physical", "--environment", "touch-id"]);
   requireSuccess(unlockResult, "scope unlock");
   if (!unlockResult.stdout.includes("Enter vault passphrase:")) fail("The approved unlock did not request the passphrase after Touch ID.");
 
-  const disabledStatus = run("status-disabled", ["status", "--project", "physical", "--environment", "touch-id"], { display: false });
+  const disabledStatus = await run("status-disabled", ["status", "--project", "physical", "--environment", "touch-id"], { display: false });
   requireSuccess(disabledStatus, "disabled status check");
   if (!disabledStatus.stdout.includes("Authorization: unlocked")) {
     fail("Status did not report the scope unlocked after the final authorization.");
   }
 
+  const unattendedAfter = await run("unattended-after-unlock", [
+    "run", "--project", "physical", "--environment", "touch-id", "--env", "SLICE3_TEST", "--",
+    process.execPath, "-e", "process.exit(process.env.SLICE3_TEST === 'disposable-test-value' ? 0 : 9)",
+  ]);
+  requireSuccess(unattendedAfter, "unattended named run after unlock");
+
   transcript.finish("PASS");
-  console.log("PASS: The final packed artifact required Touch ID then the passphrase for lock and unlock; cancellation exited 2 with the exact BLOCKED result, requested no passphrase, launched no child, and status reported the effective software-passphrase authorization state.");
+  console.log("PASS: The final packed dual-key artifact ran unlocked named use unattended; required Touch ID then the passphrase for lock, locked use, and unlock; cancellation exited 2 with the exact BLOCKED result and launched no child; and use returned to unattended after unlock.");
   for (const line of evidenceSummary(testRoot, transcript.path)) console.log(line);
 }
 
 const invokedDirectly = process.argv[1] !== undefined && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
-if (invokedDirectly) main();
+if (invokedDirectly) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.stack ?? error.message : error);
+    process.exitCode = 1;
+  });
+}

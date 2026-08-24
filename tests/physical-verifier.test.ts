@@ -4,9 +4,34 @@ import os from "node:os";
 import path from "node:path";
 // The verifier is an intentionally standalone JavaScript operator script.
 // @ts-expect-error No declaration file is needed for this internal script.
-import { assertCancelledLockedRun, createTranscriptRecorder, evidenceSummary } from "../scripts/verify-slice2-touch-id.mjs";
+import { assertCancelledLockedRun, createTranscriptRecorder, evidenceSummary, spawnWithLiveTranscript } from "../scripts/verify-slice2-touch-id.mjs";
 
-describe("Slice 2 physical-verifier result classification", () => {
+describe("Slice 3 physical-verifier result classification", () => {
+  it("streams an interactive prompt before the child exits while retaining transcript output", async () => {
+    let resolvePrompt!: () => void;
+    const promptSeen = new Promise<void>((resolve) => { resolvePrompt = resolve; });
+    let displayed = "";
+    const stdoutSink = {
+      write(chunk: string) {
+        displayed += chunk;
+        if (displayed.includes("Enter vault passphrase: ")) resolvePrompt();
+        return true;
+      },
+    };
+    let settled = false;
+    const running = spawnWithLiveTranscript(process.execPath, [
+      "-e",
+      "process.stdout.write('Enter vault passphrase: '); setTimeout(() => process.exit(0), 100);",
+    ], { stdoutSink, stderrSink: { write: () => true } }).finally(() => { settled = true; });
+
+    await promptSeen;
+    expect(settled).toBe(false);
+    const result = await running;
+    expect(result.status).toBe(0);
+    expect(result.stdout).toBe("Enter vault passphrase: ");
+    expect(displayed).toBe(result.stdout);
+  });
+
   it("accepts only status 2 with the exact cancellation BLOCKED output", () => {
     expect(() => assertCancelledLockedRun({
       status: 2,

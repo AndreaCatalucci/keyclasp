@@ -75,7 +75,7 @@ describe("vault lifecycle serialization", () => {
   });
 
   it("assigns every policy, recovery, and rename command an exclusive lifecycle lock", () => {
-    for (const command of ["init", "lock", "unlock", "backup", "rename"]) {
+    for (const command of ["init", "lock", "unlock", "inherit", "passphrase", "backup", "rename"]) {
       expect(lifecycleModeForCommand(command), command).toBe("exclusive");
     }
     for (const command of ["run", "get", "status", "list", "set", "delete", "use", "projects", "environments"]) {

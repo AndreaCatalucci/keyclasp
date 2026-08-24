@@ -269,7 +269,7 @@ describe("platform operator authorization", () => {
 
   it("restores a passphrase backup after total loss with one Linux prompt", async () => {
     initializeVault("portable-passphrase");
-    storeSecret("app", "prod", "API_KEY", "backup-secret");
+    storeSecret("app", "prod", "API_KEY", "backup-secret", "interactive");
     const backup = path.join(root, "backup");
     createManagedBackup(backup);
     closeDb();

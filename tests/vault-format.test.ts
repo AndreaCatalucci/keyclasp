@@ -181,8 +181,8 @@ describe("authenticated record identity", () => {
     try {
       targetDb.prepare(`
         INSERT INTO secrets
-          (project, environment, name, record_id, record_kind, encrypted_value, iv, auth_tag, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          (project, environment, name, record_id, record_kind, key_class, encrypted_value, iv, auth_tag, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(...Object.values(row));
     } finally {
       targetDb.close();

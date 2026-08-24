@@ -10,9 +10,9 @@ For a future accepted beta, compare the archive checksum with the published `.sh
 
 The run policy is explicit:
 
-- `keyclasp run --env NAME -- command` injects only the named secrets; it requires Touch ID when any selected secret is effectively locked;
+- `keyclasp run --env NAME -- command` injects only the named secrets; it requires Touch ID before decrypting any secret when at least one selected record is in interactive custody;
 - `keyclasp run -- command` requests every secret in the resolved scope and always requires Touch ID; and
-- `keyclasp lock` and `keyclasp unlock` define authenticated authorization rules for matching existing and future secrets.
+- `keyclasp lock`, `keyclasp unlock`, and `keyclasp inherit` require Touch ID and atomically set the custody class for matching existing and future secrets.
 
 An invalid explicit selection fails without launching the child and never widens into whole-scope injection. The beta does not fall back from required Touch ID to a recovery passphrase; recovery is a separate deliberate operation.
 

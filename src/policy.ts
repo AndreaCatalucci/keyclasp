@@ -26,6 +26,7 @@ type PolicyMutationFault =
 let _policyMutationFaultForTests: PolicyMutationFault | null = null;
 
 export type AuthorizationState = "locked" | "unlocked";
+export type AuthorizationMutation = "lock" | "unlock" | "inherit";
 
 export interface AuthorizationSelector {
   project?: string;
@@ -65,7 +66,7 @@ interface LegacyPolicyPayload {
   records: PolicyRecord[];
 }
 
-interface PolicyRule extends AuthorizationSelector {
+export interface AuthorizationRule extends AuthorizationSelector {
   locked: boolean;
 }
 
@@ -73,7 +74,7 @@ interface PolicyPayload {
   version: 2;
   vaultId: string;
   generation: number;
-  rules: PolicyRule[];
+  rules: AuthorizationRule[];
 }
 
 type AnyPolicyPayload = LegacyPolicyPayload | PolicyPayload;
@@ -91,7 +92,7 @@ interface PolicyAnchor {
 
 interface LoadedPolicy {
   generation: number;
-  rules: PolicyRule[];
+  rules: AuthorizationRule[];
   key: Buffer;
   documentHash: string;
 }
@@ -176,9 +177,9 @@ function loadPolicyFrom(paths: { document: string; anchor: string }, expectedVau
       document.mac !== macPayload(document, key)) {
     throw new Error("Keyclasp authorization policy failed authentication. Restore a managed backup before using the vault.");
   }
-  const rules: PolicyRule[] = [];
+  const rules: AuthorizationRule[] = [];
   const seen = new Set<string>();
-  const candidates: PolicyRule[] = document.version === 1
+  const candidates: AuthorizationRule[] = document.version === 1
     ? (() => {
         if (!Array.isArray(document.records)) throw new Error("Keyclasp authorization policy is corrupt.");
         return document.records.map((record) => {
@@ -300,15 +301,20 @@ function readPolicyDatabaseAnchor(databasePath = path.join(getVaultLocation(), "
   }
 }
 
-function writePolicyDatabaseAnchor(anchor: PolicyDatabaseAnchor | null, databasePath = path.join(getVaultLocation(), "vault.db")): void {
+function writePolicyDatabaseAnchor(
+  anchor: PolicyDatabaseAnchor | null,
+  databasePath = path.join(getVaultLocation(), "vault.db"),
+  databaseMutation?: (db: Database.Database) => void,
+): void {
   const db = new Database(databasePath, { fileMustExist: true });
   try {
     db.pragma("synchronous = FULL");
-    const columns = (db.pragma("table_info(vault_metadata)") as { name: string }[]).map((column) => column.name);
-    if (!columns.includes("strict_policy_generation")) db.exec("ALTER TABLE vault_metadata ADD COLUMN strict_policy_generation INTEGER");
-    if (!columns.includes("strict_policy_required")) db.exec("ALTER TABLE vault_metadata ADD COLUMN strict_policy_required INTEGER NOT NULL DEFAULT 0");
-    if (!columns.includes("strict_policy_document_hash")) db.exec("ALTER TABLE vault_metadata ADD COLUMN strict_policy_document_hash TEXT");
     const update = db.transaction(() => {
+      const columns = (db.pragma("table_info(vault_metadata)") as { name: string }[]).map((column) => column.name);
+      if (!columns.includes("strict_policy_generation")) db.exec("ALTER TABLE vault_metadata ADD COLUMN strict_policy_generation INTEGER");
+      if (!columns.includes("strict_policy_required")) db.exec("ALTER TABLE vault_metadata ADD COLUMN strict_policy_required INTEGER NOT NULL DEFAULT 0");
+      if (!columns.includes("strict_policy_document_hash")) db.exec("ALTER TABLE vault_metadata ADD COLUMN strict_policy_document_hash TEXT");
+      databaseMutation?.(db);
       db.prepare("UPDATE vault_metadata SET strict_policy_required = ?, strict_policy_generation = ?, strict_policy_document_hash = ? WHERE singleton = 1")
         .run(anchor === null ? 0 : 1, anchor?.generation ?? null, anchor?.documentHash ?? null);
     });
@@ -377,7 +383,7 @@ function recoverInterruptedPolicy(
   return restored;
 }
 
-function matchingSpecificity(rule: PolicyRule, project: string, environment: string, secret?: string): number | null {
+function matchingSpecificity(rule: AuthorizationRule, project: string, environment: string, secret?: string): number | null {
   if (rule.project !== undefined && rule.project !== project) return null;
   if (rule.environment !== undefined && rule.environment !== environment) return null;
   if (rule.secret !== undefined && rule.secret !== secret) return null;
@@ -386,7 +392,7 @@ function matchingSpecificity(rule: PolicyRule, project: string, environment: str
   return 1;
 }
 
-function evaluateAuthorizationRules(rules: readonly PolicyRule[], project: string, environment: string, secret?: string): AuthorizationState {
+export function evaluateAuthorizationRules(rules: readonly AuthorizationRule[], project: string, environment: string, secret?: string): AuthorizationState {
   let bestSpecificity = 0;
   let locked = false;
   for (const rule of rules) {
@@ -431,27 +437,47 @@ export function validateLiveAuthorizationPolicy(): void {
   loadPolicy();
 }
 
-export function setAuthorizationRule(selector: AuthorizationSelector, locked: boolean): AuthorizationState {
+export function mutateAuthorizationRule(
+  selector: AuthorizationSelector,
+  action: AuthorizationMutation,
+  databaseMutation?: (
+    db: Database.Database,
+    nextRules: readonly AuthorizationRule[],
+    nextGeneration: number,
+  ) => void,
+): AuthorizationState | "inherited" {
   validateAuthorizationSelector(selector);
+  if (action !== "lock" && action !== "unlock" && action !== "inherit") {
+    throw new Error("Invalid authorization-policy mutation.");
+  }
   const descriptor = getVaultDescriptor();
   const loaded = loadPolicy();
   const key = loaded?.key ?? crypto.randomBytes(32);
   const rules = loaded ? [...loaded.rules] : [];
   const identity = ruleIdentity(selector);
-  const existing = rules.find((item) => ruleIdentity(item) === identity);
-  if (existing?.locked === locked) return locked ? "locked" : "unlocked";
-  const nextRule: PolicyRule = {
-    ...(selector.project === undefined ? {} : { project: selector.project }),
-    ...(selector.environment === undefined ? {} : { environment: selector.environment }),
-    ...(selector.secret === undefined ? {} : { secret: selector.secret }),
-    locked,
-  };
-  if (existing) rules.splice(rules.indexOf(existing), 1, nextRule);
-  else rules.push(nextRule);
+  const existingIndex = rules.findIndex((item) => ruleIdentity(item) === identity);
+  const existing = existingIndex === -1 ? undefined : rules[existingIndex];
+  const result = action === "lock" ? "locked" : action === "unlock" ? "unlocked" : "inherited";
+  if (action === "inherit") {
+    if (!existing) return result;
+    rules.splice(existingIndex, 1);
+  } else {
+    const locked = action === "lock";
+    if (existing?.locked === locked) return result;
+    const nextRule: AuthorizationRule = {
+      ...(selector.project === undefined ? {} : { project: selector.project }),
+      ...(selector.environment === undefined ? {} : { environment: selector.environment }),
+      ...(selector.secret === undefined ? {} : { secret: selector.secret }),
+      locked,
+    };
+    if (existing) rules.splice(existingIndex, 1, nextRule);
+    else rules.push(nextRule);
+  }
+  const nextGeneration = (loaded?.generation ?? 0) + 1;
   const payload: PolicyPayload = {
     version: POLICY_VERSION,
     vaultId: descriptor.vaultId.toString("base64"),
-    generation: (loaded?.generation ?? 0) + 1,
+    generation: nextGeneration,
     rules,
   };
   const document: PolicyDocument = { ...payload, mac: macPayload(payload, key) };
@@ -480,7 +506,11 @@ export function setAuthorizationRule(selector: AuthorizationSelector, locked: bo
     if (_policyMutationFaultForTests === "after-anchor" || _policyMutationFaultForTests === "crash-after-anchor") {
       throw new Error("Injected authorization-policy interruption after anchor publication.");
     }
-    writePolicyDatabaseAnchor({ generation: payload.generation, documentHash: anchor.documentHash });
+    writePolicyDatabaseAnchor(
+      { generation: payload.generation, documentHash: anchor.documentHash },
+      path.join(getVaultLocation(), "vault.db"),
+      databaseMutation === undefined ? undefined : (db) => databaseMutation(db, rules, nextGeneration),
+    );
     committed = true;
     if (_policyMutationFaultForTests === "crash-after-commit") {
       throw new Error("Injected authorization-policy crash after the committed generation.");
@@ -493,13 +523,37 @@ export function setAuthorizationRule(selector: AuthorizationSelector, locked: bo
   } catch (error) {
     if (committed) {
       if (_policyMutationFaultForTests === "crash-after-commit") throw error;
-      return locked ? "locked" : "unlocked";
+      return result;
     }
     if (_policyMutationFaultForTests?.startsWith("crash-")) throw error;
     recoverInterruptedPolicy(paths, descriptor.vaultId);
     throw error;
   }
-  return locked ? "locked" : "unlocked";
+  return result;
+}
+
+export function setAuthorizationRule(selector: AuthorizationSelector, locked: boolean): AuthorizationState {
+  return mutateAuthorizationRule(selector, locked ? "lock" : "unlock") as AuthorizationState;
+}
+
+export async function mutateAuthorizationRuleAuthorized(
+  selector: AuthorizationSelector,
+  action: AuthorizationMutation,
+  dependencies: {
+    authorize: OperatorAuthorizer;
+    ensureUnlocked: () => Promise<void>;
+    validatePolicy?: typeof validateLiveAuthorizationPolicy;
+    mutate?: typeof mutateAuthorizationRule;
+    databaseMutation?: Parameters<typeof mutateAuthorizationRule>[2];
+  },
+): Promise<AuthorizationState | "inherited"> {
+  validateAuthorizationSelector(selector);
+  (dependencies.validatePolicy ?? validateLiveAuthorizationPolicy)();
+  const target = [selector.project ?? "*", selector.environment ?? "*", selector.secret].filter((part) => part !== undefined).join("/");
+  const verb = action === "lock" ? "Lock" : action === "unlock" ? "Unlock" : "Inherit";
+  await dependencies.authorize(`${verb} Keyclasp authorization for ${target}`);
+  await dependencies.ensureUnlocked();
+  return (dependencies.mutate ?? mutateAuthorizationRule)(selector, action, dependencies.databaseMutation);
 }
 
 export async function setAuthorizationRuleAuthorized(
@@ -512,12 +566,14 @@ export async function setAuthorizationRuleAuthorized(
     mutate?: typeof setAuthorizationRule;
   },
 ): Promise<AuthorizationState> {
-  validateAuthorizationSelector(selector);
-  (dependencies.validatePolicy ?? validateLiveAuthorizationPolicy)();
-  const target = [selector.project ?? "*", selector.environment ?? "*", selector.secret].filter((part) => part !== undefined).join("/");
-  await dependencies.authorize(`${locked ? "Lock" : "Unlock"} Keyclasp authorization for ${target}`);
-  await dependencies.ensureUnlocked();
-  return (dependencies.mutate ?? setAuthorizationRule)(selector, locked);
+  return mutateAuthorizationRuleAuthorized(selector, locked ? "lock" : "unlock", {
+    authorize: dependencies.authorize,
+    ensureUnlocked: dependencies.ensureUnlocked,
+    ...(dependencies.validatePolicy === undefined ? {} : { validatePolicy: dependencies.validatePolicy }),
+    ...(dependencies.mutate === undefined ? {} : {
+      mutate: (target, action) => dependencies.mutate!(target, action === "lock"),
+    }),
+  }) as Promise<AuthorizationState>;
 }
 
 export function appendAuthorizationPolicyAudit(selector: AuthorizationSelector, action: string, outcome: "success" | "failure"): void {

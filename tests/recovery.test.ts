@@ -5,10 +5,12 @@ import crypto from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import Database from "better-sqlite3";
 import {
   clearKey,
   closeDb,
   initializeVault,
+  readSecretKeyClass,
   resolveSecret,
   setMachineIdentityForTests,
   storeSecret,
@@ -308,10 +310,10 @@ describe("managed backup and restore", () => {
 
   it("recovers an interrupted restore in a fresh process after the faulting process exits", () => {
     initializeVault("restart-passphrase");
-    storeSecret("app", "prod", "API_KEY", "backup-value");
+    storeSecret("app", "prod", "API_KEY", "backup-value", "interactive");
     const backup = path.join(root, "restart-backup");
     createManagedBackup(backup);
-    storeSecret("app", "prod", "API_KEY", "live-value");
+    storeSecret("app", "prod", "API_KEY", "live-value", "interactive");
     closeDb();
     clearKey();
     const recoveryUrl = pathToFileURL(path.join(process.cwd(), "dist", "recovery.js")).href;
@@ -377,7 +379,7 @@ describe("managed backup and restore", () => {
   it("keeps passphrase backups portable across a machine-identity change", () => {
     initializeVault("portable-passphrase");
     unlockVault("portable-passphrase");
-    storeSecret("app", "prod", "API_KEY", "portable-value");
+    storeSecret("app", "prod", "API_KEY", "portable-value", "interactive");
     const backup = path.join(root, "backup");
     createManagedBackup(backup);
     setMachineIdentityForTests({ stable: Buffer.alloc(32, 9) });
@@ -411,5 +413,110 @@ describe("managed backup and restore", () => {
     storeSecret("app", "prod", "API_KEY", "other-machine-live");
     expect(() => restoreManagedBackup(backup)).toThrow(/cannot be unlocked on the current machine/i);
     expect(resolveSecret("app", "prod", "API_KEY")).toBe("other-machine-live");
+  });
+
+  it("backs up and restores a mixed dual-key vault on its source machine", () => {
+    initializeVault("mixed-passphrase");
+    storeSecret("app", "prod", "MACHINE_KEY", "machine-before");
+    storeSecret("app", "prod", "INTERACTIVE_KEY", "interactive-before", "interactive");
+    const backup = path.join(root, "mixed-backup");
+    createManagedBackup(backup);
+    const manifest = JSON.parse(fs.readFileSync(path.join(backup, "backup.json"), "utf8"));
+    expect(manifest).toMatchObject({
+      version: 2,
+      custody: "dual-key",
+      recordClasses: { machine: 1, interactive: 1 },
+    });
+    expect(Object.keys(manifest.authenticators).sort()).toEqual(["interactive", "machine"]);
+
+    storeSecret("app", "prod", "MACHINE_KEY", "machine-after");
+    storeSecret("app", "prod", "INTERACTIVE_KEY", "interactive-after", "interactive");
+    restoreManagedBackup(backup, "mixed-passphrase");
+    unlockVault("mixed-passphrase");
+    expect(resolveSecret("app", "prod", "MACHINE_KEY")).toBe("machine-before");
+    expect(resolveSecret("app", "prod", "INTERACTIVE_KEY")).toBe("interactive-before");
+    expect(readSecretKeyClass("app", "prod", "MACHINE_KEY")).toBe("machine");
+    expect(readSecretKeyClass("app", "prod", "INTERACTIVE_KEY")).toBe("interactive");
+  });
+
+  it("rejects a copied mixed backup without changing the live target vault", () => {
+    initializeVault("mixed-copy-passphrase");
+    storeSecret("app", "prod", "MACHINE_KEY", "source-machine");
+    storeSecret("app", "prod", "INTERACTIVE_KEY", "source-interactive", "interactive");
+    const backup = path.join(root, "mixed-copy-backup");
+    createManagedBackup(backup);
+
+    closeDb();
+    clearKey();
+    setMachineIdentityForTests({ stable: Buffer.alloc(32, 9) });
+    home = path.join(root, "mixed-copy-target");
+    process.env.KEYCLASP_HOME = home;
+    initializeVault("");
+    storeSecret("app", "prod", "LIVE_KEY", "target-live");
+    closeDb();
+    clearKey();
+    const before = Object.fromEntries(["vault.db", ".keyclasp.key"].map((name) => [name, crypto.createHash("sha256").update(fs.readFileSync(path.join(home, name))).digest("hex")]));
+
+    expect(() => restoreManagedBackup(backup, "mixed-copy-passphrase")).toThrow(/cannot be unlocked on the current machine/i);
+
+    const after = Object.fromEntries(["vault.db", ".keyclasp.key"].map((name) => [name, crypto.createHash("sha256").update(fs.readFileSync(path.join(home, name))).digest("hex")]));
+    expect(after).toEqual(before);
+    expect(resolveSecret("app", "prod", "LIVE_KEY")).toBe("target-live");
+  });
+
+  it("restores an all-interactive backup on another machine with fresh machine custody", () => {
+    initializeVault("portable-interactive-passphrase");
+    storeSecret("app", "prod", "INTERACTIVE_KEY", "portable-interactive", "interactive");
+    const backup = path.join(root, "all-interactive-backup");
+    createManagedBackup(backup);
+    const sourceBundle = fs.readFileSync(path.join(backup, ".keyclasp.key"));
+    const sourceDb = new Database(path.join(backup, "vault.db"), { readonly: true });
+    const sourceRow = sourceDb.prepare("SELECT key_class, encrypted_value, iv, auth_tag FROM secrets WHERE name = 'INTERACTIVE_KEY'").get() as {
+      key_class: string; encrypted_value: Buffer; iv: Buffer; auth_tag: Buffer;
+    };
+    sourceDb.close();
+
+    closeDb();
+    clearKey();
+    setMachineIdentityForTests({ stable: Buffer.alloc(32, 9) });
+    home = path.join(root, "all-interactive-target");
+    process.env.KEYCLASP_HOME = home;
+    initializeVault("");
+    storeSecret("app", "prod", "LIVE_KEY", "replace-me");
+
+    restoreManagedBackup(backup, "portable-interactive-passphrase");
+    unlockVault("portable-interactive-passphrase");
+    expect(resolveSecret("app", "prod", "INTERACTIVE_KEY")).toBe("portable-interactive");
+    expect(readSecretKeyClass("app", "prod", "INTERACTIVE_KEY")).toBe("interactive");
+    const restoredDb = new Database(path.join(home, "vault.db"), { readonly: true });
+    const restoredRow = restoredDb.prepare("SELECT key_class, encrypted_value, iv, auth_tag FROM secrets WHERE name = 'INTERACTIVE_KEY'").get() as typeof sourceRow;
+    restoredDb.close();
+    expect(restoredRow).toEqual(sourceRow);
+    expect(fs.readFileSync(path.join(home, ".keyclasp.key"))).not.toEqual(sourceBundle);
+  });
+
+  it("rejects missing and modified class authenticators before changing live state", () => {
+    initializeVault("class-auth-passphrase");
+    storeSecret("app", "prod", "INTERACTIVE_KEY", "backup-value", "interactive");
+    const omitted = path.join(root, "omitted-auth-backup");
+    createManagedBackup(omitted);
+    storeSecret("app", "prod", "INTERACTIVE_KEY", "live-value", "interactive");
+    const omittedPath = path.join(omitted, "backup.json");
+    const omittedManifest = JSON.parse(fs.readFileSync(omittedPath, "utf8"));
+    delete omittedManifest.authenticators.interactive;
+    fs.writeFileSync(omittedPath, `${JSON.stringify(omittedManifest, null, 2)}\n`);
+    expect(() => restoreManagedBackup(omitted, "class-auth-passphrase")).toThrow(/invalid key-class authenticators/i);
+    expect(resolveSecret("app", "prod", "INTERACTIVE_KEY")).toBe("live-value");
+
+    const tampered = path.join(root, "tampered-auth-backup");
+    createManagedBackup(tampered);
+    const tamperedPath = path.join(tampered, "backup.json");
+    const tamperedManifest = JSON.parse(fs.readFileSync(tamperedPath, "utf8"));
+    const authentic = Buffer.from(tamperedManifest.authenticators.interactive, "base64");
+    authentic[0] ^= 0xff;
+    tamperedManifest.authenticators.interactive = authentic.toString("base64");
+    fs.writeFileSync(tamperedPath, `${JSON.stringify(tamperedManifest, null, 2)}\n`);
+    expect(() => restoreManagedBackup(tampered, "class-auth-passphrase")).toThrow(/manifest failed authentication/i);
+    expect(resolveSecret("app", "prod", "INTERACTIVE_KEY")).toBe("live-value");
   });
 });

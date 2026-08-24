@@ -2,12 +2,22 @@ import crypto from "node:crypto";
 import Database from "better-sqlite3";
 import fs from "node:fs";
 import path from "node:path";
-import { closeDb, clearKey, ensureOwnerOnlyVaultDirectory, getKey, getVaultDescriptor, getVaultLocation, unlockManagedBackupKey, validateKeyFileDescriptor } from "./vault.js";
+import {
+  closeDb,
+  clearKey,
+  ensureOwnerOnlyVaultDirectory,
+  getManagedBackupKeys,
+  getVaultDescriptor,
+  getVaultLocation,
+  preparePortableInteractiveRestore,
+  summarizeKeyClasses,
+  unlockManagedBackupKeys,
+} from "./vault.js";
 import { AUTHORIZATION_POLICY_BACKUP_FILES, authorizationPolicyFiles, validateAuthorizationPolicyBackup, validateLiveAuthorizationPolicy } from "./policy.js";
 import { enforceOwnerOnlyPath } from "./owner-only-path.js";
 import type { OperatorAuthorization, OperatorAuthorizer } from "./runtime.js";
 
-const BACKUP_VERSION = 1;
+const BACKUP_VERSION = 2;
 const MANAGED_FILES = ["vault.db", ".keyclasp.key", ...AUTHORIZATION_POLICY_BACKUP_FILES] as const;
 const RESTORE_JOURNAL = ".restore-transaction.v1.json";
 const RESTORE_JOURNAL_KEY = ".restore-journal.key";
@@ -34,13 +44,17 @@ interface RestoreJournal {
   mac: string;
 }
 
+type BackupKeyClass = "machine" | "interactive";
+
 interface BackupManifest {
-  version: 1;
+  version: 2;
   createdAt: string;
   vaultId: string;
-  mode: "passphrase" | "machine";
+  custody: "machine-only" | "dual-key";
+  bundleGeneration: number;
+  recordClasses: Record<BackupKeyClass, number>;
   files: Record<string, string>;
-  mac: string;
+  authenticators: Partial<Record<BackupKeyClass, string>>;
 }
 
 interface ManagedRestoreResult {
@@ -48,21 +62,56 @@ interface ManagedRestoreResult {
   cleanupWarnings: string[];
 }
 
-function manifestPayload(manifest: Omit<BackupManifest, "mac">): string {
+function manifestPayload(manifest: Omit<BackupManifest, "authenticators">): string {
   return JSON.stringify({
     version: manifest.version,
     createdAt: manifest.createdAt,
     vaultId: manifest.vaultId,
-    mode: manifest.mode,
+    custody: manifest.custody,
+    bundleGeneration: manifest.bundleGeneration,
+    recordClasses: {
+      machine: manifest.recordClasses.machine,
+      interactive: manifest.recordClasses.interactive,
+    },
     files: Object.fromEntries(Object.entries(manifest.files).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)),
   });
 }
 
-function manifestMac(manifest: Omit<BackupManifest, "mac">, key: Buffer): string {
+function manifestAuthenticator(
+  manifest: Omit<BackupManifest, "authenticators">,
+  keyClass: BackupKeyClass,
+  key: Buffer,
+): string {
   return crypto.createHmac("sha256", key)
-    .update("keyclasp:managed-backup:v1\0")
+    .update(`keyclasp:managed-backup:v2:${keyClass}\0`)
     .update(manifestPayload(manifest))
     .digest("base64");
+}
+
+function requiredAuthenticatorClasses(manifest: Pick<BackupManifest, "custody" | "recordClasses">): BackupKeyClass[] {
+  const total = manifest.recordClasses.machine + manifest.recordClasses.interactive;
+  const required: BackupKeyClass[] = [];
+  if (manifest.recordClasses.machine > 0 || total === 0) required.push("machine");
+  if (manifest.recordClasses.interactive > 0 || (total === 0 && manifest.custody === "dual-key")) required.push("interactive");
+  return required;
+}
+
+function exactAuthenticatorClasses(manifest: BackupManifest): boolean {
+  const actual = Object.keys(manifest.authenticators).sort();
+  const expected = requiredAuthenticatorClasses(manifest).sort();
+  return actual.length === expected.length && actual.every((value, index) => value === expected[index]);
+}
+
+function strictBase64Bytes(value: unknown, length: number): boolean {
+  if (typeof value !== "string" || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) return false;
+  const decoded = Buffer.from(value, "base64");
+  return decoded.length === length && decoded.toString("base64") === value;
+}
+
+function timingSafeBase64Equal(actual: string, expected: string): boolean {
+  const actualBytes = Buffer.from(actual, "base64");
+  const expectedBytes = Buffer.from(expected, "base64");
+  return actualBytes.length === expectedBytes.length && crypto.timingSafeEqual(actualBytes, expectedBytes);
 }
 
 function sha256(filePath: string): string {
@@ -232,6 +281,40 @@ function assertSafeBackupParent(directory: string): void {
   });
 }
 
+function validateManifestShape(manifest: BackupManifest): void {
+  if (manifest.version !== BACKUP_VERSION || !strictBase64Bytes(manifest.vaultId, 16) ||
+      (manifest.custody !== "machine-only" && manifest.custody !== "dual-key") ||
+      !Number.isSafeInteger(manifest.bundleGeneration) || manifest.bundleGeneration < 1 ||
+      !manifest.recordClasses || !Number.isSafeInteger(manifest.recordClasses.machine) || manifest.recordClasses.machine < 0 ||
+      !Number.isSafeInteger(manifest.recordClasses.interactive) || manifest.recordClasses.interactive < 0 ||
+      !manifest.files || !manifest.authenticators || typeof manifest.createdAt !== "string") {
+    throw new Error("Managed backup manifest is unsupported or incomplete.");
+  }
+  const allowedKeys = new Set([
+    "version", "createdAt", "vaultId", "custody", "bundleGeneration", "recordClasses", "files", "authenticators",
+  ]);
+  if (Object.keys(manifest).some((key) => !allowedKeys.has(key))) {
+    throw new Error("Managed backup manifest contains an unknown field.");
+  }
+  if (Object.keys(manifest.recordClasses).sort().join(",") !== "interactive,machine" ||
+      Object.keys(manifest.authenticators).some((key) => key !== "machine" && key !== "interactive") ||
+      !exactAuthenticatorClasses(manifest) ||
+      requiredAuthenticatorClasses(manifest).some((keyClass) => !strictBase64Bytes(manifest.authenticators[keyClass], 32))) {
+    throw new Error("Managed backup manifest has invalid key-class authenticators.");
+  }
+  if (manifest.custody === "machine-only" && manifest.recordClasses.interactive !== 0) {
+    throw new Error("Managed backup machine-only custody cannot contain interactive records.");
+  }
+  for (const [name, expectedHash] of Object.entries(manifest.files)) {
+    if (!MANAGED_FILES.includes(name as typeof MANAGED_FILES[number]) || !/^[a-f0-9]{64}$/.test(expectedHash)) {
+      throw new Error("Managed backup manifest contains an invalid file entry.");
+    }
+  }
+  if (!manifest.files["vault.db"] || !manifest.files[".keyclasp.key"]) {
+    throw new Error("Managed backup must contain vault.db and .keyclasp.key.");
+  }
+}
+
 function readManifest(directory: string): BackupManifest {
   let manifest: BackupManifest;
   try {
@@ -240,18 +323,8 @@ function readManifest(directory: string): BackupManifest {
   } catch {
     throw new Error("Managed backup manifest is missing or corrupt.");
   }
-  if (manifest.version !== BACKUP_VERSION || !manifest.vaultId || typeof manifest.mac !== "string" ||
-      (manifest.mode !== "passphrase" && manifest.mode !== "machine") || !manifest.files) {
-    throw new Error("Managed backup manifest is unsupported or incomplete.");
-  }
-  const allowedKeys = new Set(["version", "createdAt", "vaultId", "mode", "files", "mac"]);
-  if (Object.keys(manifest).some((key) => !allowedKeys.has(key))) {
-    throw new Error("Managed backup manifest contains an unknown field.");
-  }
+  validateManifestShape(manifest);
   for (const [name, expectedHash] of Object.entries(manifest.files)) {
-    if (!MANAGED_FILES.includes(name as typeof MANAGED_FILES[number]) || !/^[a-f0-9]{64}$/.test(expectedHash)) {
-      throw new Error("Managed backup manifest contains an invalid file entry.");
-    }
     const filePath = path.join(directory, name);
     if (fs.existsSync(filePath)) {
       enforceOwnerOnlyPath(filePath, { kind: "file", label: `managed backup file "${name}"` });
@@ -259,9 +332,6 @@ function readManifest(directory: string): BackupManifest {
     if (!fs.existsSync(filePath) || sha256(filePath) !== expectedHash) {
       throw new Error(`Managed backup file "${name}" failed its integrity check.`);
     }
-  }
-  if (!manifest.files["vault.db"] || !manifest.files[".keyclasp.key"]) {
-    throw new Error("Managed backup must contain vault.db and .keyclasp.key.");
   }
   return manifest;
 }
@@ -297,19 +367,23 @@ function readManifestForAuthorization(directory: string): BackupManifest {
   }
   assertReadOnlyBackupIdentityUnchanged(manifestPath, manifestBefore, "file");
   assertReadOnlyBackupIdentityUnchanged(directory, directoryBefore, "directory");
-  if (manifest.version !== BACKUP_VERSION || (manifest.mode !== "passphrase" && manifest.mode !== "machine")) {
-    throw new Error("Managed backup manifest is unsupported or incomplete.");
-  }
+  validateManifestShape(manifest);
   return manifest;
 }
 
-function readDatabaseMetadata(databasePath: string): { vaultId: string; policyGeneration: number | null; policyDocumentHash: string | null } {
+function readDatabaseMetadata(databasePath: string): {
+  vaultId: string;
+  bundleGeneration: number;
+  policyGeneration: number | null;
+  policyDocumentHash: string | null;
+} {
   const db = new Database(databasePath, { readonly: true, fileMustExist: true });
   try {
-    const row = db.prepare("SELECT format_version, vault_id FROM vault_metadata WHERE singleton = 1").get() as
-      | { format_version: number; vault_id: Buffer }
+    const row = db.prepare("SELECT format_version, vault_id, bundle_generation FROM vault_metadata WHERE singleton = 1").get() as
+      | { format_version: number; vault_id: Buffer; bundle_generation: number }
       | undefined;
-    if (!row || row.format_version !== 2 || !Buffer.isBuffer(row.vault_id) || row.vault_id.length !== 16) {
+    if (!row || row.format_version !== 3 || !Buffer.isBuffer(row.vault_id) || row.vault_id.length !== 16 ||
+        !Number.isSafeInteger(row.bundle_generation) || row.bundle_generation < 1) {
       throw new Error("Managed backup database has unsupported vault metadata.");
     }
     const columns = (db.pragma("table_info(vault_metadata)") as { name: string }[]).map((column) => column.name);
@@ -323,7 +397,7 @@ function readDatabaseMetadata(databasePath: string): { vaultId: string; policyGe
         policyDocumentHash = policy.strict_policy_document_hash;
       }
     }
-    return { vaultId: row.vault_id.toString("base64"), policyGeneration, policyDocumentHash };
+    return { vaultId: row.vault_id.toString("base64"), bundleGeneration: row.bundle_generation, policyGeneration, policyDocumentHash };
   } finally {
     db.close();
   }
@@ -332,6 +406,7 @@ function readDatabaseMetadata(databasePath: string): { vaultId: string; policyGe
 export function createManagedBackup(destination: string): BackupManifest {
   const descriptor = getVaultDescriptor();
   validateLiveAuthorizationPolicy();
+  const keys = getManagedBackupKeys();
   if (fs.existsSync(destination)) throw new Error("Managed backup destination already exists.");
   const parent = path.dirname(destination);
   assertSafeBackupParent(parent);
@@ -361,14 +436,23 @@ export function createManagedBackup(destination: string): BackupManifest {
       const filePath = path.join(staging, name);
       if (fs.existsSync(filePath)) files[name] = sha256(filePath);
     }
-    const payload: Omit<BackupManifest, "mac"> = {
+    const recordClasses = summarizeKeyClasses(snapshotPath);
+    const payload: Omit<BackupManifest, "authenticators"> = {
       version: BACKUP_VERSION,
       createdAt: new Date().toISOString(),
       vaultId: descriptor.vaultId.toString("base64"),
-      mode: descriptor.mode,
+      custody: descriptor.custody,
+      bundleGeneration: descriptor.generation,
+      recordClasses,
       files,
     };
-    const manifest: BackupManifest = { ...payload, mac: manifestMac(payload, getKey()) };
+    const authenticators: BackupManifest["authenticators"] = {};
+    for (const keyClass of requiredAuthenticatorClasses(payload)) {
+      const key = keyClass === "machine" ? keys.machineKey : keys.interactiveKey;
+      if (!key) throw new Error(`Managed backup requires the unlocked ${keyClass} data key.`);
+      authenticators[keyClass] = manifestAuthenticator(payload, keyClass, key);
+    }
+    const manifest: BackupManifest = { ...payload, authenticators };
     const manifestPath = path.join(staging, "backup.json");
     fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 });
     enforceOwnerOnlyPath(manifestPath, { kind: "file", label: "managed backup manifest" });
@@ -391,7 +475,7 @@ export function createManagedBackup(destination: string): BackupManifest {
 }
 
 export function inspectManagedBackupMode(source: string): "passphrase" | "machine" {
-  return readManifestForAuthorization(source).mode;
+  return readManifestForAuthorization(source).authenticators.interactive ? "passphrase" : "machine";
 }
 
 export async function createManagedBackupAuthorized(
@@ -428,22 +512,63 @@ export async function restoreManagedBackupAuthorized(
   return (dependencies.restore ?? restoreManagedBackup)(source, passphrase);
 }
 
+function assertManifestMatchesBackup(
+  manifest: BackupManifest,
+  databasePath: string,
+  keys: ReturnType<typeof unlockManagedBackupKeys>,
+): void {
+  const metadata = readDatabaseMetadata(databasePath);
+  const inventory = summarizeKeyClasses(databasePath);
+  if (metadata.vaultId !== manifest.vaultId || !keys.bundle.vaultId.equals(Buffer.from(manifest.vaultId, "base64"))) {
+    throw new Error("Managed backup database and key-bundle identity do not match its manifest.");
+  }
+  if (metadata.bundleGeneration !== manifest.bundleGeneration || keys.bundle.generation !== manifest.bundleGeneration) {
+    throw new Error("Managed backup bundle generation does not match its manifest.");
+  }
+  const custody = keys.bundle.interactive ? "dual-key" : "machine-only";
+  if (custody !== manifest.custody || inventory.machine !== manifest.recordClasses.machine ||
+      inventory.interactive !== manifest.recordClasses.interactive) {
+    throw new Error("Managed backup key-class inventory does not match its manifest.");
+  }
+}
+
+function verifyManifestAuthenticators(
+  manifest: BackupManifest,
+  keys: ReturnType<typeof unlockManagedBackupKeys>,
+): void {
+  const { authenticators, ...payload } = manifest;
+  for (const keyClass of requiredAuthenticatorClasses(manifest)) {
+    const key = keyClass === "machine" ? keys.machineKey : keys.interactiveKey;
+    if (!key) {
+      if (keyClass === "machine") {
+        throw new Error("This backup requires its source machine key and cannot be unlocked on the current machine. Live vault state was not changed.");
+      }
+      throw new Error("This managed backup requires its interactive passphrase. Live vault state was not changed.");
+    }
+    const actual = authenticators[keyClass]!;
+    const expected = manifestAuthenticator(payload, keyClass, key);
+    if (!timingSafeBase64Equal(actual, expected)) {
+      throw new Error(`Managed backup manifest failed authentication for the ${keyClass} key class. Live vault state was not changed.`);
+    }
+  }
+}
+
 export function verifyManagedBackupPassphrase(source: string, passphrase: string): boolean {
   try {
     const manifest = readManifestForAuthorization(source);
-    if (manifest.mode !== "passphrase") return false;
+    if (!manifest.authenticators.interactive) return false;
     const databasePath = path.join(source, "vault.db");
     const keyPath = path.join(source, ".keyclasp.key");
     const databaseBefore = assertReadOnlyBackupIdentity(databasePath, "file");
     const keyBefore = assertReadOnlyBackupIdentity(keyPath, "file");
-    const databaseMetadata = readDatabaseMetadata(databasePath);
-    if (databaseMetadata.vaultId !== manifest.vaultId) return false;
-    validateKeyFileDescriptor(
-      keyPath,
-      Buffer.from(manifest.vaultId, "base64"),
-      "passphrase",
-    );
-    unlockManagedBackupKey(keyPath, databasePath, passphrase);
+    const keys = unlockManagedBackupKeys(keyPath, databasePath, passphrase);
+    assertManifestMatchesBackup(manifest, databasePath, keys);
+    if (!keys.interactiveKey) return false;
+    const { authenticators, ...payload } = manifest;
+    if (!timingSafeBase64Equal(
+      authenticators.interactive!,
+      manifestAuthenticator(payload, "interactive", keys.interactiveKey),
+    )) return false;
     assertReadOnlyBackupIdentityUnchanged(keyPath, keyBefore, "file");
     assertReadOnlyBackupIdentityUnchanged(databasePath, databaseBefore, "file");
     return true;
@@ -455,23 +580,12 @@ export function verifyManagedBackupPassphrase(source: string, passphrase: string
 export function restoreManagedBackup(source: string, passphrase?: string): ManagedRestoreResult {
   assertSafeBackupDirectory(source);
   const manifest = readManifest(source);
-  const databaseMetadata = readDatabaseMetadata(path.join(source, "vault.db"));
-  if (databaseMetadata.vaultId !== manifest.vaultId) {
-    throw new Error("Managed backup database identity does not match its manifest.");
-  }
-  validateKeyFileDescriptor(
-    path.join(source, ".keyclasp.key"),
-    Buffer.from(manifest.vaultId, "base64"),
-    manifest.mode,
-  );
-  const backupKey = unlockManagedBackupKey(path.join(source, ".keyclasp.key"), path.join(source, "vault.db"), passphrase);
-  const { mac, ...payload } = manifest;
-  const expectedMac = manifestMac(payload, backupKey);
-  const actualMac = Buffer.from(mac, "base64");
-  const expectedMacBytes = Buffer.from(expectedMac, "base64");
-  if (actualMac.length !== expectedMacBytes.length || !crypto.timingSafeEqual(actualMac, expectedMacBytes)) {
-    throw new Error("Managed backup manifest failed authentication. Live vault state was not changed.");
-  }
+  const sourceDatabasePath = path.join(source, "vault.db");
+  const sourceKeyPath = path.join(source, ".keyclasp.key");
+  const databaseMetadata = readDatabaseMetadata(sourceDatabasePath);
+  const backupKeys = unlockManagedBackupKeys(sourceKeyPath, sourceDatabasePath, passphrase);
+  assertManifestMatchesBackup(manifest, sourceDatabasePath, backupKeys);
+  verifyManifestAuthenticators(manifest, backupKeys);
   const hasPolicy = Boolean(manifest.files["strict-policy.v1.json"]);
   const hasPolicyAnchor = Boolean(manifest.files[".strict-policy.key"]);
   if (hasPolicy !== hasPolicyAnchor) throw new Error("Managed backup authorization policy is incomplete.");
@@ -493,6 +607,10 @@ export function restoreManagedBackup(source: string, passphrase?: string): Manag
   clearKey();
   const transactionId = `${process.pid}.${crypto.randomBytes(6).toString("hex")}`;
   const staged = MANAGED_FILES.filter((name) => Boolean(manifest.files[name]));
+  const portableInteractive = manifest.recordClasses.machine === 0 && manifest.recordClasses.interactive > 0 && !backupKeys.machineKey;
+  if (portableInteractive && passphrase === undefined) {
+    throw new Error("All-interactive portable restore requires the backup passphrase.");
+  }
   const previous: string[] = [];
   try {
     writeRestoreJournal({
@@ -513,6 +631,15 @@ export function restoreManagedBackup(source: string, passphrase?: string): Manag
       enforceOwnerOnlyPath(stagePath, { kind: "file", label: `managed restore staging file "${name}"` });
       if (sha256(stagePath) !== manifest.files[name]) throw new Error(`Staged restore file "${name}" failed verification.`);
       fsyncFile(stagePath);
+    }
+    if (portableInteractive) {
+      const stagedKeyPath = path.join(vaultDir, `.keyclasp.key.${transactionId}.restore`);
+      const stagedDatabasePath = path.join(vaultDir, `vault.db.${transactionId}.restore`);
+      preparePortableInteractiveRestore(stagedKeyPath, stagedDatabasePath, passphrase!);
+      enforceOwnerOnlyPath(stagedKeyPath, { kind: "file", label: "portable managed restore key bundle" });
+      enforceOwnerOnlyPath(stagedDatabasePath, { kind: "file", label: "portable managed restore database" });
+      fsyncFile(stagedKeyPath);
+      fsyncFile(stagedDatabasePath);
     }
     fsyncDirectory(vaultDir);
     for (const name of MANAGED_FILES) {

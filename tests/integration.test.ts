@@ -100,6 +100,30 @@ describe("CLI end-to-end flow", () => {
     expect(runMissingSecret("API_KEY").status).toBe(1);
   });
 
+  it.runIf(process.platform === "darwin")("exits after completing a secret prompt on a real TTY", () => {
+    const script = [
+      "set timeout 5",
+      "spawn env KEYCLASP_HOME=$env(KEYCLASP_TEST_HOME) $env(KEYCLASP_NODE) $env(KEYCLASP_CLI) init",
+      'expect -exact "Enter vault passphrase (or empty for machine-only key): "',
+      'send -- "tty-passphrase\\r"',
+      "expect eof",
+      "set result [wait]",
+      "exit [lindex $result 3]",
+    ].join("; ");
+    const result = spawnSync("/usr/bin/expect", ["-c", script], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        KEYCLASP_TEST_HOME: vaultHome,
+        KEYCLASP_NODE: process.execPath,
+        KEYCLASP_CLI: cliPath,
+      },
+    });
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("Keyclasp vault created");
+  });
+
   it("passes the vault status check for a healthy vault", () => {
     run(["init"], { input: "\n" });
     run(["set", "STATUS_KEY"], { input: "value\n" });
@@ -173,7 +197,7 @@ describe("CLI end-to-end flow", () => {
   });
 });
 
-describe("CLI passphrase vault stays locked across processes", () => {
+describe("CLI dual-key vault keeps machine-class records unattended across processes", () => {
   beforeEach(() => {
     expect(run(["init"], { input: "wrap-passphrase\n" }).status).toBe(0);
     const previous = process.env.KEYCLASP_HOME;
@@ -182,50 +206,47 @@ describe("CLI passphrase vault stays locked across processes", () => {
     clearKey();
     unlockVault("wrap-passphrase");
     storeSecret("default", "default", "LOCKED_RUN_KEY", "seeded-value");
+    storeSecret("default", "default", "INTERACTIVE_RUN_KEY", "interactive-value", "interactive");
     closeDb();
     clearKey();
     if (previous === undefined) delete process.env.KEYCLASP_HOME;
     else process.env.KEYCLASP_HOME = previous;
   });
 
-  it("prints locked status without treating it as a decrypt failure", () => {
+  it("prints dual-key metadata without decrypting values", () => {
     const status = run(["status"]);
     expect(status.status).toBe(0);
-    expect(status.stdout).toContain("locked");
-    expect(status.stdout).toContain("passphrase");
+    expect(status.stdout).toContain("software-dual-key");
+    expect(status.stdout).toContain("Authorization: unlocked");
     expect(status.stdout).not.toContain("FAILED");
   });
 
-  it("refuses a piped set on a locked vault without storing the value", () => {
+  it("allows a piped machine-class set without unlocking the interactive key", () => {
     const set = run(["set", "API_KEY"], { input: "sk-must-not-be-stored\n" });
-    expect(set.status).toBe(1);
-    expect(set.stderr).toMatch(/locked/i);
+    expect(set.status, set.stderr).toBe(0);
     const list = run(["list"]);
     expect(list.status).toBe(0);
-    expect(list.stdout).not.toContain("API_KEY");
+    expect(list.stdout).toContain("API_KEY");
   });
 
   it("refuses non-TTY run --env without spawning the child", () => {
     const sentinel = path.join(vaultHome, "ran");
     const result = run([
       "run",
-      "--project",
-      "orderapp",
-      "--environment",
-      "prod",
       "--env",
-      "LOCKED_RUN_KEY",
+      "INTERACTIVE_RUN_KEY",
       "--",
       process.execPath,
       "-e",
       `require("node:fs").writeFileSync(${JSON.stringify(sentinel)}, "ran")`,
     ]);
     expect(result.status).toBe(1);
-    expect(result.stderr).toMatch(/locked/i);
+    expect(result.stderr).toContain("Keyclasp vault is locked.");
+    expect(result.stderr).not.toContain("not found");
     expect(fs.existsSync(sentinel)).toBe(false);
   });
 
-  it("still refuses run --allow-unsafe --env when locked", () => {
+  it("allows unattended named machine-class run even with the unsafe override", () => {
     const sentinel = path.join(vaultHome, "unsafe-ran");
     const result = run([
       "run",
@@ -237,9 +258,8 @@ describe("CLI passphrase vault stays locked across processes", () => {
       "-e",
       `require("node:fs").writeFileSync(${JSON.stringify(sentinel)}, "ran")`,
     ]);
-    expect(result.status).toBe(1);
-    expect(result.stderr).toMatch(/locked/i);
-    expect(fs.existsSync(sentinel)).toBe(false);
+    expect(result.status, result.stderr).toBe(0);
+    expect(fs.existsSync(sentinel)).toBe(true);
   });
 });
 
@@ -655,7 +675,7 @@ describe("legacy vault migration race safety", () => {
       try {
         const columns = (verifyDb.pragma("table_info(secrets)") as { name: string }[]).map((r) => r.name);
         expect(columns).toEqual(expect.arrayContaining(["project", "environment", "name", "record_id", "record_kind"]));
-        expect(verifyDb.prepare("SELECT format_version FROM vault_metadata WHERE singleton = 1").pluck().get()).toBe(2);
+        expect(verifyDb.prepare("SELECT format_version FROM vault_metadata WHERE singleton = 1").pluck().get()).toBe(3);
         const rows = verifyDb.prepare("SELECT project, environment, name FROM secrets ORDER BY name").all() as
           { project: string; environment: string; name: string }[];
         expect(rows).toEqual([

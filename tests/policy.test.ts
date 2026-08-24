@@ -13,7 +13,17 @@ import {
   initializeVault,
   setMachineIdentityForTests,
 } from "../src/vault.js";
-import { appendAuthorizationPolicyAudit, authorizationSelectorFromCommand, readAuthorizationState, setAuthorizationRule, setAuthorizationRuleAuthorized, setPolicyMutationFaultForTests } from "../src/policy.js";
+import {
+  appendAuthorizationPolicyAudit,
+  authorizationSelectorFromCommand,
+  evaluateAuthorizationRules,
+  mutateAuthorizationRule,
+  mutateAuthorizationRuleAuthorized,
+  readAuthorizationState,
+  setAuthorizationRule,
+  setAuthorizationRuleAuthorized,
+  setPolicyMutationFaultForTests,
+} from "../src/policy.js";
 
 describe("authenticated authorization policy", () => {
   let root: string;
@@ -102,6 +112,78 @@ describe("authenticated authorization policy", () => {
     expect(repeated.rules).toEqual([{ project: "app", environment: "prod", locked: false }]);
   });
 
+  it("removes only the exact rule on inherit and falls back through the remaining rules", () => {
+    setAuthorizationRule({ project: "app" }, true);
+    setAuthorizationRule({ project: "app", environment: "prod" }, false);
+    setAuthorizationRule({ project: "app", environment: "prod", secret: "API_KEY" }, true);
+
+    expect(mutateAuthorizationRule(
+      { project: "app", environment: "prod", secret: "API_KEY" },
+      "inherit",
+    )).toBe("inherited");
+    expect(readAuthorizationState("app", "prod", "API_KEY")).toBe("unlocked");
+
+    expect(mutateAuthorizationRule({ project: "app", environment: "prod" }, "inherit")).toBe("inherited");
+    expect(readAuthorizationState("app", "prod", "API_KEY")).toBe("locked");
+  });
+
+  it("does not advance the generation or invoke the database callback for an inherited rule that is already absent", () => {
+    setAuthorizationRule({ project: "app" }, true);
+    const policyPath = path.join(process.env.KEYCLASP_HOME!, "strict-policy.v1.json");
+    const before = JSON.parse(fs.readFileSync(policyPath, "utf8"));
+    const callback = vi.fn();
+
+    expect(mutateAuthorizationRule({ environment: "prod" }, "inherit", callback)).toBe("inherited");
+
+    const after = JSON.parse(fs.readFileSync(policyPath, "utf8"));
+    expect(after.generation).toBe(before.generation);
+    expect(callback).not.toHaveBeenCalled();
+  });
+
+  it("exposes the rule evaluator without reading persisted policy", () => {
+    expect(evaluateAuthorizationRules([
+      { project: "app", locked: true },
+      { project: "app", environment: "prod", locked: false },
+    ], "app", "prod", "API_KEY")).toBe("unlocked");
+  });
+
+  it("commits the database callback and policy anchor in one SQLite transaction", () => {
+    const seen: { rules: unknown; generation: number }[] = [];
+    mutateAuthorizationRule({ project: "app" }, "lock", (db, nextRules, nextGeneration) => {
+      db.exec("CREATE TABLE policy_callback_probe (generation INTEGER NOT NULL, state TEXT NOT NULL)");
+      db.prepare("INSERT INTO policy_callback_probe (generation, state) VALUES (?, ?)")
+        .run(nextGeneration, evaluateAuthorizationRules(nextRules, "app", "prod"));
+      seen.push({ rules: nextRules, generation: nextGeneration });
+    });
+
+    const db = new Database(path.join(process.env.KEYCLASP_HOME!, "vault.db"), { readonly: true });
+    const probe = db.prepare("SELECT generation, state FROM policy_callback_probe").get() as { generation: number; state: string };
+    const anchor = db.prepare("SELECT strict_policy_generation FROM vault_metadata WHERE singleton = 1").get() as { strict_policy_generation: number };
+    db.close();
+    expect(probe).toEqual({ generation: anchor.strict_policy_generation, state: "locked" });
+    expect(seen).toEqual([{ rules: [{ project: "app", locked: true }], generation: anchor.strict_policy_generation }]);
+  });
+
+  it("rolls back the callback and restores the prior policy pair when the database mutation fails", () => {
+    setAuthorizationRule({ project: "app" }, false);
+    const home = process.env.KEYCLASP_HOME!;
+    const policyBefore = fs.readFileSync(path.join(home, "strict-policy.v1.json"));
+    const anchorBefore = fs.readFileSync(path.join(home, ".strict-policy.key"));
+
+    expect(() => mutateAuthorizationRule({ project: "app" }, "lock", (db) => {
+      db.exec("CREATE TABLE policy_callback_rollback_probe (value TEXT NOT NULL)");
+      db.prepare("INSERT INTO policy_callback_rollback_probe (value) VALUES ('should-roll-back')").run();
+      throw new Error("injected custody transition failure");
+    })).toThrow(/custody transition failure/i);
+
+    expect(fs.readFileSync(path.join(home, "strict-policy.v1.json"))).toEqual(policyBefore);
+    expect(fs.readFileSync(path.join(home, ".strict-policy.key"))).toEqual(anchorBefore);
+    expect(readAuthorizationState("app", "prod")).toBe("unlocked");
+    const db = new Database(path.join(home, "vault.db"), { readonly: true });
+    expect(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'policy_callback_rollback_probe'").get()).toBeUndefined();
+    db.close();
+  });
+
   it("reads an authenticated v1 scope lock and upgrades it on the next mutation", () => {
     const home = process.env.KEYCLASP_HOME!;
     const key = crypto.randomBytes(32);
@@ -167,6 +249,35 @@ describe("authenticated authorization policy", () => {
     expect(authorize).not.toHaveBeenCalled();
     expect(unlock).not.toHaveBeenCalled();
     expect(mutate).not.toHaveBeenCalled();
+  });
+
+  it("keeps validate, authorize, unlock, mutate ordering for inherit", async () => {
+    const events: string[] = [];
+    const result = await mutateAuthorizationRuleAuthorized({ project: "app" }, "inherit", {
+      validatePolicy: () => { events.push("validate"); },
+      authorize: () => { events.push("authorize"); return { method: "touch-id" }; },
+      ensureUnlocked: async () => { events.push("unlock"); },
+      mutate: (_selector, action) => { events.push(`mutate:${action}`); return "inherited"; },
+    });
+    expect(result).toBe("inherited");
+    expect(events).toEqual(["validate", "authorize", "unlock", "mutate:inherit"]);
+  });
+
+  it("passes the custody callback through the authorized mutation only after authorization and unlock", async () => {
+    setAuthorizationRule({ project: "app" }, false);
+    const callback = vi.fn();
+    const mutate = vi.fn((_selector, _action, databaseMutation) => {
+      expect(databaseMutation).toBe(callback);
+      return "locked" as const;
+    });
+    await expect(mutateAuthorizationRuleAuthorized({ project: "app" }, "lock", {
+      authorize: () => ({ method: "touch-id" }),
+      ensureUnlocked: async () => undefined,
+      databaseMutation: callback,
+      mutate,
+    })).resolves.toBe("locked");
+    expect(mutate).toHaveBeenCalledOnce();
+    expect(callback).not.toHaveBeenCalled();
   });
 
   it("never follows an authorization audit symlink", () => {
@@ -315,6 +426,26 @@ describe("authenticated authorization policy", () => {
     expect(fs.existsSync(path.join(process.env.KEYCLASP_HOME!, ".strict-policy.pending"))).toBe(true);
     setPolicyMutationFaultForTests(null);
     expect(readAppScope()).toBe("locked");
+    expect(fs.existsSync(path.join(process.env.KEYCLASP_HOME!, ".strict-policy.pending"))).toBe(false);
+  });
+
+  it("keeps the callback mutation after a crash following the shared database commit", () => {
+    setAppScope(false);
+    setPolicyMutationFaultForTests("crash-after-commit");
+    expect(() => mutateAuthorizationRule(appScope, "lock", (db, nextRules, nextGeneration) => {
+      db.exec("CREATE TABLE committed_policy_callback (generation INTEGER NOT NULL, state TEXT NOT NULL)");
+      db.prepare("INSERT INTO committed_policy_callback (generation, state) VALUES (?, ?)")
+        .run(nextGeneration, evaluateAuthorizationRules(nextRules, "app", "prod"));
+    })).toThrow(/committed generation/);
+    expect(fs.existsSync(path.join(process.env.KEYCLASP_HOME!, ".strict-policy.pending"))).toBe(true);
+
+    setPolicyMutationFaultForTests(null);
+    expect(readAppScope()).toBe("locked");
+    const db = new Database(path.join(process.env.KEYCLASP_HOME!, "vault.db"), { readonly: true });
+    const row = db.prepare("SELECT generation, state FROM committed_policy_callback").get() as { generation: number; state: string };
+    const anchor = db.prepare("SELECT strict_policy_generation FROM vault_metadata WHERE singleton = 1").get() as { strict_policy_generation: number };
+    db.close();
+    expect(row).toEqual({ generation: anchor.strict_policy_generation, state: "locked" });
     expect(fs.existsSync(path.join(process.env.KEYCLASP_HOME!, ".strict-policy.pending"))).toBe(false);
   });
 

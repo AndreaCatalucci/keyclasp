@@ -25,6 +25,7 @@ export interface SoftwareRunRuntimeDependencies {
   stdout: (chunk: string) => void;
   stderr: (chunk: string) => void;
   readAuthorizationState: (project: string, environment: string, secret?: string) => "locked" | "unlocked";
+  readKeyClass?: (project: string, environment: string, secret: string) => "machine" | "interactive" | null;
   authorize: OperatorAuthorizer;
   execute?: RunExecutor;
 }
@@ -40,6 +41,13 @@ export function createSoftwareRunRuntime(
       const locked = request.envSpecs.some((spec) =>
         dependencies.readAuthorizationState(project, environment, spec.sourceName) === "locked");
       const secretNames = dependencies.listSecretNames(project, environment);
+      const selectedNames = request.envSpecs.length === 0
+        ? secretNames
+        : [...new Set(request.envSpecs.map((spec) => spec.sourceName))];
+      const needsInteractive = selectedNames.some((name) =>
+        dependencies.readKeyClass
+          ? dependencies.readKeyClass(project, environment, name) === "interactive"
+          : true);
       if (secretNames.length === 0) {
         dependencies.stderr(
           `Note: no secrets stored yet for project "${project}" environment "${environment}"; running with zero secrets injected.\n`,
@@ -54,7 +62,7 @@ export function createSoftwareRunRuntime(
         resolveSecrets: (names) => dependencies.resolveSecrets(project, environment, names),
         stdout: dependencies.stdout,
         stderr: dependencies.stderr,
-        ensureUnlocked: dependencies.ensureUnlocked,
+        ensureUnlocked: needsInteractive ? dependencies.ensureUnlocked : async () => undefined,
         authorizationRequired: locked,
         authorizationReason: authorizationReason(request, locked),
         authorize: dependencies.authorize,

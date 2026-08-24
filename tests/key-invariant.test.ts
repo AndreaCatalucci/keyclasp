@@ -19,7 +19,7 @@ const previousKeyclaspHome = process.env.KEYCLASP_HOME;
 const previousHome = process.env.HOME;
 let tmpDir: string;
 let vaultHome: string;
-const keyFileMagic = Buffer.from("keyclasp:v4\n", "utf8");
+const keyFileMagic = Buffer.from("keyclasp:v5\n", "utf8");
 
 function resetRuntime(): void {
   closeDb();
@@ -169,7 +169,7 @@ describe("vault key invariants", () => {
     expect(resolveSecret("default", "default", "ONLY_A")).toBeNull();
   });
 
-  it("writes v4 key files that do not depend on the legacy machine identity", () => {
+  it("writes v5 key bundles that do not depend on the legacy machine identity", () => {
     setMachineIdentityForTests({
       stable: Buffer.from("stable-machine-id-32-byte-value!"),
       legacy: Buffer.from("legacy-before-change-32-byte-val"),

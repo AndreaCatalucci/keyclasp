@@ -207,11 +207,11 @@ The supported command paths enforce the scoped authorization matrix and fail bef
 - A malicious same-user process that rewrites the complete database, key, and policy set remains outside the software-mode threat boundary. Partial policy-file rewrites are detected by the database commitment.
 - Windows authorization and managed backup/restore remain deferred until the Slice 4 platform-support decision and owner-only Windows ACL verification. This is not a reason to weaken the macOS or Linux contract.
 - The clean npm install succeeded, but npm warned that `prebuild-install@7.1.3` is deprecated and that Keyclasp and `better-sqlite3` install scripts need review under npm's evolving `allowScripts` policy. Slice 4 owns dependency/install-script qualification.
-- Slice 3 has not started. No beta was published, and no hardware enrollment, key use, recovery, decryption, or launch operation was enabled.
+- At the Slice 2 handoff, Slice 3 had not started. No beta was published, and no hardware enrollment, key use, recovery, decryption, or launch operation was enabled by Slice 2.
 
 ## Slice 3: Separate machine and interactive custody
 
-**Status:** pending; depends on the completed Slice 2 software foundations.
+**Status:** accepted on 2026-08-24. Implementation, automated verification, physical macOS Touch ID verification, and exact-artifact interactive Linux verification are complete. Slice 4 has not started.
 
 Deliver one migrated software vault in which the unattended machine path cannot decrypt records assigned to the interactive key.
 
@@ -244,17 +244,64 @@ Deliver one migrated software vault in which the unattended machine path cannot 
 - Prove on Linux that one passphrase entry both authorizes and unlocks an interactive operation, while a machine-only or non-interactive gated operation fails before secret release.
 - Run the complete build and test suite, packed-artifact install, export/deep-import checks, `git diff --check`, and fresh correctness, simplicity, security, tests, and concurrency reviews.
 
+### Slice 3 implementation receipt (2026-08-24)
+
+Implementation:
+
+- `src/software/key-bundle.ts` defines the strict canonical `keyclasp:v5` bundle with independent machine and interactive data keys, authenticated class inventory and wrap metadata, a 600,000-iteration PBKDF2-SHA256 interactive wrap, machine-identity wrapping, enrollment, and rotation. Rotation reuses the already authenticated data keys and does not rewrite record ciphertext.
+- `src/vault.ts` upgrades the database to format 3, authenticates `key_class` in record AAD, keeps machine and interactive key access separate, transitions existing custody inside the policy database transaction, reports class counts without decrypting values, and implements backup-first one-key migration plus authenticated custody and migration journals with database-generation commit points.
+- `src/policy.ts` supports authenticated `lock`, `unlock`, and `inherit` mutations and commits its database anchor together with the record-custody callback. `src/cli.ts` applies the callback under the exclusive lifecycle lock, enrolls and rotates passphrases, selects future-record custody from the effective policy, and rechecks every recovery/migration predicate after lock acquisition before allowing a shared command to proceed.
+- `src/recovery.ts` writes manifest v2 with custody, bundle generation, record-class counts, and a domain-separated authenticator for every key class used by records. Same-machine mixed restore, copied-machine rejection when machine records exist, and all-interactive portable restore are explicit paths.
+- `src/software/runtime.ts` requests interactive unlock only when the selected record set contains an interactive record. `src/hardware/` and `native/keyclasp-core/` remain status-only and contain no software key-bundle or data-key reference.
+- `scripts/verify-slice2-touch-id.mjs` now packs and installs the candidate, records SHA-1, SHA-256, and npm integrity in an owner-only transcript, and exercises the final dual-key Touch ID sequence. The historical filename is retained because it is the existing physical-verifier entry point; its receipt and assertions identify Slice 3.
+
+Automated evidence:
+
+- `npm test -- --reporter=dot`: 27 test files passed; 441 tests passed and one Linux-only CLI test was skipped on macOS. This includes frozen v5 encoding and AAD vectors, machine-only and dual-key initialization, explicit and broad mixed-class requests, zero interactive unwrap/decrypt on a named machine request, policy precedence and future rules, lock/unlock/inherit custody, passphrase enrollment/rotation, rename/delete compatibility, backup/restore variants, copied-machine failure, Linux authorization modeling, old-format refusal, live prompt streaming in the physical verifier, and real macOS pseudo-terminal process exit after secret entry.
+- Durable-boundary injection covers custody journal/bundle/database publication; dual-key migration backup/journal/bundle/database publication; policy document/anchor/database callback publication; backup before/after publish; and restore staging, first publish, commit journal, and cleanup. Fresh-process recovery is exercised for policy and managed restore. A real two-record transition test corrupts the second ciphertext and proves SQLite rolls back the first re-encryption and restores the prior authenticated policy pair.
+- Concurrency coverage exercises simultaneous initialization, first writes, legacy migration, shared/exclusive lifecycle waiting, and live-child blocking. Review found and fixed a stale pre-lock recovery decision: a command that acquires shared now rechecks all custody, migration, restore, and policy predicates and escalates to exclusive recovery while retaining the exclusive lock.
+- `node --check scripts/verify-slice2-touch-id.mjs`, `git diff --check`, hardware-boundary search, package-content inspection, and TypeScript build all pass.
+
+Exact packed artifact:
+
+- Physical-verification artifact: `/var/folders/8c/t2tmqjw11gx8pkf90z3p3rbc0000gn/T/keyclasp-slice3-touch-id-VO9njn/artifact/keyclasp-0.1.1.tgz`
+- Entries: 67; packed size: 104,885 bytes; unpacked size: 559,825 bytes.
+- SHA-1: `f9a9671524b60859e7d29383af7dda819409bba7`
+- SHA-256: `a588dc874760f77330efdad772361c0cffe8ad8860bc2f7fac148144189a5beb`
+- npm integrity: `sha512-Frn3U8GxEjha6foF2HsuI7cZ4PEWgTRUVLE/LwjudhEfFgduWsVa4TdrRQSA6Ih3SUHkCnGGGWxqfktE1RGGvw==`
+- An isolated install of this file passed version/help loading, machine-only `init`/`set`/named `run`/`status`, internal dual-key separation (`PACKED_DUAL_KEY_OK`), the public export allowlist, and deep-import rejection with `ERR_PACKAGE_PATH_NOT_EXPORTED`. npm reported the already-known `prebuild-install@7.1.3` deprecation and install-script review warning; dependency qualification remains Slice 4 work.
+
+Review findings:
+
+- Correctness: fixed machine-identity probe-order sensitivity in passphrase enrollment/rotation by rebuilding from the already validated machine key; added real-vault explicit and broad mixed-class run coverage.
+- Simplicity: removed the unused legacy single-key backup-unlock stack, removed duplicate PBKDF2 work during rotation, stopped generating discarded keys in `createFromKeys`, and used the policy mutation's existing database callback instead of a parallel wrapper.
+- Security: the reviewer proposed requiring a pre-existing Linux enrollment credential. That was not applied because this slice explicitly defines first enrollment as an interactive confirmed-passphrase bootstrap when no prior credential exists. It remains bounded by the documented same-user/TTY operator assumption; Linux machine-only operations otherwise continue to fail closed at the Slice 2 authorization gate.
+- Tests: fixed a locked-run test that passed because `LOCKED` appeared in a missing secret's name; added exact locked-error/no-child assertions, interactive-wrap AAD mutations, and real policy-plus-record rollback coverage.
+- Concurrency: fixed post-lock recovery escalation for every new journal and migration state. No remaining material concurrency finding was identified after the correction.
+
+Physical-verification status and remaining risks:
+
+- Physical Touch ID verification passed from `2026-08-24T09:30:49.315Z` through `2026-08-24T09:31:23.877Z`. Evidence directory: `/var/folders/8c/t2tmqjw11gx8pkf90z3p3rbc0000gn/T/keyclasp-slice3-touch-id-VO9njn`; transcript: `/var/folders/8c/t2tmqjw11gx8pkf90z3p3rbc0000gn/T/keyclasp-slice3-touch-id-VO9njn/transcript.txt`, verified owner-only mode `0600`.
+- The transcript identifies SHA-1 `f9a9671524b60859e7d29383af7dda819409bba7`, SHA-256 `a588dc874760f77330efdad772361c0cffe8ad8860bc2f7fac148144189a5beb`, and npm integrity `sha512-Frn3U8GxEjha6foF2HsuI7cZ4PEWgTRUVLE/LwjudhEfFgduWsVa4TdrRQSA6Ih3SUHkCnGGGWxqfktE1RGGvw==`; an independent SHA-256 check of the saved tarball matched.
+- The receipt proves unattended use before locking; approved Touch ID then passphrase for lock; cancellation status 2 with the exact `BLOCKED` line, empty stdout, and no child launch; approved Touch ID then passphrase for locked use; locked dual-key status; approved Touch ID then passphrase for unlock; unlocked status; and unattended use afterward. Every other recorded process exited 0 and the transcript ends in `PASS`.
+- The first operator attempt exposed that interactive child output was buffered until exit, hiding the passphrase prompt. The verifier now tees stdout/stderr live while retaining both streams in the transcript; a regression test proves the prompt is visible before child completion.
+- The second operator attempt exposed that both secret readers could leave stdin resumed after successful entry, keeping the CLI child alive after it printed success. Cleanup now always pauses stdin after restoring terminal mode. The exact packed artifact exits successfully under a real macOS pseudo-terminal after passphrase submission.
+- Exact-artifact Linux verification passed in an isolated OrbStack Linux `aarch64` container running kernel `7.0.14-orbstack-00380-ga7e0a2dc9535`, Node `v24.17.0`, and npm `11.13.0`. An independent `sha256sum` inside the container matched `a588dc874760f77330efdad772361c0cffe8ad8860bc2f7fac148144189a5beb` before installation.
+- A clean global install reported Keyclasp `0.1.1`. With a disposable dual-key vault, an exact named machine-class run completed without a passphrase prompt; `lock` required one passphrase; the resulting interactive-class run displayed one passphrase prompt and completed without printing the secret; `status` reported `software-dual-key` and one locked record; `unlock` required one passphrase; and the next exact named run completed without a prompt. Every command exited successfully.
+- The Linux install repeated the known `prebuild-install@7.1.3` deprecation warning. Dependency and install-script qualification remain Slice 4 work; the warning did not alter the artifact hash or this Slice 3 authorization result.
+- Slice 3 is accepted. No commit, push, tag, publication, hardware lifecycle operation, or Slice 4 implementation was performed.
+
 ### Acceptance
 
 The exact packed artifact passes walking-skeleton steps 1–5. Possession of the machine key and complete machine-key metadata is insufficient to decrypt an interactive-key record. Lock, unlock, inherit, migration, backup, restore, and interruption preserve the record's authenticated custody class. Physical macOS and interactive Linux receipts identify that exact artifact.
 
 ### Agent handoff
 
-Execute this slice in a fresh task. Stop after the verified packed artifact and physical-evidence request; do not start release qualification, commit, push, tag, publish, or enable hardware operations. Record code, tests, artifact identity, review findings, physical evidence, and remaining risks here before handing Slice 4 to another fresh task.
+Slice 3 is complete. Start Slice 4 in a fresh task using the exact artifact identity and both physical receipts recorded above. Do not commit, push, tag, publish, or enable hardware operations without the separate authority required by Slice 4.
 
 ## Slice 4: Qualify and ship the software beta
 
-**Status:** pending; depends on Slice 3 including final physical authorization evidence.
+**Status:** ready for a fresh task; Slice 3 is accepted, and Slice 4 has not started.
 
 Deliver one installable, supportable public prerelease for the software dual-key vault. Hardware mode remains unavailable.
 
@@ -282,20 +329,24 @@ Walking-skeleton step 6 passes on the published support matrix. The tag, npm pac
 
 ### Agent handoff
 
-Use a fresh task after Slice 3. Qualification may prepare a release candidate without publication authority. Publication is a separate protected checkpoint requiring an explicit user instruction.
+Use a fresh task after Slice 4. Qualification may prepare a release candidate without publication authority. Publication is a separate protected checkpoint requiring an explicit user instruction.
 
-## Optional macOS hardware track
+## Slice 5: Add the optional macOS hardware beta
 
-**Status:** deferred; independent of the software beta after the shared contract is stable.
+**Status:** deferred until Slice 4 is complete and the user explicitly chooses to start hardware work. Slice 5 is not required to ship the software beta.
 
 Deliver hardware mode only if the exact implementation and distributed identity pass physical qualification. A failed experiment leaves the status-only boundary in place and does not change the software-beta claims.
 
 ### Gate A: Prove the persistence design
 
 - Build a disposable CryptoKit Secure Enclave `dataRepresentation` spike without exposing enrollment or lifecycle operations in the public CLI.
-- On a physical Apple Silicon Mac with Touch ID, prove create, process restart, representation reopen, non-interactive device-key use for an effectively unlocked exact named request, Touch-ID-gated broad and effectively locked use, tamper rejection, update continuity, and deletion semantics.
-- Copy the complete test state to a second Mac and prove it cannot use the private key.
-- Record the exact code identity, entitlements, OS/hardware versions, commands, hashes, prompts, and results.
+- Prove two independent hardware custody classes: a device-bound machine key that can serve an exact machine-only request without Touch ID, and a separate interactive key whose private-key use is cryptographically bound to `biometryCurrentSet`.
+- On a physical Apple Silicon Mac with Touch ID, prove creation, process restart, representation reopen, unattended machine-key use, Touch-ID-gated interactive-key use, tamper rejection, biometric-set invalidation, update continuity, and deletion semantics.
+- Prove that the machine key and all machine-key metadata cannot decrypt an interactive record. For a multi-secret request containing either class, require Touch ID before any key unwrap, record decryption, or child launch when at least one selected record is interactive.
+- Prove that `lock`, `unlock`, and `inherit` require Touch ID and atomically move all affected existing records between the hardware machine and interactive custody classes while setting the class for future matching records.
+- Copy the complete test state to a second Mac and prove it cannot use either private key.
+- Prove recovery of both custody classes before deleting or replacing either hardware key.
+- Record the exact code identity, entitlements, access-control flags for both keys, OS/hardware versions, commands, hashes, prompts, and results.
 - If the spike fails, require an accepted stable signing identity or defer hardware mode. Do not substitute a software key, unsafe cast, mock result, or account-free claim.
 
 ### Gate B: Implement behind the shared interfaces
@@ -303,14 +354,16 @@ Deliver hardware mode only if the exact implementation and distributed identity 
 - Add hardware mode as an explicit initialization choice, tentatively `keyclasp init --hardware`, only on qualified systems. Existing `keyclasp init` remains the software flow.
 - Implement hardware operations under `src/hardware/` and `native/keyclasp-core/`. Hardware code may implement or extend shared command-level contracts but cannot import `src/software/`, `src/vault.ts`, or `src/biometric.ts`.
 - Keep enrollment, key unwrap, vault decryption, recovery-secret input, authorization, environment construction, and child launch inside the short-lived native authority. Return only bounded status and exit information to Node.
-- Preserve the same selection boundary as software mode while using the hardware provider's unlock: effectively unlocked named requests avoid Touch ID, broad requests require Touch ID, and effectively locked named requests require Touch ID.
-- Define an authenticated, atomic metadata format for the opaque Secure Enclave representation, recovery wrap, vault identity, migration generation, and active/staged state.
+- Reuse the shared selection and policy contracts, including the exact `lock`, `unlock`, and `inherit` selectors and precedence rules. Do not reuse the software key bundle, vault implementation, or plaintext helpers.
+- Preserve the software custody invariant with hardware-owned implementations: machine-class records use only the hardware machine key; interactive-class records use only the distinct biometric hardware key. Broad requests, `get`, policy mutations, recovery operations, and any selected set containing an interactive record require Touch ID.
+- Make each policy mutation one authenticated exclusive lifecycle operation that atomically changes the rule, re-encrypts affected existing records under the resulting hardware class, and assigns the class to future matching records. A downgrade to machine custody requires the same Touch ID authorization as a lock.
+- Define an authenticated, atomic metadata format for both opaque Secure Enclave representations, both recovery wraps, record custody class, vault identity, policy and migration generation, and active/staged state.
 - Preserve a trusted recoverable copy through activation. Treat a post-activation durability or rename failure as indeterminate, never as a safe rollback.
-- Implement explicit migration between software and hardware modes without silently changing custody or deleting the last recoverable copy.
+- Implement explicit, operator-authenticated migration between the software dual-key bundle and both hardware custody classes without silently changing any record's class or deleting the last recoverable copy.
 
 ### Gate C: Qualify and release
 
-- Verify recovery, device loss, copied-vault failure, biometric-set change, cancelled prompts, malformed protocol input, large environments, signals, orphan cleanup, concurrent invocations, power-loss boundaries, update, rollback, and uninstall.
+- Verify recovery of both classes, device loss, copied-vault failure, biometric-set change, cancelled prompts, mixed-class requests, lock/unlock/inherit transitions, malformed protocol input, large environments, signals, orphan cleanup, concurrent invocations, power-loss boundaries, update, rollback, and uninstall.
 - Run property, fuzz, fault-injection, dependency, FFI, unsafe-code, permission, process-boundary, and independent security reviews.
 - Test the exact packaged artifact on clean supported Macs under the exact pre-GA identity and installation path. Limit the first matrix to Apple Silicon plus Touch ID unless T2 evidence is added.
 - Publish checksums, provenance, support matrix, recovery procedure, deletion limitations of retained opaque representations, and precise beta limitations.
@@ -318,7 +371,7 @@ Deliver hardware mode only if the exact implementation and distributed identity 
 
 ### Acceptance
 
-The hardware walking skeleton passes from explicit initialization through unlocked named and locked runs, recovery, update, and copied-Mac rejection without exposing a vault key or secret plaintext to Node. Only then may `keyclasp status` report hardware mode as enabled and the project publish a hardware beta.
+The hardware walking skeleton passes from explicit initialization through unattended machine-class use, Touch-ID-gated interactive and mixed-class use, lock/unlock/inherit, recovery of both classes, update, and copied-Mac rejection. The machine key cannot decrypt interactive records, and Node receives neither a vault key nor secret plaintext. Only then may `keyclasp status` report hardware mode as enabled and the project publish a hardware beta.
 
 ## Technical bets and bounded spikes
 
@@ -330,13 +383,13 @@ The hardware walking skeleton passes from explicit initialization through unlock
 ## Deferred decisions
 
 - Developer ID signing, notarization, and the final macOS hardware GA installation channel.
-- Optional hardware mode, Intel/T2 Macs, Windows TPM, Linux TPM, external hardware tokens, and mobile platforms.
+- Execution of Slice 5, Intel/T2 Macs, Windows TPM, Linux TPM, external hardware tokens, and mobile platforms. Slice 5 begins only after the software beta and an explicit user decision.
 - Software support for Windows when verified ACL and authorization work misses the Slice 4 cutline; the macOS/Linux beta must fail closed and document the exclusion.
 - Interactive-passphrase removal. The beta supports enrollment and rotation only.
 - A daemon, stored capabilities, workload identity, or resistance to a malicious same-user caller beyond explicit selection.
 - A separately anchored manifest MAC, monotonic rollback counter, and cryptographic revocation of every retained local hardware representation.
 - Remote stores, teams, synchronization, accounts, telemetry, and Bitwarden Agent Access.
-- Hardware-mode support in the software-beta artifact; the public status probe may remain unavailable or explicitly experimental.
+- Hardware-mode support in the software-beta artifact; the public status probe may remain unavailable or explicitly experimental until Slice 5 passes.
 
 ## Overall done criteria
 
@@ -348,7 +401,7 @@ The planned work is complete only when:
 - lock, unlock, inherit, passphrase rotation, migration, backup, restore, and interruption preserve or fail closed on key class;
 - physical Touch ID and interactive Linux evidence identify the same candidate later published;
 - Windows is either on the tested support matrix or fails closed and is documented as unsupported;
-- optional hardware mode remains deferred with the status-only boundary intact;
+- Slice 5 is either accepted through its physical hardware-beta gates or remains explicitly deferred with the status-only boundary intact; its deferral does not block completion of the software beta;
 - software and hardware implementations remain separate behind shared command-level interfaces;
 - documentation distinguishes software binding, hardware custody, operator authorization, scoped disclosure, trusted-child behavior, and same-user limitations;
 - the plan and security checklist link to the exact receipts for each satisfied release gate.

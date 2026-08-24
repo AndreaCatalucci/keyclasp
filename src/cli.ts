@@ -24,6 +24,19 @@ import {
   renameEnvironmentAcrossAllProjects,
   renameScope,
   validateScopeName,
+  enrollInteractivePassphrase,
+  rotateInteractivePassphrase,
+  isInteractiveKeyUnlocked,
+  readSecretKeyClass,
+  transitionRecordCustody,
+  needsDualKeyMigration,
+  inspectLegacyVaultMode,
+  migrateLegacyVaultToDualKey,
+  recoverInterruptedCustodyTransition,
+  hasInterruptedCustodyTransition,
+  hasInterruptedDualKeyMigration,
+  recoverInterruptedDualKeyMigration,
+  summarizeKeyClasses,
   type ScopedSecret,
 } from "./vault.js";
 import { parseRunArgs } from "./run.js";
@@ -32,7 +45,7 @@ import { getDisplayVersion } from "./version.js";
 import { extractGlobalFlags, resolveContext, writeContext, clearContext } from "./context.js";
 import { processPassphraseInput, requireOperatorAuthentication } from "./biometric.js";
 import { formatHardwareDoctor, inspectHardwareMode } from "./hardware/status.js";
-import { appendAuthorizationPolicyAudit, authorizationSelectorFromCommand, hasInterruptedAuthorizationPolicy, readAuthorizationState, recoverInterruptedAuthorizationPolicy, setAuthorizationRuleAuthorized, summarizeAuthorizationState } from "./policy.js";
+import { appendAuthorizationPolicyAudit, authorizationSelectorFromCommand, evaluateAuthorizationRules, hasInterruptedAuthorizationPolicy, mutateAuthorizationRuleAuthorized, readAuthorizationState, recoverInterruptedAuthorizationPolicy, summarizeAuthorizationState, validateLiveAuthorizationPolicy } from "./policy.js";
 import { createManagedBackupAuthorized, hasInterruptedManagedRestore, recoverInterruptedManagedRestore, restoreManagedBackupAuthorized, verifyManagedBackupPassphrase } from "./recovery.js";
 import { acquireVaultLifecycleLock, lifecycleModeForCommand, type VaultLifecycleLock } from "./lifecycle-lock.js";
 import readline from "node:readline";
@@ -40,18 +53,9 @@ import { StringDecoder } from "node:string_decoder";
 import path from "node:path";
 import { stdin, stdout } from "node:process";
 
-function isVaultUnlocked(): boolean {
-  try {
-    getKey();
-    return true;
-  } catch (err: any) {
-    if (err?.message === KEY_LOCKED_ERROR) return false;
-    throw err;
-  }
-}
-
 async function ensureVaultUnlocked(): Promise<void> {
-  if (isVaultUnlocked()) return;
+  if (!vaultHasPassphrase()) throw new Error("Interactive custody is not enrolled. Run: keyclasp passphrase set");
+  if (isInteractiveKeyUnlocked()) return;
   if (!stdin.isTTY) {
     console.error(KEY_LOCKED_ERROR);
     process.exit(1);
@@ -98,7 +102,10 @@ Usage:
                               Run a guarded command with secrets as env vars
   keyclasp lock [--project P] [--environment E] [SECRET]
   keyclasp unlock [--project P] [--environment E] [SECRET]
+  keyclasp inherit [--project P] [--environment E] [SECRET]
                               Set an authenticated authorization rule
+  keyclasp passphrase set|rotate
+                              Enroll or rotate interactive custody
   keyclasp backup create|restore <directory>
                               Create or restore a managed vault backup
   keyclasp status               Show vault status
@@ -135,7 +142,6 @@ Examples:
 
 async function promptSecret(prompt: string): Promise<string> {
   const wasRaw = stdin.isRaw === true;
-  const wasPaused = stdin.isPaused();
   return new Promise((resolve, reject) => {
     stdout.write(prompt);
     let value = "";
@@ -149,7 +155,7 @@ async function promptSecret(prompt: string): Promise<string> {
       stdin.removeListener("close", onClose);
       stdin.removeListener("error", onError);
       try { stdin.setRawMode?.(wasRaw); } catch { /* preserve the primary result */ }
-      if (wasPaused) stdin.pause();
+      stdin.pause();
       stdout.write("\n");
       if (error) reject(error);
       else resolve(value.trim());
@@ -184,6 +190,15 @@ async function promptSecret(prompt: string): Promise<string> {
       finish(error instanceof Error ? error : new Error("Could not read the secret."));
     }
   });
+}
+
+async function promptConfirmedPassphrase(prompt: string): Promise<string> {
+  if (!stdin.isTTY) throw new Error("Interactive passphrase enrollment requires a terminal.");
+  const first = await promptSecret(prompt);
+  if (!first) throw new Error("Interactive passphrase must be non-empty.");
+  const second = await promptSecret("Confirm new interactive passphrase: ");
+  if (first !== second) throw new Error("Passphrase confirmation did not match. Nothing was changed.");
+  return first;
 }
 
 function promptPlainLine(prompt: string): Promise<string> {
@@ -379,6 +394,50 @@ function runRename(flags: RenameFlags): void {
   process.exit(1);
 }
 
+async function migrateLegacyIfNeeded(): Promise<void> {
+  if (!isInitialized() || !needsDualKeyMigration()) return;
+  validateLivePolicyBeforeMigration();
+  const mode = inspectLegacyVaultMode();
+  if (mode === "passphrase") {
+    const currentPassphrase = await promptSecret("Enter current vault passphrase to migrate: ");
+    migrateLegacyVaultToDualKey(readAuthorizationState, { currentPassphrase });
+    return;
+  }
+  const rows = listSecrets() as ScopedSecret[];
+  const hasLockedRecord = rows.some((row) => readAuthorizationState(row.project, row.environment, row.name) === "locked");
+  if (!hasLockedRecord) {
+    migrateLegacyVaultToDualKey(readAuthorizationState);
+    return;
+  }
+  if (process.platform === "darwin") {
+    await requireOperatorAuthentication("Enroll interactive custody while migrating locked Keyclasp records");
+  } else if (process.platform !== "linux") {
+    throw new Error("Interactive custody migration is not supported on this platform.");
+  }
+  const newInteractivePassphrase = await promptConfirmedPassphrase("Enter new interactive passphrase: ");
+  migrateLegacyVaultToDualKey(readAuthorizationState, { newInteractivePassphrase });
+}
+
+function validateLivePolicyBeforeMigration(): void {
+  validateLiveAuthorizationPolicy();
+}
+
+function hasPendingExclusiveVaultWork(): boolean {
+  return needsDualKeyMigration() ||
+    hasInterruptedCustodyTransition() ||
+    hasInterruptedDualKeyMigration() ||
+    hasInterruptedManagedRestore() ||
+    hasInterruptedAuthorizationPolicy();
+}
+
+async function recoverAndMigrateVault(): Promise<void> {
+  recoverInterruptedDualKeyMigration();
+  recoverInterruptedCustodyTransition();
+  recoverInterruptedManagedRestore();
+  recoverInterruptedAuthorizationPolicy();
+  await migrateLegacyIfNeeded();
+}
+
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const command = args[0];
@@ -395,22 +454,16 @@ async function main(): Promise<void> {
 
   let lifecycleLock: VaultLifecycleLock | null = null;
   if (command !== "doctor") {
-    const lifecycleMode = lifecycleModeForCommand(command);
-    const exclusive = lifecycleMode === "exclusive";
+    const lifecycleMode = hasPendingExclusiveVaultWork()
+      ? "exclusive"
+      : lifecycleModeForCommand(command);
     lifecycleLock = acquireVaultLifecycleLock(lifecycleMode);
-    if (exclusive) {
-      recoverInterruptedManagedRestore();
-      recoverInterruptedAuthorizationPolicy();
-    } else if (hasInterruptedManagedRestore() || hasInterruptedAuthorizationPolicy()) {
+    if (lifecycleMode === "exclusive") {
+      await recoverAndMigrateVault();
+    } else if (hasPendingExclusiveVaultWork()) {
       lifecycleLock.release();
       lifecycleLock = acquireVaultLifecycleLock("exclusive");
-      recoverInterruptedManagedRestore();
-      recoverInterruptedAuthorizationPolicy();
-      lifecycleLock.release();
-      lifecycleLock = acquireVaultLifecycleLock("shared");
-      if (hasInterruptedManagedRestore() || hasInterruptedAuthorizationPolicy()) {
-        throw new Error("Vault recovery state changed concurrently. Retry the command.");
-      }
+      await recoverAndMigrateVault();
     }
   }
 
@@ -438,7 +491,8 @@ async function main(): Promise<void> {
       }
 
       case "lock":
-      case "unlock": {
+      case "unlock":
+      case "inherit": {
         if (!isInitialized()) {
           console.error("Keyclasp not initialized. Run: keyclasp init");
           process.exit(1);
@@ -454,9 +508,12 @@ async function main(): Promise<void> {
         const secret = selector.secret;
         let changed = false;
         try {
-          const effective = await setAuthorizationRuleAuthorized(selector, command === "lock", {
+          const effective = await mutateAuthorizationRuleAuthorized(selector, command, {
             authorize: requireOperatorAuthentication,
             ensureUnlocked: ensureVaultUnlocked,
+            databaseMutation: (db, nextRules) => {
+              transitionRecordCustody(db, nextRules, evaluateAuthorizationRules);
+            },
           });
           changed = true;
           try {
@@ -479,6 +536,40 @@ async function main(): Promise<void> {
         break;
       }
 
+      case "passphrase": {
+        if (!isInitialized()) {
+          console.error("Keyclasp not initialized. Run: keyclasp init");
+          process.exit(1);
+        }
+        const action = args[1];
+        if ((action !== "set" && action !== "rotate") || args.length !== 2) {
+          console.error("Usage: keyclasp passphrase set|rotate");
+          process.exit(1);
+        }
+        if (action === "set") {
+          if (vaultHasPassphrase()) throw new Error("Interactive passphrase is already set. Use passphrase rotate.");
+          if (process.platform === "darwin") {
+            await requireOperatorAuthentication("Enroll Keyclasp interactive custody", {
+              vaultHasPassphrase: () => false,
+            });
+          } else if (process.platform !== "linux") {
+            throw new Error("Interactive passphrase enrollment is not supported on this platform.");
+          }
+          const next = await promptConfirmedPassphrase("Enter new interactive passphrase: ");
+          enrollInteractivePassphrase(next);
+          console.log("Interactive custody enrolled.");
+        } else {
+          const authorization = await requireOperatorAuthentication("Rotate Keyclasp interactive passphrase");
+          const current = authorization.method === "passphrase"
+            ? authorization.passphrase
+            : await promptSecret("Enter current interactive passphrase: ");
+          const next = await promptConfirmedPassphrase("Enter new interactive passphrase: ");
+          rotateInteractivePassphrase(current, next);
+          console.log("Interactive passphrase rotated without rewriting secret ciphertext.");
+        }
+        break;
+      }
+
       case "backup": {
         const action = args[1];
         const directory = args[2];
@@ -495,7 +586,7 @@ async function main(): Promise<void> {
             authorize: requireOperatorAuthentication,
             ensureUnlocked: ensureVaultUnlocked,
           });
-          console.log(`Managed ${manifest.mode} backup created at ${path.resolve(directory)}.`);
+          console.log(`Managed ${manifest.custody} backup created at ${path.resolve(directory)}.`);
         } else {
           const source = path.resolve(directory);
           const result = await restoreManagedBackupAuthorized(source, {
@@ -505,7 +596,7 @@ async function main(): Promise<void> {
             }),
             promptPassphrase: () => promptSecret("Enter managed backup passphrase: "),
           });
-          console.log(`Managed ${result.manifest.mode} backup restored from ${path.resolve(directory)}. Verify it with keyclasp status.`);
+          console.log(`Managed ${result.manifest.custody} backup restored from ${path.resolve(directory)}. Verify it with keyclasp status.`);
           for (const warning of result.cleanupWarnings) console.error(`WARNING: ${warning}`);
         }
         break;
@@ -523,12 +614,13 @@ async function main(): Promise<void> {
           process.exit(1);
         }
         const { project, environment } = resolveContext(pFlag, eFlag);
+        const keyClass = readAuthorizationState(project, environment, name) === "locked" ? "interactive" : "machine";
         if (!stdin.isTTY && rest[1] !== "-") {
-          if (!isVaultUnlocked()) {
+          if (keyClass === "interactive" && !isInteractiveKeyUnlocked()) {
             console.error(KEY_LOCKED_ERROR);
             process.exit(1);
           }
-        } else {
+        } else if (keyClass === "interactive") {
           await ensureVaultUnlocked();
         }
 
@@ -554,7 +646,7 @@ async function main(): Promise<void> {
         if (isNewProjectEnvironment(project, environment)) {
           console.log(`Note: "${project}/${environment}" is a new project/environment combo.`);
         }
-        storeSecret(project, environment, name, value);
+        storeSecret(project, environment, name, value, keyClass);
         console.log(`Stored "${name}" (${project}/${environment})`);
         break;
       }
@@ -572,7 +664,7 @@ async function main(): Promise<void> {
         }
         const { project, environment } = resolveContext(pFlag, eFlag);
         await requireOperatorAuthentication(`Reveal secret "${project}/${environment}/${secretName}"`);
-        await ensureVaultUnlocked();
+        if (readSecretKeyClass(project, environment, secretName) === "interactive") await ensureVaultUnlocked();
         const val = resolveSecret(project, environment, secretName);
         if (val === null) {
           console.error(`Secret "${secretName}" not found in project "${project}" environment "${environment}".`);
@@ -626,7 +718,7 @@ async function main(): Promise<void> {
             console.error("keyclasp delete --bulk does not take a secret name. Use --project/--environment/--all-projects to select the scope to delete.");
             process.exit(1);
           }
-          await ensureVaultUnlocked();
+          getKey();
           await runBulkDelete({ project: pFlag, environment: eFlag, allProjects });
         } else {
           const delName = positionals[0];
@@ -634,7 +726,7 @@ async function main(): Promise<void> {
             console.error("Usage: keyclasp delete <name>  OR  keyclasp delete --bulk ...");
             process.exit(1);
           }
-          await ensureVaultUnlocked();
+          getKey();
           const { project, environment } = resolveContext(pFlag, eFlag);
           const deleted = deleteSecret(project, environment, delName);
           console.log(deleted ? `Deleted "${delName}" (${project}/${environment})` : `"${delName}" not found in ${project}/${environment}.`);
@@ -659,7 +751,7 @@ async function main(): Promise<void> {
         console.log("───────────────");
         console.log(`  Scope:      ${project}/${environment}  (project: ${projectSource}, environment: ${environmentSource})`);
         console.log(`  Vault:      ${getVaultLocation()}`);
-        console.log(`  Mode:       software-${descriptor.mode}`);
+        console.log(`  Mode:       software-${descriptor.custody}`);
         console.log(`  Authorization: ${authorization.state} (${authorization.locked} locked, ${authorization.unlocked} unlocked; future ${authorization.scopeDefault})`);
         console.log(`  Secrets:    ${scopedCount} in scope`);
         console.log("  Values:     not inspected by status");
@@ -716,6 +808,7 @@ async function main(): Promise<void> {
           process.exit(1);
         }
         const flags = parseRenameFlags(args.slice(1));
+        if (vaultHasPassphrase() && summarizeKeyClasses().interactive > 0) await ensureVaultUnlocked();
         runRename(flags);
         break;
       }
@@ -743,6 +836,7 @@ async function main(): Promise<void> {
           stdout: (chunk) => process.stdout.write(chunk),
           stderr: (chunk) => process.stderr.write(chunk),
           readAuthorizationState,
+          readKeyClass: readSecretKeyClass,
           authorize: requireOperatorAuthentication,
         });
         const result = await runtime.run({
