@@ -14,7 +14,7 @@ import {
   storeSecret,
   unlockVault,
   vaultHasPassphrase,
-  verifyVaultPassphrase,
+  authorizeAndUnlockVaultPassphrase,
 } from "../src/vault.js";
 
 const KEY_FILE_MAGIC_V4 = Buffer.from("keyclasp:v4\n", "utf8");
@@ -111,8 +111,8 @@ describe("v4 machine wrap", () => {
   it("writes machine mode for an empty init passphrase", () => {
     initializeVault("");
     expect(vaultHasPassphrase()).toBe(false);
-    expect(verifyVaultPassphrase("")).toBe(true);
-    expect(verifyVaultPassphrase("anything")).toBe(false);
+    expect(authorizeAndUnlockVaultPassphrase("")).toBe(true);
+    expect(authorizeAndUnlockVaultPassphrase("anything")).toBe(false);
     storeSecret("default", "default", "API_KEY", "machine-value");
     resetRuntime();
     expect(resolveSecret("default", "default", "API_KEY")).toBe("machine-value");

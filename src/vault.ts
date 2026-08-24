@@ -4,6 +4,7 @@ import path from "node:path";
 import os from "node:os";
 import fs from "node:fs";
 import { execFileSync } from "node:child_process";
+import { enforceOwnerOnlyPath } from "./owner-only-path.js";
 
 const ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 12;
@@ -41,11 +42,6 @@ const REMOVED_INTERNAL_SECRET_NAMES = new Set([
   "_keyclasp_deadman:last_checkin",
   "__keyclasp_team_check",
 ]);
-
-export interface DecryptabilityCheck {
-  checked: number;
-  failures: { name: string; error: string }[];
-}
 
 export const SCOPE_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
@@ -93,70 +89,20 @@ function getVaultDir(): string {
 function enforceOwnerOnlyVaultPermissions(): void {
   const vaultDir = getVaultDir();
   if (!fs.existsSync(vaultDir)) return;
-  enforceOwnerOnlyPath(vaultDir, 0o700, "vault directory");
+  enforceOwnerOnlyPath(vaultDir, { kind: "directory", label: "vault directory" });
   for (const entry of fs.readdirSync(vaultDir)) {
     if (entry === ".initialize.db" || entry.startsWith(".initialize.db-") ||
         entry === ".keyclasp.key" || entry.startsWith(".keyclasp.key.") ||
         entry === "vault.db" || entry.startsWith("vault.db-" ) || entry.startsWith("vault.db.")) {
       const entryPath = path.join(vaultDir, entry);
       try {
-        enforceOwnerOnlyPath(entryPath, 0o600, `vault file "${entry}"`);
+        enforceOwnerOnlyPath(entryPath, { kind: "file", label: `vault file "${entry}"` });
       } catch (err: any) {
         if (err?.code === "ENOENT" || !fs.existsSync(entryPath)) continue;
         throw err;
       }
     }
   }
-}
-
-function enforceOwnerOnlyPath(filePath: string, mode: number, label: string): void {
-  const before = fs.lstatSync(filePath);
-  if (before.isSymbolicLink()) {
-    throw new Error(`Unsafe ${label}: symbolic links are not allowed.`);
-  }
-  if (process.platform === "win32") {
-    throw new Error(`Cannot verify owner-only Windows ACLs for ${label}; Keyclasp vault access is blocked on this host.`);
-  }
-  const currentUid = process.getuid?.();
-  if (currentUid !== undefined && before.uid !== currentUid) {
-    throw new Error(`Unsafe ${label}: owner UID ${before.uid} does not match the current UID ${currentUid}.`);
-  }
-  if (process.platform === "darwin") repairMacOsAcl(filePath, label);
-  if ((before.mode & 0o777) === mode) return;
-  try {
-    fs.chmodSync(filePath, mode);
-  } catch (err: any) {
-    throw new Error(`Cannot repair owner-only permissions for ${label}: ${err?.message ?? "permission change failed"}`);
-  }
-  const actual = fs.statSync(filePath).mode & 0o777;
-  if (actual !== mode) {
-    throw new Error(`Cannot verify owner-only permissions for ${label}; expected ${mode.toString(8)}, found ${actual.toString(8)}.`);
-  }
-}
-
-function repairMacOsAcl(filePath: string, label: string): void {
-  if (macOsAclEntries(filePath).length === 0) return;
-  try {
-    execFileSync("/bin/chmod", ["-N", filePath], { stdio: ["ignore", "ignore", "pipe"] });
-  } catch (err: any) {
-    throw new Error(`Cannot remove macOS ACL entries from ${label}: ${err?.message ?? "ACL repair failed"}`);
-  }
-  if (macOsAclEntries(filePath).length > 0) {
-    throw new Error(`Cannot verify an empty macOS ACL for ${label}.`);
-  }
-}
-
-function macOsAclEntries(filePath: string): string[] {
-  let output: string;
-  try {
-    output = execFileSync("/bin/ls", ["-lde", filePath], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-  } catch (err: any) {
-    throw new Error(`Cannot inspect the macOS ACL for "${filePath}": ${err?.message ?? "ACL inspection failed"}`);
-  }
-  return output.split("\n").filter((line) => /^\s*\d+:\s/.test(line));
 }
 
 function resolveVaultHome(): string {
@@ -173,6 +119,12 @@ function resolveVaultHome(): string {
 
 export function getVaultLocation(): string {
   return getVaultDir();
+}
+
+export function ensureOwnerOnlyVaultDirectory(): void {
+  const vaultDir = getVaultDir();
+  if (!fs.existsSync(vaultDir)) fs.mkdirSync(vaultDir, { recursive: true, mode: 0o700 });
+  enforceOwnerOnlyPath(vaultDir, { kind: "directory", label: "vault directory" });
 }
 
 function getVaultPath(): string {
@@ -299,6 +251,72 @@ interface ParsedKeyFile {
   aad: Buffer;
   vaultId: Buffer | null;
   state: "active" | "migration-pending";
+}
+
+export interface VaultDescriptor {
+  mode: KeyFileMode;
+  vaultId: Buffer;
+}
+
+export function getVaultDescriptor(): VaultDescriptor {
+  enforceOwnerOnlyVaultPermissions();
+  const parsed = readParsedKeyFile();
+  if (parsed.format !== 4 || !parsed.vaultId || parsed.state !== "active") {
+    throw new Error("Keyclasp vault must complete its storage upgrade before policy operations are available.");
+  }
+  return { mode: parsed.mode, vaultId: Buffer.from(parsed.vaultId) };
+}
+
+export function validateKeyFileDescriptor(filePath: string, expectedVaultId: Buffer, expectedMode: KeyFileMode): void {
+  const parsed = parseKeyFile(fs.readFileSync(filePath));
+  if (parsed.format !== 4 || parsed.state !== "active" || !parsed.vaultId ||
+      !parsed.vaultId.equals(expectedVaultId) || parsed.mode !== expectedMode) {
+    throw new Error("Managed backup key identity or software mode does not match its manifest.");
+  }
+}
+
+export function validateMachineBackupUnlock(keyPath: string, databasePath: string): void {
+  const parsed = parseKeyFile(fs.readFileSync(keyPath));
+  if (parsed.mode !== "machine") return;
+  unlockManagedBackupKey(keyPath, databasePath);
+}
+
+function backupKeyUnlocksDatabase(key: Buffer, parsed: ParsedKeyFile, databasePath: string): boolean {
+  if (!parsed.vaultId) return false;
+  const db = new Database(databasePath, { readonly: true, fileMustExist: true });
+  try {
+    const vaultId = readCurrentVaultId(db);
+    if (!vaultId || !vaultId.equals(parsed.vaultId)) return false;
+    verifyVaultKeyCheck(db, key, vaultId);
+    return true;
+  } catch {
+    return false;
+  } finally {
+    db.close();
+  }
+}
+
+export function unlockManagedBackupKey(keyPath: string, databasePath: string, passphrase?: string): Buffer {
+  const parsed = parseKeyFile(fs.readFileSync(keyPath));
+  if (parsed.mode === "passphrase") {
+    if (passphrase === undefined) throw new Error("This managed backup requires its vault passphrase.");
+    try {
+      const key = unwrapDek(parsed, deriveKey(parsed.salt, passphrase));
+      if (backupKeyUnlocksDatabase(key, parsed, databasePath)) return key;
+    } catch {
+      // Report one bounded failure below.
+    }
+    throw new Error("Managed backup passphrase is incorrect or its key does not match the database.");
+  }
+  for (const identity of deriveStableMachineIdentities()) {
+    try {
+      const key = unwrapDek(parsed, deriveWrappingKey(parsed.salt, identity, parsed.magic));
+      if (backupKeyUnlocksDatabase(key, parsed, databasePath)) return key;
+    } catch {
+      // Try the next stable identity.
+    }
+  }
+  throw new Error("This machine-mode backup cannot be unlocked on the current machine. Live vault state was not changed.");
 }
 
 function parseKeyFile(keyData: Buffer): ParsedKeyFile {
@@ -434,7 +452,7 @@ function writeKeyFile(
   ]), { mode: 0o600 });
   backupExistingKeyFile(keyPath);
   fs.renameSync(tmpPath, keyPath);
-  fs.chmodSync(keyPath, 0o600);
+  enforceOwnerOnlyPath(keyPath, { kind: "file", label: "vault key file" });
 }
 
 export function writeLegacyV3KeyFileForTests(dek: Buffer, passphrase: string): void {
@@ -469,7 +487,7 @@ function backupExistingKeyFile(keyPath: string): void {
   if (!fs.existsSync(keyPath)) return;
   const backupPath = nextKeyBackupPath(keyPath);
   fs.copyFileSync(keyPath, backupPath);
-  fs.chmodSync(backupPath, 0o600);
+  enforceOwnerOnlyPath(backupPath, { kind: "file", label: "vault key backup" });
 }
 
 function readParsedKeyFile(): ParsedKeyFile {
@@ -801,7 +819,7 @@ export function initializeVault(passphrase: string): void {
   enforceOwnerOnlyVaultPermissions();
   const lockPath = path.join(vaultDir, ".initialize.db");
   const lockDb = new Database(lockPath);
-  fs.chmodSync(lockPath, 0o600);
+  enforceOwnerOnlyPath(lockPath, { kind: "file", label: "vault initialization lock" });
   lockDb.pragma("busy_timeout = 1");
   try {
     lockDb.exec("BEGIN EXCLUSIVE");
@@ -849,7 +867,7 @@ export function isInitialized(): boolean {
   return fs.existsSync(getKeyPath());
 }
 
-export function verifyVaultPassphrase(passphrase: string): boolean {
+export function authorizeAndUnlockVaultPassphrase(passphrase: string): boolean {
   const parsed = readParsedKeyFile();
   if (parsed.mode === "machine") return passphrase === "";
   if (!passphrase) return false;
@@ -1013,7 +1031,7 @@ function ensureCurrentVaultFormat(
     } finally {
       snapshot.close();
     }
-    enforceOwnerOnlyPath(backupPath, 0o600, "vault migration backup");
+    enforceOwnerOnlyPath(backupPath, { kind: "file", label: "vault migration backup" });
     _migrationBackupHookForTests?.(backupPath);
     if (_migrationFaultForTests === "after-backup") throw new Error("Injected migration interruption after backup.");
     const vaultId = expectedVaultId ?? crypto.randomBytes(16);
@@ -1287,41 +1305,6 @@ export function listSecrets(project?: string, environment?: string): string[] | 
     return filtered.map((r) => r.name);
   }
   return filtered;
-}
-
-export function checkVaultDecryptability(): DecryptabilityCheck {
-  const db = getDb();
-  let vaultId: Buffer | null = null;
-  let rows = [...iterateNamedEncryptedVaultRows(db)];
-  const failures: DecryptabilityCheck["failures"] = [];
-  let checked = 0;
-  let key: Buffer;
-
-  try {
-    key = getKey();
-    vaultId = ensureVaultFormatMatchesKey(db, key);
-    rows = [...iterateNamedEncryptedVaultRows(db)];
-  } catch (err: any) {
-    for (const row of rows) {
-      if (REMOVED_INTERNAL_SECRET_NAMES.has(row.name)) continue;
-      checked++;
-      failures.push({ name: row.name, error: err?.message ?? "Unable to load key" });
-    }
-    return { checked, failures };
-  }
-
-  for (const row of rows) {
-    if (REMOVED_INTERNAL_SECRET_NAMES.has(row.name)) continue;
-    checked++;
-    try {
-      if (!vaultId) throw new Error("Vault format is unavailable.");
-      decryptRecord(row, key, vaultId);
-    } catch (err: any) {
-      failures.push({ name: row.name, error: err?.message ?? "Unable to decrypt" });
-    }
-  }
-
-  return { checked, failures };
 }
 
 function currentVaultForMutation(): { db: Database.Database; key: Buffer; vaultId: Buffer } {

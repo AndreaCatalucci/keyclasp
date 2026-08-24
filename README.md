@@ -4,9 +4,9 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-Keyclasp is a minimal local secrets vault and CLI for AI coding agents. It lets an agent run tests, builds, API calls, cloud CLIs, and deployment tools without reading the real API keys, tokens, passwords, or credentials those commands need.
+Keyclasp is a minimal local secrets vault and CLI for AI coding agents. It keeps credentials out of project files, prompts, and command arguments while injecting selected values into the child process that needs them. That child receives usable credentials and must be trusted.
 
-Requires **Node.js 24+**. The vault, `set`/`list`/`status`, and `keyclasp run --env ...` work on macOS, Linux, and Windows. `keyclasp get` and whole-scope `keyclasp run` (no `--env`) ask for macOS Touch ID when it is available, and otherwise ask for the vault passphrase in an interactive terminal.
+Requires **Node.js 24+**. Unlocked named runs use normal vault-mode behavior. Locked named runs and broad runs require Touch ID on macOS or one non-empty passphrase on Linux; Linux machine-only fails closed. Windows operator authorization remains deferred.
 
 ## The Problem Keyclasp Solves
 
@@ -93,9 +93,19 @@ keyclasp run --project myapp --environment prod --env SECRET_API_KEY -- npm test
 keyclasp status --project myapp --environment prod
 ```
 
-Use explicit `--env` options so each command receives only the secrets it needs. This is the form that works on every platform, and the form coding agents should use.
+Use explicit `--env` options so each command receives only the secrets it needs. Named runs use each selected secret's effective lock state. Coding agents should use only effectively unlocked mappings.
 
-An operator can inject every secret in the selected scope by omitting `--env`. That path asks for Touch ID when available, or the vault passphrase when Touch ID is not available:
+Explicit selection limits disclosure; it does not authenticate the caller. Another process running as the same operating-system user can request a known secret name for a child command. The child that receives a secret must be trusted.
+
+An operator can lock one project, environment, scope, or exact secret. A more-specific unlock overrides a broader lock:
+
+```bash
+keyclasp lock --project myapp
+keyclasp lock --project myapp --environment prod
+keyclasp unlock --project myapp --environment prod READ_ONLY_TOKEN
+```
+
+An operator can request every secret in the selected scope by omitting `--env`. That path always requires platform operator authorization:
 
 ```bash
 keyclasp run --project myapp --environment prod -- npm test
@@ -105,7 +115,7 @@ keyclasp run --project myapp --environment prod -- npm test
 
 Tell the agent:
 
-> Use Keyclasp for commands that need credentials. Agents and CI need a machine-only vault (empty passphrase at `init`); a passphrase vault stays locked in each new process and `run --env` will fail. Always pass the intended `--project` and `--environment` explicitly to `keyclasp list`, `keyclasp status`, and `keyclasp run`; do not rely on `keyclasp use` or ambient context. Choose the minimum required `--env` mappings and never omit `--env`. Never call `keyclasp get`, request whole-scope injection, or print or paste injected environment variables.
+> Use Keyclasp for commands that need credentials. Agents and CI need a machine-only vault and effectively unlocked named selections. Always pass `--project`, `--environment`, and the minimum required `--env` mappings explicitly. Never call `get`, request a broad run, change authorization policy, or print injected values.
 
 Keyclasp ships an agent skill at [`skills/keyclasp-agent`](skills/keyclasp-agent) that encodes this workflow and the safety rules. Install it for the coding agents on this machine:
 
@@ -125,7 +135,7 @@ npx skills add . --skill keyclasp-agent -g
 |---------|-------------|
 | `keyclasp init` | Initialize the encrypted vault |
 | `keyclasp set <name>` | Store a secret (also updates an existing one) |
-| `keyclasp get <name>` | Resolve and print a secret after Touch ID or vault passphrase (human use only) |
+| `keyclasp get <name>` | Resolve and print a secret after platform operator authorization |
 | `keyclasp list` | List stored secret names |
 | `keyclasp delete <name>` | Delete a secret |
 | `keyclasp use <project> <environment>` | Persist an interactive human context |
@@ -133,7 +143,10 @@ npx skills add . --skill keyclasp-agent -g
 | `keyclasp rename ...` | Rename a project, environment, or exact scope |
 | `keyclasp delete --bulk ...` | Delete a scope after typed interactive confirmation |
 | `keyclasp run [--env SOURCE[:TARGET]] [--allow-unsafe] -- <command>` | Run a command with secrets injected and output leak-guarded |
-| `keyclasp status` | Show vault location, secret count, and a decryptability check |
+| `keyclasp lock\|unlock [--project P] [--environment E] [SECRET]` | Set an authenticated authorization rule |
+| `keyclasp backup create\|restore <directory>` | Create or restore one verified, consistent vault backup |
+| `keyclasp status` | Show vault mode, effective authorization state, location, and secret count without decrypting values |
+| `keyclasp doctor` | Inspect the status-only macOS hardware core; does not enable hardware mode |
 
 Secret operations accept `--project`/`-p` and `--environment`/`-E`. Each field resolves independently through explicit flag, `KEYCLASP_PROJECT`/`KEYCLASP_ENVIRONMENT`, persisted context, then `default`. Scripts and coding agents should always pass both flags explicitly.
 
@@ -141,10 +154,12 @@ See the [full CLI reference](docs/commands.md).
 
 ## Security Boundaries
 
+- Hardware-backed mode is not released. The current native core is status-only and cannot open a vault, handle secrets, enroll a key, or launch a child.
+- Lock state is authorization policy only. `unlock` does not change passphrase/machine key custody or vault mode.
 - Secret values are encrypted individually with AES-256-GCM; project, environment, and secret names are stored in plaintext.
 - The vault lives under `~/.keyclasp/` with owner-only directory and file permissions (`0700`/`0600`).
 - `keyclasp run` is the only path from the vault to a process; it blocks obvious environment-dump commands and redacts/terminates on a detected output leak.
-- `keyclasp get` and whole-scope `keyclasp run` require a fresh macOS Touch ID approval when Touch ID is available. If it is not available, they ask for the vault passphrase in an interactive terminal. A cancelled Touch ID prompt does not fall back. A machine-only (empty) passphrase cannot authorize these paths.
+- `get`, policy mutations, recovery, and broad runs always require platform operator authorization. macOS Touch ID never falls back to passphrase-only authorization. Linux reuses one successful passphrase entry for authorization and unlock.
 - A child process that receives a secret can still misuse or print it. `keyclasp run` reduces this risk but cannot make untrusted code safe. Only run trusted commands through it.
 - `keyclasp get` deliberately prints plaintext after biometric approval. Its output may remain in terminal scrollback; agents must never invoke it.
 - A non-empty passphrase wraps the vault data key. Unlock after each new process requires that passphrase (TTY). An empty ("machine-only") passphrase binds the key to the local machine's identity. That is the agent/CI mode.

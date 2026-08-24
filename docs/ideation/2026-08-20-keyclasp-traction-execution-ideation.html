@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Keyclasp traction: from zero footprint to first feedback</title>
+  <style>
+    :root {
+      --page: #f5f3ee;
+      --surface: #fffdf8;
+      --text: #24231f;
+      --muted: #656158;
+      --border: #d9d3c7;
+      --accent: #275e55;
+      --accent-soft: #e2f0eb;
+      --warm-soft: #f4ead6;
+      --shadow: 0 12px 30px rgba(45, 40, 31, 0.08);
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--page);
+      color: var(--text);
+      font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 17px;
+      line-height: 1.62;
+    }
+    a { color: var(--accent); text-underline-offset: 0.18em; }
+    a:focus-visible { outline: 3px solid #84b9ae; outline-offset: 3px; border-radius: 3px; }
+    code { background: #ece8df; padding: 0.08rem 0.3rem; border-radius: 5px; font-size: 0.92em; }
+    .container { width: min(900px, calc(100% - 40px)); margin: 0 auto; }
+    header { padding: 72px 0 34px; }
+    .eyebrow { margin: 0 0 8px; color: var(--accent); font-size: 0.78rem; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; }
+    h1 { max-width: 760px; margin: 0; font-size: clamp(2.2rem, 6vw, 4rem); line-height: 1.05; letter-spacing: -0.045em; }
+    .lede { max-width: 68ch; margin: 24px 0 0; color: var(--muted); font-size: 1.08rem; }
+    .metadata { display: flex; flex-wrap: wrap; gap: 12px 26px; margin: 28px 0 0; }
+    .metadata div { display: flex; gap: 8px; }
+    .metadata dt { color: var(--muted); font-weight: 700; }
+    .metadata dd { margin: 0; }
+    nav.top {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      padding: 12px 0;
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      background: rgba(245, 243, 238, 0.96);
+    }
+    nav.top .container { display: flex; flex-wrap: wrap; gap: 10px 22px; }
+    nav.top a { font-weight: 700; text-decoration: none; }
+    main { padding: 32px 0 70px; }
+    section { scroll-margin-top: 72px; margin: 0 0 64px; }
+    h2 { margin: 0 0 22px; font-size: 1.75rem; letter-spacing: -0.025em; }
+    h3 { margin: 0; font-size: 1.3rem; line-height: 1.25; }
+    p, ul { max-width: 70ch; }
+    .callout { padding: 20px 22px; background: var(--warm-soft); border: 1px solid #dfcfac; border-radius: 14px; }
+    .callout strong { color: var(--text); }
+    .evidence-list li { margin-bottom: 10px; }
+    .areas { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; padding: 0; list-style: none; counter-reset: area; }
+    .areas li { counter-increment: area; padding: 18px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
+    .areas li::before { content: counter(area); display: inline-grid; place-items: center; width: 28px; height: 28px; margin-right: 9px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); font-weight: 800; }
+    .jump-list { margin: 0 0 26px; padding: 18px 18px 18px 42px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
+    .jump-list li { margin: 4px 0; }
+    article.idea { scroll-margin-top: 72px; margin: 0 0 24px; padding: 26px; background: var(--surface); border: 1px solid var(--border); border-radius: 16px; box-shadow: var(--shadow); }
+    article.idea.top-pick { background: var(--accent-soft); border-color: #abcfc6; }
+    .idea-heading { display: flex; align-items: flex-start; gap: 14px; }
+    .rank { flex: 0 0 auto; display: grid; place-items: center; width: 38px; height: 38px; border-radius: 50%; background: var(--text); color: white; font-weight: 850; }
+    .badge { display: inline-block; margin: 0 0 8px; padding: 3px 9px; border-radius: 999px; background: #1f554c; color: white; font-size: 0.75rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; }
+    .idea-meta { display: flex; flex-wrap: wrap; gap: 8px; margin: 18px 0; }
+    .chip { padding: 4px 10px; border: 1px solid var(--border); border-radius: 999px; background: #f3f0e9; color: #49463f; font-size: 0.84rem; font-weight: 750; }
+    .top-pick .chip { background: #f7fbf9; border-color: #b9d7d0; }
+    .idea dl { display: grid; grid-template-columns: 120px 1fr; gap: 11px 18px; margin: 18px 0 0; }
+    .idea dt { font-weight: 800; color: var(--muted); }
+    .idea dd { margin: 0; max-width: 70ch; }
+    .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+    table { width: 100%; border-collapse: collapse; min-width: 680px; }
+    th, td { padding: 12px 14px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
+    th { background: #ece8df; font-size: 0.88rem; }
+    tr:last-child td { border-bottom: 0; }
+    footer { padding: 26px 0 48px; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.86rem; }
+    @media (max-width: 680px) {
+      .container { width: min(100% - 24px, 900px); }
+      header { padding-top: 44px; }
+      .areas { grid-template-columns: 1fr; }
+      article.idea { padding: 20px; }
+      .idea dl { grid-template-columns: 1fr; gap: 3px; }
+      .idea dd { margin-bottom: 12px; }
+    }
+    @media print {
+      body { background: white; color: black; }
+      nav.top { position: static; background: white; }
+      article.idea { box-shadow: none; break-inside: avoid; }
+      a { color: black; }
+    }
+  </style>
+</head>
+<body>
+  <header class="container">
+    <p class="eyebrow">Ideation</p>
+    <h1>Keyclasp traction: from zero footprint to first feedback</h1>
+    <p class="lede">Not "which niche": that question was already answered on 2026-08-10. This is the execution gap: nothing has shipped outward since, so the product is invisible by construction, not by bad luck.</p>
+    <dl class="metadata">
+      <div><dt>Date</dt><dd>2026-08-20</dd></div>
+      <div><dt>Topic</dt><dd>keyclasp-traction-execution</dd></div>
+      <div><dt>Focus</dt><dd>Concrete next actions to get discovered and get feedback</dd></div>
+      <div><dt>Mode</dt><dd>repo-grounded</dd></div>
+    </dl>
+  </header>
+
+  <nav class="top" aria-label="Document sections">
+    <div class="container">
+      <a href="#grounding-context">Relevant context</a>
+      <a href="#topic-areas">Topic areas</a>
+      <a href="#ranked-ideas">Ranked ideas</a>
+      <a href="#rejection-summary">Rejections</a>
+    </div>
+  </nav>
+
+  <main class="container">
+    <section id="grounding-context">
+      <h2>Relevant Context</h2>
+      <h3>What the numbers say</h3>
+      <ul class="evidence-list">
+        <li>The repo (<a href="https://github.com/AndreaCatalucci/keyclasp">AndreaCatalucci/keyclasp</a>) was created 2026-07-08, last pushed 2026-08-13. Stars: 0. Forks: 0.</li>
+        <li>The package is <strong>not on the npm registry</strong>. <code>npm view keyclasp</code> returns 404. Install is <code>npm install -g github:AndreaCatalucci/keyclasp</code> only, which also compiles a native <code>better-sqlite3</code> binding. That's real friction before anyone can try it. <em>Update 2026-08-20: fixed, see idea 1.</em></li>
+        <li>A web search for <code>"keyclasp" github secrets vault</code> returns zero hits naming the project. There is no HN, Reddit, dev.to, or awesome-list presence. Discoverability isn't weak. It's absent.</li>
+        <li>A finished, on-brand landing page (<code>index.html</code>) and a prior validation-niches brief (<a href="2026-08-10-keyclasp-validation-niches-ideation.html">2026-08-10-keyclasp-validation-niches-ideation.html</a>) already exist. Since that brief, the only commits are product fixes (passphrase key-wrap, Touch ID fallback). None of its six outreach ideas have been executed.</li>
+        <li>The upstream fork parent, <a href="https://www.npmjs.com/package/keyblind">keyblind</a>, is on npm at v0.6.0 with 13 published versions and dependencies on <code>stripe</code>, <code>resend</code>, <code>vercel</code>, and <code>acme-client</code>, scope far beyond a secrets vault. Keyclasp's git history shows a deliberate move away from it (commit <code>e8db531</code>: "wrap the data key with the passphrase and drop Keyblind"). That divergence (minimal core, no cloud dependencies, no MCP server surface) is a real, defensible difference and current messaging doesn't foreground it.</li>
+      </ul>
+      <div class="callout"><strong>The blocker isn't which audience to chase.</strong> It's that the product has never been placed where that audience (or search engines, or npm) could find it. Every traction tactic downstream of "get discovered" is blocked until that's fixed.</div>
+    </section>
+
+    <section id="topic-areas">
+      <h2>Topic Areas</h2>
+      <ol class="areas">
+        <li>Discoverability infrastructure</li>
+        <li>Targeted launch to the validated niche</li>
+        <li>Passive, low-effort listing surfaces</li>
+        <li>High-signal direct outreach</li>
+      </ol>
+    </section>
+
+    <section id="ranked-ideas">
+      <h2>Ranked Ideas</h2>
+      <ol class="jump-list">
+        <li><a href="#idea-1">Publish to the npm registry</a> — done</li>
+        <li><a href="#idea-2">Run the Show HN / Show Reddit post the prior brief never sent</a></li>
+        <li><a href="#idea-3">Submit to awesome-lists and agent-skill registries</a></li>
+        <li><a href="#idea-4">Ship one working integration with an agent-ecosystem maintainer</a></li>
+        <li><a href="#idea-5">Direct outreach to the 5–10 people already named</a></li>
+        <li><a href="#idea-6">Record a 30-second asciinema of the leak-guard killing a process</a></li>
+      </ol>
+
+      <article class="idea top-pick" id="idea-1">
+        <div class="idea-heading"><span class="rank">1</span><div><span class="badge">Done</span><h3>Publish to the npm registry</h3></div></div>
+        <div class="idea-meta"><span class="chip">Discoverability infrastructure</span><span class="chip">Confidence 94%</span><span class="chip">Complexity Low</span></div>
+        <p><strong>Description.</strong> Run <code>npm publish</code> under the name <code>keyclasp</code> (confirmed available). This drops install to <code>npm install -g keyclasp</code>, gives the project an npm search hit, a downloads counter, and a surface that package-aware coding agents and dependency tools can discover on their own, none of which exist today.</p>
+        <dl>
+          <dt>Status</dt><dd>Done 2026-08-20. Published as <code>keyclasp@0.1.1</code>; <code>npm view keyclasp version</code> confirms it. README and docs updated to the plain <code>npm install -g keyclasp</code> form.</dd>
+          <dt>Area</dt><dd>Discoverability infrastructure</dd>
+          <dt>Basis</dt><dd><strong>Direct:</strong> confirmed by <code>npm view keyclasp</code> (404, name free) and the README's own admission that install currently requires a GitHub URL plus a native compile step.</dd>
+          <dt>Rationale</dt><dd>Every other channel (launch posts, outreach, listings) sends people to an install step. Right now that step is the highest-friction version possible. Fixing it once pays off on every channel below.</dd>
+          <dt>Downsides</dt><dd>Registering the name also means owning its expectations: versioning discipline, a changelog, and no silent breaking changes once someone depends on it.</dd>
+          <dt>Confidence</dt><dd>94%</dd>
+          <dt>Complexity</dt><dd>Low</dd>
+        </dl>
+      </article>
+
+      <article class="idea" id="idea-2">
+        <div class="idea-heading"><span class="rank">2</span><div><h3>Run the Show HN / Show Reddit post the prior brief never sent</h3></div></div>
+        <div class="idea-meta"><span class="chip">Targeted launch</span><span class="chip">Confidence 82%</span><span class="chip">Complexity Low</span></div>
+        <p><strong>Description.</strong> Write one Show HN post and one r/commandline or r/LocalLLaMA post, aimed exactly at the "credentialed terminal-agent operators" niche the 2026-08-10 brief ranked first. Lead with the divergence-from-keyblind story and the leak-guard behavior, not a feature list. Link straight to the two-command demo already in the README.</p>
+        <dl>
+          <dt>Area</dt><dd>Targeted launch</dd>
+          <dt>Basis</dt><dd><strong>Direct:</strong> the prior brief already identified and justified this audience; it was never executed. <strong>External:</strong> zero web presence today confirms no launch has happened on any channel.</dd>
+          <dt>Rationale</dt><dd>This is the cheapest way to convert "nobody knows this exists" into first real users and first real issues, once idea 1 removes the install friction that would otherwise sink the post in comments.</dd>
+          <dt>Downsides</dt><dd>Two identical failure modes: the space reads as crowded (Cloak, Akasha, Shroud, ScopeHold, VaultAgent are all named in the prior brief), and one post is a single, non-repeatable shot. A weak headline burns the opportunity.</dd>
+          <dt>Confidence</dt><dd>82%</dd>
+          <dt>Complexity</dt><dd>Low</dd>
+        </dl>
+      </article>
+
+      <article class="idea" id="idea-3">
+        <div class="idea-heading"><span class="rank">3</span><div><h3>Submit to awesome-lists and agent-skill registries</h3></div></div>
+        <div class="idea-meta"><span class="chip">Passive listing surfaces</span><span class="chip">Confidence 75%</span><span class="chip">Complexity Low</span></div>
+        <p><strong>Description.</strong> Open PRs against <code>awesome-mcp-servers</code>-style lists, agent-skill directories, and <code>awesome-ai-agents</code> collections. Low per-item effort, asynchronous payoff, doesn't compete for one big launch moment.</p>
+        <dl>
+          <dt>Area</dt><dd>Passive listing surfaces</dd>
+          <dt>Basis</dt><dd><strong>External:</strong> the prior brief's rejection table explicitly noted "registry presence alone does not validate repeated use" but kept it as a supporting tactic, not a standalone niche. It belongs here, as one input to discoverability, not a strategy on its own.</dd>
+          <dt>Rationale</dt><dd>Nearly free once idea 1 exists (most lists require an npm or working install link). Compounds quietly over months rather than producing a single spike.</dd>
+          <dt>Downsides</dt><dd>Slow, and maintainer review queues can take weeks. Won't produce fast feedback on its own.</dd>
+          <dt>Confidence</dt><dd>75%</dd>
+          <dt>Complexity</dt><dd>Low</dd>
+        </dl>
+      </article>
+
+      <article class="idea" id="idea-4">
+        <div class="idea-heading"><span class="rank">4</span><div><h3>Ship one working integration with an agent-ecosystem maintainer</h3></div></div>
+        <div class="idea-meta"><span class="chip">Targeted launch</span><span class="chip">Confidence 74%</span><span class="chip">Complexity Medium</span></div>
+        <p><strong>Description.</strong> Take the bundled agent skill and turn it into a tested, minimal recipe PR against one project (OpenCode, Cline, or Aider) rather than a generic "please feature us" ask.</p>
+        <dl>
+          <dt>Area</dt><dd>Targeted launch</dd>
+          <dt>Basis</dt><dd><strong>Direct:</strong> carried over from the 2026-08-10 brief's idea 4, still unexecuted. The skill already exists in <code>skills/keyclasp-agent/</code>.</dd>
+          <dt>Rationale</dt><dd>One accepted integration reaches an already-qualified audience (people already running agents against real credentials) without needing a viral post.</dd>
+          <dt>Downsides</dt><dd>Slower than a launch post; maintainer bandwidth is the bottleneck, not effort on this side.</dd>
+          <dt>Confidence</dt><dd>74%</dd>
+          <dt>Complexity</dt><dd>Medium</dd>
+        </dl>
+      </article>
+
+      <article class="idea" id="idea-5">
+        <div class="idea-heading"><span class="rank">5</span><div><h3>Direct outreach to the 5–10 people already named</h3></div></div>
+        <div class="idea-meta"><span class="chip">High-signal direct outreach</span><span class="chip">Confidence 70%</span><span class="chip">Complexity Low</span></div>
+        <p><strong>Description.</strong> Send short, specific messages to the individuals the prior brief already surfaced: Raphael Nestler at Renuo, Simon Willison, Johann Rehberger, and the builders of comparable tools. Ask a narrow question, not for promotion.</p>
+        <dl>
+          <dt>Area</dt><dd>High-signal direct outreach</dd>
+          <dt>Basis</dt><dd><strong>Direct:</strong> carried over from the prior brief's ideas 2, 5, and 6, still unexecuted. These are named, reachable people, not a cold list.</dd>
+          <dt>Rationale</dt><dd>Lowest reach, highest signal per response. A single reply from Willison or Rehberger on the threat model is worth more than the launch post's traffic.</dd>
+          <dt>Downsides</dt><dd>Response rates from busy, high-profile people are low by default; a generic ask will be ignored.</dd>
+          <dt>Confidence</dt><dd>70%</dd>
+          <dt>Complexity</dt><dd>Low</dd>
+        </dl>
+      </article>
+
+      <article class="idea" id="idea-6">
+        <div class="idea-heading"><span class="rank">6</span><div><h3>Record a 30-second asciinema of the leak-guard killing a process</h3></div></div>
+        <div class="idea-meta"><span class="chip">Conversion, not discovery</span><span class="chip">Confidence 65%</span><span class="chip">Complexity Low</span></div>
+        <p><strong>Description.</strong> This challenges the premise that the problem is purely distribution. The README's leak-guard demo (secret printed → redacted → process terminated) is the single most concrete, differentiated thing Keyclasp does, and right now it's a code block, not something a scrolling reader watches happen in real time.</p>
+        <dl>
+          <dt>Area</dt><dd>Conversion, not discovery</dd>
+          <dt>Basis</dt><dd><strong>Direct:</strong> the demo commands already exist in the README (<code>keyclasp run ... -- node -e 'console.log(process.env.DEMO_SECRET)'</code>); they just aren't captured as something shareable on its own.</dd>
+          <dt>Rationale</dt><dd>A launch post or outreach message that embeds the recording shows the leak-guard firing instead of asking the reader to trust a code block. Cheap, and it strengthens every channel above rather than competing with them.</dd>
+          <dt>Downsides</dt><dd>Doesn't solve discovery by itself. It makes ideas 2, 4, and 5 land better, not a substitute for any of them.</dd>
+          <dt>Confidence</dt><dd>65%</dd>
+          <dt>Complexity</dt><dd>Low</dd>
+        </dl>
+      </article>
+    </section>
+
+    <section id="rejection-summary">
+      <h2>Rejection Summary</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Candidate</th><th>Reason cut</th></tr></thead>
+          <tbody>
+            <tr><td>Re-running the 2026-08-10 niche analysis</td><td>Already answered; the gap since then is execution, not targeting. Repeating it would stall another ten days.</td></tr>
+            <tr><td>Paid ads or sponsorships</td><td>No evidence of budget intent, and paid reach on an unpublished, zero-install-friction-fixed package would waste spend on drop-off.</td></tr>
+            <tr><td>Product Hunt launch</td><td>PH audiences skew consumer-app; the actual buyer here is a terminal-agent operator better reached on HN/Reddit/dev communities.</td></tr>
+            <tr><td>Building a Discord/community server</td><td>Premature at zero users. A destination with no one to greet is worse than no destination.</td></tr>
+            <tr><td>Rewriting the README from scratch</td><td>The README and landing page are already solid; the leak-guard demo (idea 6) is the one under-leveraged asset, not the whole document.</td></tr>
+            <tr><td>Waiting for a security audit before any promotion</td><td>Worth pursuing eventually (see the prior brief's idea 6) but would delay every discoverability fix indefinitely; the README already discloses the limitation honestly.</td></tr>
+            <tr><td>Renaming the project to avoid keyblind confusion</td><td>The divergence from keyblind is a messaging asset, not a naming problem. Commit history already tells that story.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <footer class="container composition-signal">Composed 2026-08-20 from the Keyclasp repository, the 2026-08-10 validation-niches brief, and current external research. Source: ae-ideate.</footer>
+</body>
+</html>

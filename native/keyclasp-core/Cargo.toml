@@ -1,0 +1,21 @@
+[package]
+name = "keyclasp-core-spike"
+version = "0.0.0"
+edition = "2021"
+license = "MIT"
+publish = false
+build = "build.rs"
+
+[dependencies]
+argon2 = { version = "=0.5.3", default-features = false, features = ["zeroize"] }
+zeroize = { version = "=1.8.2", default-features = false }
+
+[profile.release]
+strip = "none"
+
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+dbg_macro = "deny"
+unwrap_used = "deny"

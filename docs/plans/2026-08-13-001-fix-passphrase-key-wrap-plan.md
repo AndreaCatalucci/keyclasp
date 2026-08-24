@@ -69,7 +69,7 @@ Today the vault key is `PBKDF2(passphrase)` written XOR-wrapped with a public ma
 
 ### Institutional Learnings
 
-- `docs/solutions/` has no wrap-format learning. The run-guard note still applies: `--allow-unsafe` must not become an unlock bypass; `run --env` stays non-interactive.
+- `docs/solutions/` has no wrap-format learning. The run-guard note still applies: `--allow-unsafe` must not become an unlock bypass; `run --env` stays free of the biometric operator gate, while a passphrase vault still requires unlock.
 
 ### External References
 

@@ -2,11 +2,19 @@ import {
   runPreparedCommandWithSecrets,
   type PreparedRunCommandOptions,
 } from "../run.js";
-import type { RunRuntime } from "../runtime.js";
+import type { OperatorAuthorizer, RunRuntime, ScopedRunRequest } from "../runtime.js";
 
 type RunExecutor = (
   options: PreparedRunCommandOptions,
 ) => ReturnType<typeof runPreparedCommandWithSecrets>;
+
+function authorizationReason(request: ScopedRunRequest, locked: boolean): string {
+  const selection = request.envSpecs.length === 0
+    ? "every secret in scope"
+    : `mappings ${JSON.stringify(request.envSpecs.map((spec) => `${spec.sourceName}:${spec.targetName}`))}`;
+  const command = JSON.stringify(request.commandArgs);
+  return `Keyclasp ${locked ? "locked named" : "broad"} run ${request.scope.project}/${request.scope.environment}; ${selection}; command ${command}; output protection ${request.allowUnsafe ? "DISABLED" : "enabled"}`;
+}
 
 export interface SoftwareRunRuntimeDependencies {
   ensureUnlocked: () => Promise<void>;
@@ -16,6 +24,8 @@ export interface SoftwareRunRuntimeDependencies {
   baseEnv: () => NodeJS.ProcessEnv;
   stdout: (chunk: string) => void;
   stderr: (chunk: string) => void;
+  readAuthorizationState: (project: string, environment: string, secret?: string) => "locked" | "unlocked";
+  authorize: OperatorAuthorizer;
   execute?: RunExecutor;
 }
 
@@ -27,6 +37,8 @@ export function createSoftwareRunRuntime(
   return {
     async run(request) {
       const { project, environment } = request.scope;
+      const locked = request.envSpecs.some((spec) =>
+        dependencies.readAuthorizationState(project, environment, spec.sourceName) === "locked");
       const secretNames = dependencies.listSecretNames(project, environment);
       if (secretNames.length === 0) {
         dependencies.stderr(
@@ -43,6 +55,9 @@ export function createSoftwareRunRuntime(
         stdout: dependencies.stdout,
         stderr: dependencies.stderr,
         ensureUnlocked: dependencies.ensureUnlocked,
+        authorizationRequired: locked,
+        authorizationReason: authorizationReason(request, locked),
+        authorize: dependencies.authorize,
       });
       return { kind: outcome.kind, exitCode: outcome.exitCode };
     },

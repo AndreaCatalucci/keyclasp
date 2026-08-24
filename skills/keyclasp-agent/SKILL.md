@@ -28,9 +28,9 @@ keyclasp status --project <project> --environment <environment>
 keyclasp list --project <project> --environment <environment>
 ```
 
-`list` prints names. `status` exit 0 does not mean `run --env` can inject: if `Values:` is `locked`, stop. Map each required env var to a listed name (`--env STORE:EXPECTED` when they differ).
+`list` prints names. `status` is metadata-only: it never unlocks or decrypts values. Stop unless it reports `software-machine` and every requested secret is effectively unlocked; locked selections and passphrase vaults require a human credential and are not unattended agent paths. Map each required env var to a listed name (`--env STORE:EXPECTED` when they differ).
 
-Done when the binary exists, status is not locked, and every required name is listed, or the missing-name failure has been handled.
+Done when the binary exists, status reports `software-machine` with the requested names effectively unlocked, and every required name is listed, or the missing-name failure has been handled.
 
 ## 3. Run at the process boundary
 
@@ -46,10 +46,10 @@ Done when this form has run, or a failure below was handled without exposing a v
 ## Safety
 
 - Never run `keyclasp get`. If the user needs plaintext, tell them to run it in their terminal.
-- Never omit `--env` (whole-scope injection is operator-only).
+- Never omit `--env` (broad runs are operator-only).
 - Never pass `--allow-unsafe` unless the user authorizes that one invocation.
 - Never write a secret value into prompts, files, command arguments, logs, snapshots, commits, or summaries. Never inspect injection with `env`, `printenv`, shell expansion, or debug dumps. Verify through child behavior, or a check that reports only set vs length.
-- Never invent a value or read one from a project file. Do not run `init` / `set` / `delete` / `rename`. If the user wants a value stored, tell them to run `keyclasp set NAME -` in their terminal.
+- Never invent a value or read one from a project file. Do not run `init` / `set` / `delete` / `rename` / `lock` / `unlock` / `backup`. If the user wants a value stored or policy/recovery state changed, tell them to run the exact operator command in their terminal.
 - The child is trusted code and receives every injected secret. Keyclasp does not authorize the child's external actions.
 
 ## Failures

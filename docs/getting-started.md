@@ -1,6 +1,6 @@
 # Getting Started
 
-Requires **Node.js 24+**. `set`, `list`, `status`, and `keyclasp run --env ...` work on macOS, Linux, and Windows. `keyclasp get` and whole-scope `keyclasp run` (no `--env`) ask for Touch ID when available, otherwise the vault passphrase.
+Requires **Node.js 24+**. An unlocked named `keyclasp run --env ...` uses normal vault-mode behavior: passphrase mode prompts normally and machine mode is unattended. Locked named runs and broad runs require Touch ID on macOS or one non-empty passphrase on Linux; Linux machine-only fails closed. Windows operator authorization is deferred.
 
 ## Install Keyclasp
 
@@ -72,7 +72,21 @@ When a command expects another variable name:
 keyclasp run --project myapp --environment prod --env SECRET_API_KEY:API_TOKEN -- npm test
 ```
 
-Omitting `--env` requests whole-scope injection. That operator-only path asks for Touch ID when available, or the vault passphrase when it is not. Coding agents must always use explicit scope flags and explicit `--env` mappings.
+Explicit `--env` mappings use each selected secret's effective lock state. Unlocked mappings use normal vault-mode behavior. If any mapping is locked, the entire run requires platform operator authorization before unlock. Omitting `--env` is a broad run and always requires authorization. Coding agents must always use explicit scope flags and mappings.
+
+To require operator authorization for matching named production runs, or override a broader rule for one secret:
+
+```bash
+keyclasp lock --project myapp --environment prod
+keyclasp unlock --project myapp --environment prod READ_ONLY_TOKEN
+keyclasp status --project myapp --environment prod
+```
+
+Before depending on the vault as the only local copy, create a managed backup:
+
+```bash
+keyclasp backup create /secure/path/keyclasp-backup
+```
 
 ## Next Steps
 

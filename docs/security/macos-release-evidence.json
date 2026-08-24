@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "slice1Acceptance": { "passed": false, "evidence": null },
+  "recoveryAndRollback": { "passed": false, "evidence": null },
+  "physicalDeviceMatrix": { "passed": false, "evidence": null },
+  "cleanMacBeta": { "passed": false, "evidence": null },
+  "independentSecurityReview": { "passed": false, "evidence": null },
+  "cleanMacGa": { "passed": false, "evidence": null }
+}

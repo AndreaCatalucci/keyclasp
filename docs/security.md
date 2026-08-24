@@ -7,8 +7,8 @@
 
 **What we protect against:**
 - Secrets being left in project files that coding agents can inspect
-- A coding agent (or its prompt/transcript/context) ever observing a plaintext secret value
-- Unauthorized vault access from other local processes or users
+- Keyclasp returning a plaintext secret through the agent's prompt, transcript, command arguments, or its own stdout
+- Unauthorized vault access from other operating-system users
 - Machine theft (encrypted-at-rest)
 - Tampering with vault data
 - Accidental leakage of an injected secret into a guarded command's own stdout/stderr
@@ -19,6 +19,7 @@
 - Memory dumping from a running process that has unlocked the vault
 - Supply chain compromise of the installed Keyclasp package itself
 - A trusted child process deliberately exfiltrating a secret it was intentionally given (e.g. via `--allow-unsafe`, or a network call it makes on purpose)
+- Another process running as the same user requesting a known secret name through the default explicit `--env` path
 
 ## Architecture Overview
 
@@ -94,28 +95,38 @@ const authTag = cipher.getAuthTag();
 
 ## `keyclasp run`: the Process Boundary
 
-`keyclasp run` is the only supported way for a coding agent to cause a secret to reach a process. The agent itself never sees the plaintext value:
+`keyclasp run` is the only supported way for a coding agent to cause a secret to reach a process. Keyclasp does not return the plaintext directly to the agent; the selected child receives it and must be trusted:
 
 1. Secret names (not values) are the only thing an agent can discover, via `keyclasp list --project <project> --environment <environment>`.
-2. `keyclasp run --project <project> --environment <environment> [--env SOURCE[:TARGET]] -- <command>` resolves and decrypts the requested secrets in that explicit scope and injects them directly into the spawned child's environment. The value never passes through the CLI's own stdout, and never appears in the shell command line or process arguments.
+2. `keyclasp run --project <project> --environment <environment> --env SOURCE[:TARGET] -- <command>` resolves and decrypts only the explicitly named secrets and injects them directly into the spawned child's environment. An effectively unlocked named request uses normal vault-mode behavior; an effectively locked request requires platform operator authorization first. The value never passes through the CLI's own stdout, shell command line, or process arguments.
 3. Before spawning, the command is checked against a small denylist of programs and shell one-liners known to dump the full environment (`env`, `printenv`, `export`, `bash -c 'env'`, etc.) and refused unless `--allow-unsafe` is passed explicitly.
 4. While the child runs, its stdout and stderr are scanned for any injected value at least 8 characters long. A match is redacted in the stream and the child is terminated (`SIGTERM`, then `SIGKILL` after a grace period) so a partial leak cannot continue.
 
-## Operator Biometric Gates
+Explicit `--env` selection limits which secrets reach the child; it does not authenticate the caller. Another process running as the same user can request a known secret name under the default policy. The approved child receives a usable credential and remains trusted.
+
+Software validates the complete explicit selection before decrypting any value. A missing value, malformed mapping, duplicate target variable, or unresolved secret fails before child launch and never falls back to a broad run. The planned hardware core must preserve this invariant inside the native authority.
+
+## Operator Authorization Gates
 
 Two broad plaintext-access paths require operator authentication before Keyclasp resolves any secret value:
 
 - `keyclasp get <name>`, which prints plaintext for a human operator.
 - `keyclasp run` without `--env`, which injects every secret in the selected scope.
 
-Keyclasp asks macOS LocalAuthentication to evaluate the biometric-only device-owner policy when Touch ID is available. If Touch ID is unavailable, not enrolled, or the helper cannot start, it asks for the vault passphrase in an interactive terminal and checks it against the key derived at `init`. A cancelled or failed Touch ID prompt does not fall back to the passphrase. A machine-only (empty) passphrase cannot authorize these paths. The passphrase prompt requires a TTY so a non-interactive agent cannot satisfy it by piping stdin. Agents must never invoke either operator-only path.
+Broad runs, `get`, policy mutations, backup, and restore always require platform operator authorization. Named runs require it when any selected secret is effectively locked. On macOS, Keyclasp evaluates the biometric-only device-owner policy; unavailable, unenrolled, cancelled, denied, or failed Touch ID has no fallback, and a passphrase vault then requires its normal passphrase. On Linux, one non-empty live-vault or backup passphrase entry both authorizes and unlocks; machine-only and non-interactive gated operations fail closed. Windows operator authorization is deferred to the Slice 3 support-matrix decision.
+
+The authenticated policy stores lock or unlock rules for exact secrets, exact project/environment pairs, one project, or one environment. Matching prefers exact secret, then exact scope, then project-only or environment-only, then unlocked. Locked wins equal-specificity conflicts, while a more-specific unlock overrides a broader lock. Rules cover future secrets. The document is domain-separated and bound to the vault ID and generation; its owner-only key anchor plus the database commitment detect tampering, scope transplant, deletion, and replay. An interruption journal restores the last committed generation. Rename, backup, and restore must preserve or fail closed on effective policy.
+
+`keyclasp status` reads only names and authenticated metadata. It reports the software mode and effective authorization state but never unlocks the data key or decrypts secret values. Supported package exports are limited to parsing, context, biometric-result classification, path reporting, and name validation; vault database access, policy decisions, mutation, plaintext resolution, and child launch remain behind the lifecycle-serialized CLI boundary.
+
+Policy mutations and managed backup/restore require Touch ID and take an exclusive lifecycle lock. Normal commands take shared locks, preserving concurrent request behavior while preventing restore from replacing an open vault. Managed backup manifests are authenticated with the vault data key, and passphrase or machine binding must unlock the backup before replacement. Backup creation syncs every staged file and directory before reporting success; a failure after destination publication is reported as indeterminate and leaves the destination for inspection. Restore uses an authenticated durable journal, retains the old set until the new set is complete, and keeps cleanup retryable after commit. The authenticated policy, vault database, and key must be backed up and restored as one set.
 
 ## Attack Surface Analysis
 
 | Attack Vector | Risk | Mitigation |
 |---------------|------|------------|
 | Agent asks for a secret value directly | **HIGH** | `keyclasp get` requires Touch ID or an interactive vault passphrase before resolving the value, and the agent skill prohibits invoking it |
-| Agent requests every secret in a scope | **HIGH** | Whole-scope `keyclasp run` requires Touch ID or an interactive vault passphrase; agent workflows must use explicit scope and `--env` mappings |
+| Agent requests every secret in a scope | **HIGH** | A broad run always requires platform operator authorization; agent workflows must use explicit scope and `--env` mappings |
 | Child process reads injected secrets | **HIGH** | Run only trusted commands; guarded execution reduces accidental disclosure but does not make malicious software safe |
 | Injected command prints secrets to its own output | **HIGH** | `keyclasp run` blocks obvious environment dumps, redacts detected injected values from stdout/stderr, and terminates the child process by default; `--allow-unsafe` disables this and must be explicit |
 | Vault.db + key file stolen, passphrase vault, no passphrase | **LOW** | GCM wrap under PBKDF2-SHA256 600k; brute force is the remaining path |
@@ -131,7 +142,7 @@ Keyclasp asks macOS LocalAuthentication to evaluate the biometric-only device-ow
 1. **Never commit `.keyclasp/`** to version control.
 2. **Set a real passphrase at `keyclasp init`** unless you specifically want a machine-bound vault with no passphrase to remember.
 3. **Use `keyclasp run`** instead of printing secrets into the shell or pasting them into an agent prompt.
-4. **Always use explicit `--project`, `--environment`, and `--env SOURCE[:TARGET]` for agent commands** so both the namespace and requested secrets are unambiguous. Whole-scope injection is operator-only (Touch ID or interactive vault passphrase).
+4. **Always use explicit `--project`, `--environment`, and `--env SOURCE[:TARGET]` for agent commands** so both the namespace and requested secrets are unambiguous. Broad and locked named runs require platform operator authorization. A macOS passphrase vault still requires its passphrase after Touch ID.
 5. **Run only trusted child processes** with injected credentials.
 6. **Rotate affected secrets** (`keyclasp set <name>` again) if you suspect compromise.
 

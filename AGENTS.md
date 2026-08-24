@@ -15,10 +15,13 @@
 
 ```
 src/
+├── runtime.ts      → Shared command-level contracts; no keys or plaintext
+├── software/       → Passphrase and machine-mode implementations
+├── hardware/       → Optional hardware-mode client and status code
 ├── vault.ts        → AES-256-GCM encryption + SQLite store, key management, project/environment scoping
 ├── run.ts          → Guarded child-process execution with secret injection
 ├── context.ts      → --project/--environment flag parsing and precedence resolution (flag > env var > context.json > default)
-├── cli.ts          → CLI entry point (init/set/get/list/delete/use/projects/environments/rename/run/status/version)
+├── cli.ts          → CLI entry point (init/set/get/list/delete/use/projects/environments/rename/run/lock/unlock/backup/status/doctor/version)
 ├── index.ts        → Public API exports
 └── version.ts      → Package/git-derived version string
 
@@ -44,6 +47,8 @@ keyclasp run --env API_KEY -- npm test # Inject only the named secret
 ## Key Decisions
 
 - **Process-boundary integration.** Coding agents work with secret names only; trusted commands receive real secrets only at runtime via `keyclasp run`.
+- **Modes share contracts, not security implementations.** Passphrase and machine modes use `src/software/`; optional hardware mode uses `src/hardware/` plus `native/keyclasp-core/`. The CLI depends on command-level interfaces from `src/runtime.ts`. Each implementation owns its key custody and decryption. Shared requests contain scope and command metadata, and shared results contain status; neither carries a vault key or secret plaintext. Mode implementations remain independent and never import one another.
+- **Run authorization follows effective lock rules and platform.** Named `--env` runs use normal vault-mode behavior when every selected secret is effectively unlocked. If any selected secret is locked, macOS requires Touch ID before normal vault unlock; Linux requires one non-empty vault-passphrase entry that both authorizes and unlocks; Linux machine-only fails closed. Omitting `--env`, running `get`, changing lock rules, and managing recovery always require the same platform operator authorization. Rules resolve exact secret, exact project/environment, project-only or environment-only, then unlocked; locked wins at equal specificity. Explicit selection limits disclosure; it does not authenticate against another process running as the same user.
 - **Small surface, justified.** Every command in the CLI is deliberate. Additional commands (`use`/`projects`/`environments`/`rename`, `--bulk` delete) exist because retroactively scoping secrets by project/environment required them, not by default. Each is weighed against the attack surface it adds.
 - **Projects and environments are namespacing, not isolation.** Secrets live in one vault.db, keyed by `(project, environment, name)`, not per-project databases. Same secret name in two scopes is independent. Agents should always pass `--project`/`--environment` explicitly on every operation rather than relying on the persisted `keyclasp use` context, so parallel agent runs never race on shared mutable state.
 - **Local-only.** No dashboard, backend, or network service. The vault lives at `~/.keyclasp/`, owner-only permissions.

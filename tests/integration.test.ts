@@ -1,5 +1,5 @@
-import { beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { beforeEach, describe, expect, it } from "vitest";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -68,13 +68,6 @@ function runAsync(args: string[], env: NodeJS.ProcessEnv, input?: string): Promi
   });
 }
 
-beforeAll(() => {
-  execFileSync("npm", ["run", "build", "--silent"], {
-    cwd: process.cwd(),
-    stdio: ["ignore", "ignore", "pipe"],
-  });
-});
-
 beforeEach(() => {
   vaultHome = fs.mkdtempSync(path.join(os.tmpdir(), "keyclasp-cli-"));
 });
@@ -111,8 +104,22 @@ describe("CLI end-to-end flow", () => {
     run(["init"], { input: "\n" });
     run(["set", "STATUS_KEY"], { input: "value\n" });
     const status = run(["status"]);
-    expect(status.status).toBe(0);
-    expect(status.stdout).toContain("verified");
+    expect(status.status, status.stderr).toBe(0);
+    expect(status.stdout).toContain("Values:     not inspected by status");
+  });
+
+  it.runIf(process.platform === "linux")("fails a machine-only get at the CLI authorization gate before decryption", () => {
+    expect(run(["init"], { input: "\n" }).status).toBe(0);
+    expect(run(["set", "LOCKED_GET"], { input: "secret-value\n" }).status).toBe(0);
+    const db = new Database(path.join(vaultHome, "vault.db"));
+    db.prepare("UPDATE secrets SET encrypted_value = ? WHERE name = ?").run(Buffer.from("corrupt"), "LOCKED_GET");
+    db.close();
+
+    const result = run(["get", "LOCKED_GET"]);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toMatch(/machine-only vaults fail closed/i);
+    expect(result.stderr).not.toMatch(/decrypt|authentication tag/i);
+    expect(result.stdout).not.toContain("secret-value");
   });
 
   it("keeps one authenticated record identity across concurrent first writes", async () => {
@@ -202,6 +209,10 @@ describe("CLI passphrase vault stays locked across processes", () => {
     const sentinel = path.join(vaultHome, "ran");
     const result = run([
       "run",
+      "--project",
+      "orderapp",
+      "--environment",
+      "prod",
       "--env",
       "LOCKED_RUN_KEY",
       "--",
@@ -456,8 +467,15 @@ describe("CLI projects and environments scoping", () => {
   });
 
   it("run preserves scope-like child flags in the separator-free form", () => {
+    run(["set", "ORDER_SECRET", "--project", "orderapp", "--environment", "prod"], { input: "order-value\n" });
     const result = run([
       "run",
+      "--project",
+      "orderapp",
+      "--environment",
+      "prod",
+      "--env",
+      "ORDER_SECRET",
       process.execPath,
       "-e",
       "console.log(JSON.stringify(process.argv.slice(1)))",
@@ -471,7 +489,7 @@ describe("CLI projects and environments scoping", () => {
     expect(JSON.parse(result.stdout)).toEqual(["child", "-p", "3000", "--environment", "child-value"]);
   });
 
-  it("run prints an informational note and still runs when the resolved scope has no secrets", () => {
+  it("requires Touch ID for a whole-scope request even when the scope is empty", () => {
     const result = run([
       "run",
       "--project",
@@ -483,9 +501,10 @@ describe("CLI projects and environments scoping", () => {
       "-e",
       "console.log('ran-anyway')",
     ]);
-    expect(result.status).toBe(0);
+    expect(result.status).toBe(2);
     expect(result.stderr).toContain('no secrets stored yet for project "brandnew" environment "brandnew"');
-    expect(result.stdout.trim()).toBe("ran-anyway");
+    expect(result.stderr).toMatch(/Touch ID|Biometric/i);
+    expect(result.stdout.trim()).toBe("");
   });
 });
 

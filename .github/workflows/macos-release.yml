@@ -1,0 +1,197 @@
+name: macOS release qualification
+
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: Artifact channel
+        required: true
+        type: choice
+        options:
+          - qualification
+          - beta
+          - ga
+      source_tag:
+        description: Existing immutable source tag
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  qualification:
+    if: inputs.channel == 'qualification'
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ inputs.source_tag }}
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: cargo test --manifest-path native/keyclasp-core/Cargo.toml --locked
+      - name: Package qualification artifact
+        env:
+          SOURCE_TAG: ${{ inputs.source_tag }}
+        run: ./scripts/package-macos-core.sh qualification "$SOURCE_TAG" artifacts
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: macos-status-only-qualification
+          path: artifacts/*
+          if-no-files-found: error
+
+  qualification-attestation:
+    if: inputs.channel == 'qualification'
+    needs: qualification
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          name: macos-status-only-qualification
+          path: artifacts
+      - uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
+        with:
+          subject-path: artifacts/*
+
+  beta:
+    if: inputs.channel == 'beta'
+    runs-on: macos-15
+    environment: macos-beta
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ inputs.source_tag }}
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Package beta candidate
+        env:
+          SOURCE_TAG: ${{ inputs.source_tag }}
+        run: ./scripts/package-macos-core.sh beta "$SOURCE_TAG" artifacts
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: macos-beta-candidate
+          path: artifacts/*
+          if-no-files-found: error
+
+  beta-attestation:
+    if: inputs.channel == 'beta'
+    needs: beta
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          name: macos-beta-candidate
+          path: artifacts
+      - uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
+        with:
+          subject-path: artifacts/*
+
+  ga:
+    if: inputs.channel == 'ga'
+    runs-on: macos-15
+    environment: macos-ga
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ inputs.source_tag }}
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Build GA candidate
+        env:
+          SOURCE_TAG: ${{ inputs.source_tag }}
+        run: |
+          scripts/assert-exact-release-source.sh "$SOURCE_TAG"
+          node scripts/assert-macos-release-ready.mjs ga
+          cargo build --manifest-path native/keyclasp-core/Cargo.toml --release --locked
+          mkdir -m 0755 ga-bundle
+          install -m 0755 native/keyclasp-core/target/release/keyclasp-core-spike ga-bundle/keyclasp-core
+          scripts/assert-native-release-capability.sh ga-bundle/keyclasp-core ga-unsigned
+      - name: Sign, notarize, staple, and assess
+        env:
+          P12_BASE64: ${{ secrets.DEVELOPER_ID_P12_BASE64 }}
+          P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.EPHEMERAL_KEYCHAIN_PASSWORD }}
+          NOTARY_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_BASE64 }}
+          KEYCLASP_CODESIGN_IDENTITY: ${{ secrets.DEVELOPER_ID_APPLICATION_IDENTITY }}
+          KEYCLASP_NOTARY_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          KEYCLASP_NOTARY_ISSUER: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          SOURCE_TAG: ${{ inputs.source_tag }}
+        run: |
+          set -eu
+          keychain="$RUNNER_TEMP/keyclasp-signing.keychain-db"
+          certificate="$RUNNER_TEMP/keyclasp-signing.p12"
+          notary_key="$RUNNER_TEMP/notary-key.p8"
+          cleanup() {
+            security delete-keychain "$keychain" || true
+            rm -f "$certificate" "$notary_key"
+          }
+          trap cleanup EXIT HUP INT TERM
+          printf '%s' "$P12_BASE64" | base64 --decode > "$certificate"
+          printf '%s' "$NOTARY_KEY_BASE64" | base64 --decode > "$notary_key"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$keychain"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$keychain"
+          security import "$certificate" -k "$keychain" -P "$P12_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$keychain"
+          KEYCLASP_SIGNING_KEYCHAIN="$keychain" KEYCLASP_NOTARY_KEY="$notary_key" \
+            scripts/sign-notarize-macos-ga.sh ga-bundle "$SOURCE_TAG" "keyclasp-$SOURCE_TAG.dmg"
+          security delete-keychain "$keychain"
+          if security show-keychain-info "$keychain" >/dev/null 2>&1; then
+            printf '%s\n' "Ephemeral signing keychain still exists after deletion." >&2
+            exit 1
+          fi
+          rm -f "$certificate" "$notary_key"
+          trap - EXIT HUP INT TERM
+      - name: Generate GA manifest and SBOM
+        env:
+          SOURCE_TAG: ${{ inputs.source_tag }}
+        run: |
+          source_commit=$(git rev-parse HEAD)
+          source_epoch=$(git show -s --format=%ct "$source_commit")
+          mkdir -m 0755 ga-metadata
+          node scripts/generate-macos-release-metadata.mjs \
+            "keyclasp-$SOURCE_TAG.dmg" ga-metadata ga "$SOURCE_TAG" "$source_commit" "$source_epoch"
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: macos-ga-candidate
+          path: |
+            keyclasp-*.dmg*
+            ga-metadata/*
+          if-no-files-found: error
+
+  ga-attestation:
+    if: inputs.channel == 'ga'
+    needs: ga
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          name: macos-ga-candidate
+          path: artifacts
+      - uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
+        with:
+          subject-path: artifacts/*

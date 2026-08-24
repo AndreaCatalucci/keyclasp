@@ -2,9 +2,8 @@ import { spawn } from "node:child_process";
 import os from "node:os";
 import { StringDecoder } from "node:string_decoder";
 import path from "node:path";
-import { requireOperatorAuthentication } from "./biometric.js";
 import { validateScopeName } from "./vault.js";
-import type { RunEnvSpec, RunResult, RunResultKind, ScopedRunRequest } from "./runtime.js";
+import type { OperatorAuthorizer, RunEnvSpec, RunResult, RunResultKind, ScopedRunRequest } from "./runtime.js";
 
 export type { RunEnvSpec } from "./runtime.js";
 
@@ -53,6 +52,9 @@ export interface RunCommandOptions {
   stderr: (chunk: string) => void;
   scopeLabel?: string;
   ensureUnlocked?: () => Promise<void>;
+  authorizationRequired?: boolean;
+  authorizationReason?: string;
+  authorize?: OperatorAuthorizer;
 }
 
 export interface PreparedRunCommandOptions extends Omit<RunCommandOptions, "args" | "envSpecs" | "scopeLabel"> {
@@ -356,9 +358,15 @@ async function executePreparedRun(
   }
 
   const envSpecs = prepared.envSpecs;
-  if ((!envSpecs || envSpecs.length === 0) && options.secretNames.length > 0) {
+  const wholeScope = !envSpecs || envSpecs.length === 0;
+  if (wholeScope || options.authorizationRequired) {
     try {
-      await requireOperatorAuthentication(`Inject every Keyclasp secret in ${prepared.scopeLabel ?? "the selected scope"}`);
+      const reason = options.authorizationReason ??
+        (wholeScope
+          ? `Inject every Keyclasp secret in ${prepared.scopeLabel ?? "the selected scope"}`
+          : `Run locked named Keyclasp secrets in ${prepared.scopeLabel ?? "the selected scope"}`);
+      if (!options.authorize) throw new Error("Operator authorization is not configured.");
+      await options.authorize(reason);
     } catch (err: any) {
       options.stderr(`BLOCKED: ${err.message}\n`);
       return { kind: "blocked", exitCode: 2 };

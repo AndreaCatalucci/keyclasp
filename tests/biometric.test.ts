@@ -9,12 +9,31 @@ import path from "node:path";
 import {
   requireBiometricAuthentication,
   requireOperatorAuthentication,
+  processPassphraseInput,
   resolveSecretForOperator,
   type BiometricRunner,
 } from "../src/biometric.js";
-import { closeDb, clearKey, initializeVault } from "../src/vault.js";
+import { closeDb, clearKey, getKey, initializeVault } from "../src/vault.js";
 
 describe("biometric authentication", () => {
+  it("accepts a pasted passphrase and submission from one terminal chunk", () => {
+    expect(processPassphraseInput("", "pässphrase\nignored")).toEqual({
+      value: "pässphrase",
+      actions: Array.from({ length: 10 }, () => "mask"),
+      submitted: true,
+      cancelled: false,
+    });
+  });
+
+  it("treats terminal end-of-transmission as cancellation", () => {
+    expect(processPassphraseInput("partial", "\u0004")).toEqual({
+      value: "partial",
+      actions: [],
+      submitted: false,
+      cancelled: true,
+    });
+  });
+
   it("resolves the real bundled helper next to the compiled module", () => {
     const runner = vi.fn<BiometricRunner>((_command, args) => {
       expect(args.slice(0, 2)).toEqual(["-l", "JavaScript"]);
@@ -73,14 +92,27 @@ describe("biometric authentication", () => {
     expect(runner).not.toHaveBeenCalled();
   });
 
-  it("fails closed when biometric authentication is unavailable or denied", () => {
+  it("fails closed when biometric authentication is denied", () => {
     const runner = vi.fn<BiometricRunner>(() => ({ status: 1 }));
 
     expect(() => requireBiometricAuthentication("Reveal API_KEY", {
       platform: "darwin",
       helperPath: "/package/native/macos-biometric.js",
       runner,
-    })).toThrow("failed or was cancelled");
+    })).toThrow("Biometric authentication failed.");
+  });
+
+  it("distinguishes an explicit operator cancellation from denial", () => {
+    const runner = vi.fn<BiometricRunner>(() => ({
+      status: 1,
+      stderr: "execution error: Error: KEYCLASP_BIOMETRIC_USER_CANCELLED (-2700)",
+    }));
+
+    expect(() => requireBiometricAuthentication("Reveal API_KEY", {
+      platform: "darwin",
+      helperPath: "/package/native/macos-biometric.js",
+      runner,
+    })).toThrow("Biometric authentication was cancelled by the operator.");
   });
 
   it("reports a missing LocalAuthentication runtime without falling back", () => {
@@ -121,12 +153,12 @@ describe("biometric authentication", () => {
     expect(resolveSecret).not.toHaveBeenCalled();
   });
 
-  it("asks for the vault passphrase when Touch ID is unavailable", async () => {
+  it("uses one Linux passphrase entry for authorization", async () => {
     const promptPassphrase = vi.fn(async () => "correct-passphrase");
     const verifyPassphrase = vi.fn(() => true);
     const vaultHasPassphrase = vi.fn(() => true);
 
-    await requireOperatorAuthentication("Reveal API_KEY", {
+    const authorization = await requireOperatorAuthentication("Reveal API_KEY", {
       platform: "linux",
       promptPassphrase,
       verifyPassphrase,
@@ -135,6 +167,7 @@ describe("biometric authentication", () => {
 
     expect(promptPassphrase).toHaveBeenCalledOnce();
     expect(verifyPassphrase).toHaveBeenCalledWith("correct-passphrase");
+    expect(authorization).toEqual({ method: "passphrase", passphrase: "correct-passphrase" });
   });
 
   it("rejects an incorrect vault passphrase fallback", async () => {
@@ -154,7 +187,7 @@ describe("biometric authentication", () => {
       promptPassphrase,
       verifyPassphrase: () => true,
       vaultHasPassphrase: () => false,
-    })).rejects.toThrow("this vault has no passphrase");
+    })).rejects.toThrow("machine-only vaults fail closed");
     expect(promptPassphrase).not.toHaveBeenCalled();
   });
 
@@ -169,27 +202,27 @@ describe("biometric authentication", () => {
       promptPassphrase,
       verifyPassphrase: () => true,
       vaultHasPassphrase: () => true,
-    })).rejects.toThrow("failed or was cancelled");
+    })).rejects.toThrow("Biometric authentication failed.");
     expect(promptPassphrase).not.toHaveBeenCalled();
   });
 
-  it("falls back to the passphrase when Touch ID is not enrolled", async () => {
+  it("does not fall back to a passphrase when Touch ID is not enrolled", async () => {
     const promptPassphrase = vi.fn(async () => "correct-passphrase");
     const runner = vi.fn<BiometricRunner>(() => ({
       status: 1,
       stderr: "execution error: Touch ID is unavailable or not enrolled. (-2700)",
     }));
 
-    await requireOperatorAuthentication("Reveal API_KEY", {
+    await expect(requireOperatorAuthentication("Reveal API_KEY", {
       platform: "darwin",
       helperPath: "/package/native/macos-biometric.js",
       runner,
       promptPassphrase,
       verifyPassphrase: () => true,
       vaultHasPassphrase: () => true,
-    });
+    })).rejects.toThrow("Touch ID is unavailable or not enrolled.");
 
-    expect(promptPassphrase).toHaveBeenCalledOnce();
+    expect(promptPassphrase).not.toHaveBeenCalled();
   });
 
   it("checks the entered passphrase against the real vault key", async () => {
@@ -205,6 +238,7 @@ describe("biometric authentication", () => {
         platform: "linux",
         promptPassphrase: async () => "operator-passphrase",
       });
+      expect(getKey()).toHaveLength(32);
 
       await expect(requireOperatorAuthentication("Reveal API_KEY", {
         platform: "linux",

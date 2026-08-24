@@ -19,8 +19,10 @@ function run(arguments) {
 
   let finished = false;
   let authenticated = false;
-  context.evaluatePolicyLocalizedReasonReply(policy, reason, (success) => {
+  let evaluationErrorCode = null;
+  context.evaluatePolicyLocalizedReasonReply(policy, reason, (success, error) => {
     authenticated = Boolean(success);
+    if (error) evaluationErrorCode = Number(error.code);
     finished = true;
   });
 
@@ -29,6 +31,12 @@ function run(arguments) {
   }
 
   if (!authenticated) {
-    throw new Error("Biometric authentication failed or was cancelled.");
+    if (evaluationErrorCode === -2) {
+      throw new Error("KEYCLASP_BIOMETRIC_USER_CANCELLED");
+    }
+    if (evaluationErrorCode === -6 || evaluationErrorCode === -7 || evaluationErrorCode === -8) {
+      throw new Error("KEYCLASP_BIOMETRIC_UNAVAILABLE");
+    }
+    throw new Error("KEYCLASP_BIOMETRIC_DENIED");
   }
 }

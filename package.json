@@ -10,9 +10,16 @@
     "keyclasp": "dist/cli.js"
   },
   "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
   "files": [
     "dist",
-    "native",
+    "native/macos-biometric.js",
     "skills",
     "NOTICE"
   ],
@@ -24,7 +31,7 @@
     "start": "node dist/cli.js",
     "prepare": "npm run build",
     "prepublishOnly": "npm run build",
-    "test": "vitest run",
+    "test": "npm run build --silent && vitest run",
     "test:watch": "vitest"
   },
   "keywords": [

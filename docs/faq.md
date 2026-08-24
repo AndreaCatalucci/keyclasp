@@ -24,7 +24,14 @@ If a new CLI refuses an old XOR key file, clone this repository and run `scripts
 
 ## Can a coding agent safely use Keyclasp?
 
-Yes, when the vault is machine-only (empty passphrase at `init`) and the agent works with secret names only, using explicit `keyclasp run --project ... --environment ... --env ...` mappings. A passphrase vault stays locked in each new process, so `run --env` fails for agents. Agents must never call `keyclasp get` or omit `--env`; those paths are operator-only and require Touch ID or an interactive vault passphrase. Install the bundled [agent skill](../skills/keyclasp-agent/SKILL.md) with `npx skills add AndreaCatalucci/keyclasp@keyclasp-agent -g`.
+Yes, when the vault is machine-only and every explicitly selected secret is effectively unlocked. Selection limits disclosure but does not authenticate another same-user process. Passphrase vaults and locked rules require human input, so agents must stop. Agents must never call `get`, change lock rules, manage backups, or omit `--env`.
+
+## What happens if recovery is needed?
+
+- A forgotten passphrase has no bypass. Restore does not remove it; recover the credential from its issuer or another trusted source, then create a new vault.
+- A passphrase-mode managed backup is portable with its passphrase. A machine-mode backup remains bound to the original machine identity; restore preflight rejects it on another machine without replacing usable live state.
+- Restored lock rules remain authenticated and effective. On Linux they require a passphrase vault; on macOS they require usable Touch ID; unsupported gated operations fail closed.
+- A missing, corrupt, or mismatched current key can be replaced by `keyclasp backup restore` because restore validates the backup rather than consulting the damaged live key. Database, key, and policy files must always come from the same managed backup.
 
 ## Does `keyclasp run` make any program safe?
 
@@ -36,7 +43,7 @@ Node.js 24 or newer. The package declares `"engines": { "node": ">=24" }`.
 
 ## Does it work on Linux and Windows?
 
-Yes. The vault, `set`, `list`, `status`, and `keyclasp run --env ...` work on macOS, Linux, and Windows. `keyclasp get` and whole-scope `keyclasp run` (no `--env`) ask for Touch ID when it is available. If Touch ID is missing, they ask for the vault passphrase in an interactive terminal. Use explicit `--env` mappings on every platform.
+Unlocked named runs work on macOS, Linux, and Windows using normal vault-mode behavior. Locked named runs and broad runs use Touch ID on macOS or one non-empty vault passphrase on Linux. Linux machine-only and Windows gated operations fail closed. Use explicit mappings on every platform.
 
 ## Why did `env` or `printenv` get blocked?
 

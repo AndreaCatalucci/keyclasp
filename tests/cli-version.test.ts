@@ -1,16 +1,19 @@
-import { beforeAll, describe, expect, it } from "vitest";
-import { execFileSync, spawnSync } from "node:child_process";
+import { afterAll, describe, expect, it } from "vitest";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
 const cliPath = path.join(process.cwd(), "dist", "cli.js");
 const packageVersion = (JSON.parse(fs.readFileSync(path.join(process.cwd(), "package.json"), "utf8")) as { version: string }).version;
+const unusedVaultPath = path.join(process.cwd(), ".not-used-by-version-test");
+
+afterAll(() => fs.rmSync(unusedVaultPath, { recursive: true, force: true }));
 
 function runCliProcess(args: string[]) {
   return spawnSync(process.execPath, [cliPath, ...args], {
     cwd: process.cwd(),
     encoding: "utf8",
-    env: { ...process.env, KEYCLASP_HOME: path.join(process.cwd(), ".not-used-by-version-test") },
+    env: { ...process.env, KEYCLASP_HOME: unusedVaultPath },
     stdio: ["ignore", "pipe", "pipe"],
   });
 }
@@ -28,13 +31,6 @@ function runCliFailure(args: string[]): { status: number | null; stdout: string;
 }
 
 describe("CLI version output", () => {
-  beforeAll(() => {
-    execFileSync("npm", ["run", "build", "--silent"], {
-      cwd: process.cwd(),
-      stdio: ["ignore", "ignore", "pipe"],
-    });
-  });
-
   it("prints version from the built CLI without requiring a vault", () => {
     expect(runCli(["version"])).toMatch(new RegExp(`^${packageVersion.replaceAll(".", "\\.")}(?:-dev\\+git\\.[0-9a-f]+(?:\\.dirty)?)?$`));
   });
@@ -44,10 +40,19 @@ describe("CLI version output", () => {
     expect(runCli(["--version"])).toBe(version);
     expect(runCli(["-v"])).toBe(version);
   });
+
+  it("runs status-only hardware diagnostics without requiring a vault", () => {
+    const result = runCliFailure(["doctor"]);
+
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain("hardware_mode=disabled");
+    expect(result.stdout).toMatch(/core=(available|missing|gatekeeper_blocked|failed|protocol_mismatch)/);
+    expect(result.stderr).toBe("");
+  });
 });
 
 describe("removed CLI surface", () => {
-  it.each(["start", "unlock", "sandbox", "totp", "share", "sync", "alias", "backend", "doctor"])(
+  it.each(["start", "sandbox", "totp", "share", "sync", "alias", "backend"])(
     "rejects the removed %s command normally",
     (command) => {
       const result = runCliFailure([command]);
@@ -63,6 +68,8 @@ describe("removed CLI surface", () => {
 
     expect(help).toContain("keyclasp init");
     expect(help).toContain("keyclasp set");
+    expect(help).toContain("keyclasp lock");
+    expect(help).toContain("keyclasp unlock");
     expect(help).toContain("keyclasp get");
     expect(help).toContain("keyclasp list");
     expect(help).toContain("keyclasp delete");
@@ -72,6 +79,7 @@ describe("removed CLI surface", () => {
     expect(help).toContain("keyclasp rename");
     expect(help).toContain("keyclasp run");
     expect(help).toContain("keyclasp status");
+    expect(help).toContain("keyclasp doctor");
     // --project/--environment scoping is an intentional, current feature,
     // distinct from the removed features above, so it's expected here.
     expect(help).toContain("--project");

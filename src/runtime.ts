@@ -22,6 +22,13 @@ export interface RunEnvSpec {
   targetName: string;
 }
 
+export type OperatorAuthorization =
+  | { method: "touch-id" }
+  | { method: "passphrase"; passphrase: string };
+
+export type OperatorAuthorizer = (reason: string) =>
+  OperatorAuthorization | Promise<OperatorAuthorization>;
+
 /**
  * Shared command-level boundary for software and hardware implementations.
  * Requests contain scope and command metadata; results contain process status.

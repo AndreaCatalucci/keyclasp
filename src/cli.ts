@@ -5,6 +5,7 @@ import {
   unlockVault,
   KEY_LOCKED_ERROR,
   vaultHasPassphrase,
+  getVaultDescriptor,
   getVaultLocation,
   storeSecret,
   listSecrets,
@@ -13,7 +14,6 @@ import {
   deleteSecret,
   isInitialized,
   closeDb,
-  checkVaultDecryptability,
   isNewProjectEnvironment,
   projects,
   environments,
@@ -30,8 +30,14 @@ import { parseRunArgs } from "./run.js";
 import { createSoftwareRunRuntime } from "./software/runtime.js";
 import { getDisplayVersion } from "./version.js";
 import { extractGlobalFlags, resolveContext, writeContext, clearContext } from "./context.js";
-import { requireOperatorAuthentication } from "./biometric.js";
+import { processPassphraseInput, requireOperatorAuthentication } from "./biometric.js";
+import { formatHardwareDoctor, inspectHardwareMode } from "./hardware/status.js";
+import { appendAuthorizationPolicyAudit, authorizationSelectorFromCommand, hasInterruptedAuthorizationPolicy, readAuthorizationState, recoverInterruptedAuthorizationPolicy, setAuthorizationRuleAuthorized, summarizeAuthorizationState } from "./policy.js";
+import { createManagedBackupAuthorized, hasInterruptedManagedRestore, recoverInterruptedManagedRestore, restoreManagedBackupAuthorized, verifyManagedBackupPassphrase } from "./recovery.js";
+import { acquireVaultLifecycleLock, lifecycleModeForCommand, type VaultLifecycleLock } from "./lifecycle-lock.js";
 import readline from "node:readline";
+import { StringDecoder } from "node:string_decoder";
+import path from "node:path";
 import { stdin, stdout } from "node:process";
 
 function isVaultUnlocked(): boolean {
@@ -90,7 +96,13 @@ Usage:
   keyclasp rename ...          Move secrets to a different project/environment
   keyclasp run [--allow-unsafe] [--env SOURCE[:TARGET]] <command...>
                               Run a guarded command with secrets as env vars
+  keyclasp lock [--project P] [--environment E] [SECRET]
+  keyclasp unlock [--project P] [--environment E] [SECRET]
+                              Set an authenticated authorization rule
+  keyclasp backup create|restore <directory>
+                              Create or restore a managed vault backup
   keyclasp status               Show vault status
+  keyclasp doctor               Diagnose macOS hardware-mode readiness
   keyclasp version              Show Keyclasp version
   keyclasp help                 Show this help
 
@@ -122,53 +134,55 @@ Examples:
 }
 
 async function promptSecret(prompt: string): Promise<string> {
-  const rl = readline.createInterface({ input: stdin, output: stdout });
-
-  return new Promise((resolve) => {
-    // Output prompt manually so we can use stdout.moveCursor
+  const wasRaw = stdin.isRaw === true;
+  const wasPaused = stdin.isPaused();
+  return new Promise((resolve, reject) => {
     stdout.write(prompt);
-
     let value = "";
-
-    // Track if we're reading
-    const onData = (char: Buffer) => {
-      const str = char.toString();
-      switch (str) {
-        case "\n":
-        case "\r":
-          stdin.removeListener("data", onData);
-          stdin.pause();
-          stdout.write("\n");
-          rl.close();
-          resolve(value.trim());
-          break;
-        case "": // Ctrl+C
-          stdin.removeListener("data", onData);
-          stdin.pause();
-          stdout.write("\n");
-          rl.close();
-          process.exit(1);
-          break;
-        case "": // Backspace
-          if (value.length > 0) {
-            value = value.slice(0, -1);
+    let settled = false;
+    const decoder = new StringDecoder("utf8");
+    const finish = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      stdin.removeListener("data", onData);
+      stdin.removeListener("end", onEnd);
+      stdin.removeListener("close", onClose);
+      stdin.removeListener("error", onError);
+      try { stdin.setRawMode?.(wasRaw); } catch { /* preserve the primary result */ }
+      if (wasPaused) stdin.pause();
+      stdout.write("\n");
+      if (error) reject(error);
+      else resolve(value.trim());
+    };
+    const onData = (chunk: Buffer) => {
+      const processed = processPassphraseInput(value, decoder.write(chunk));
+      value = processed.value;
+      for (const action of processed.actions) {
+        if (action === "mask") stdout.write("*");
+        else {
+          try {
             stdout.moveCursor(-1, 0);
             stdout.write(" ");
             stdout.moveCursor(-1, 0);
-          }
-          break;
-        default:
-          if (str >= " ") {
-            value += str;
-            stdout.write("*");
-          }
-          break;
+          } catch { /* terminal cleanup is best effort */ }
+        }
       }
+      if (processed.cancelled) finish(new Error("Secret entry was cancelled."));
+      else if (processed.submitted) finish();
     };
-
-    stdin.setRawMode?.(true);
-    stdin.resume();
-    stdin.on("data", onData);
+    const onEnd = () => finish(new Error("Secret entry ended before a value was submitted."));
+    const onClose = () => finish(new Error("Secret input closed before a value was submitted."));
+    const onError = () => finish(new Error("Could not read the secret."));
+    try {
+      stdin.setRawMode?.(true);
+      stdin.resume();
+      stdin.on("data", onData);
+      stdin.once("end", onEnd);
+      stdin.once("close", onClose);
+      stdin.once("error", onError);
+    } catch (error) {
+      finish(error instanceof Error ? error : new Error("Could not read the secret."));
+    }
   });
 }
 
@@ -309,6 +323,18 @@ const RENAME_USAGE = [
 function runRename(flags: RenameFlags): void {
   const { project, environment, toProject, toEnvironment, allProjects } = flags;
 
+  const preserveAuthorization = (rows: ScopedSecret[], destination: (row: ScopedSecret) => ScopedSecret): void => {
+    const changed = rows.filter((row) => {
+      const target = destination(row);
+      return readAuthorizationState(row.project, row.environment, row.name) !==
+        readAuthorizationState(target.project, target.environment, target.name);
+    });
+    if (changed.length > 0) {
+      const names = changed.map((row) => `${row.project}/${row.environment}/${row.name}`).join(", ");
+      throw new Error(`Rename would change the effective authorization state for secret(s): ${names}. Add an explicit destination rule before renaming.`);
+    }
+  };
+
   if (allProjects) {
     if (project !== undefined || toProject !== undefined) {
       console.error(`--all-projects cannot be combined with --project or --to-project.\n${RENAME_USAGE}`);
@@ -318,24 +344,32 @@ function runRename(flags: RenameFlags): void {
       console.error(`--all-projects requires --environment and --to-environment.\n${RENAME_USAGE}`);
       process.exit(1);
     }
+    const sourceRows = listSecrets(undefined, environment) as ScopedSecret[];
+    preserveAuthorization(sourceRows, (row) => ({ ...row, environment: toEnvironment }));
     const result = renameEnvironmentAcrossAllProjects(environment, toEnvironment);
     console.log(`Renamed environment "${environment}" to "${toEnvironment}" across ${result.projectsAffected} project(s) (${result.moved} secret(s) moved).`);
     return;
   }
 
   if (project !== undefined && toProject !== undefined && environment === undefined && toEnvironment === undefined) {
+    const sourceRows = listSecrets(project) as ScopedSecret[];
+    preserveAuthorization(sourceRows, (row) => ({ ...row, project: toProject }));
     const result = renameProject(project, toProject);
     console.log(`Renamed project "${project}" to "${toProject}" (${result.moved} secret(s) moved).`);
     return;
   }
 
   if (project !== undefined && environment !== undefined && toEnvironment !== undefined && toProject === undefined) {
+    const sourceRows = (listSecrets(project, environment) as string[]).map((name) => ({ project, environment, name }));
+    preserveAuthorization(sourceRows, (row) => ({ ...row, environment: toEnvironment }));
     const result = renameEnvironmentInProject(project, environment, toEnvironment);
     console.log(`Renamed environment "${environment}" to "${toEnvironment}" in project "${project}" (${result.moved} secret(s) moved).`);
     return;
   }
 
   if (project !== undefined && environment !== undefined && toProject !== undefined && toEnvironment !== undefined) {
+    const sourceRows = (listSecrets(project, environment) as string[]).map((name) => ({ project, environment, name }));
+    preserveAuthorization(sourceRows, (row) => ({ ...row, project: toProject, environment: toEnvironment }));
     const result = renameScope(project, environment, toProject, toEnvironment);
     console.log(`Renamed "${project}/${environment}" to "${toProject}/${toEnvironment}" (${result.moved} secret(s) moved).`);
     return;
@@ -359,12 +393,33 @@ async function main(): Promise<void> {
     return;
   }
 
+  let lifecycleLock: VaultLifecycleLock | null = null;
+  if (command !== "doctor") {
+    const lifecycleMode = lifecycleModeForCommand(command);
+    const exclusive = lifecycleMode === "exclusive";
+    lifecycleLock = acquireVaultLifecycleLock(lifecycleMode);
+    if (exclusive) {
+      recoverInterruptedManagedRestore();
+      recoverInterruptedAuthorizationPolicy();
+    } else if (hasInterruptedManagedRestore() || hasInterruptedAuthorizationPolicy()) {
+      lifecycleLock.release();
+      lifecycleLock = acquireVaultLifecycleLock("exclusive");
+      recoverInterruptedManagedRestore();
+      recoverInterruptedAuthorizationPolicy();
+      lifecycleLock.release();
+      lifecycleLock = acquireVaultLifecycleLock("shared");
+      if (hasInterruptedManagedRestore() || hasInterruptedAuthorizationPolicy()) {
+        throw new Error("Vault recovery state changed concurrently. Retry the command.");
+      }
+    }
+  }
+
   try {
     switch (command) {
       case "init": {
         if (isInitialized()) {
-          console.log(`Keyclasp is already initialized. To reset, delete ${getVaultLocation()}`);
-          return;
+          console.error(`Keyclasp is already initialized at ${getVaultLocation()}.`);
+          process.exit(1);
         }
         console.log(`🔑 Initializing Keyclasp vault...`);
         const passphrase = await readPassphrase("Enter vault passphrase (or empty for machine-only key): ");
@@ -372,6 +427,87 @@ async function main(): Promise<void> {
         getKey(); // Verify key works
         console.log(`Keyclasp vault created at ${getVaultLocation()}`);
         console.log("Next: store a secret with `keyclasp set <name>`, then use it with `keyclasp run`.");
+        break;
+      }
+
+      case "doctor": {
+        const report = inspectHardwareMode();
+        console.log(formatHardwareDoctor(report));
+        if (report.hardwareMode !== "ready") process.exitCode = 1;
+        break;
+      }
+
+      case "lock":
+      case "unlock": {
+        if (!isInitialized()) {
+          console.error("Keyclasp not initialized. Run: keyclasp init");
+          process.exit(1);
+        }
+        const { project, environment, rest } = extractGlobalFlags(args.slice(1), "scan-all");
+        let selector;
+        try {
+          selector = authorizationSelectorFromCommand(project, environment, rest);
+        } catch {
+          console.error(`Usage: keyclasp ${command} [--project NAME] [--environment NAME] [SECRET]`);
+          process.exit(1);
+        }
+        const secret = selector.secret;
+        let changed = false;
+        try {
+          const effective = await setAuthorizationRuleAuthorized(selector, command === "lock", {
+            authorize: requireOperatorAuthentication,
+            ensureUnlocked: ensureVaultUnlocked,
+          });
+          changed = true;
+          try {
+            appendAuthorizationPolicyAudit(selector, command, "success");
+          } catch (auditError) {
+            console.error(`WARNING: authorization policy changed, but its audit entry could not be written: ${auditError instanceof Error ? auditError.message : "unknown error"}`);
+          }
+          const target = [project ?? "*", environment ?? "*", secret].filter((part) => part !== undefined).join("/");
+          console.log(`Authorization ${effective} for ${target}.`);
+        } catch (error) {
+          if (!changed) {
+            try {
+              appendAuthorizationPolicyAudit(selector, command, "failure");
+            } catch (auditError) {
+              console.error(`WARNING: authorization-policy failure could not be audited: ${auditError instanceof Error ? auditError.message : "unknown error"}`);
+            }
+          }
+          throw error;
+        }
+        break;
+      }
+
+      case "backup": {
+        const action = args[1];
+        const directory = args[2];
+        if ((action !== "create" && action !== "restore") || !directory || args.length !== 3) {
+          console.error("Usage: keyclasp backup create|restore <directory>");
+          process.exit(1);
+        }
+        if (action === "create" && !isInitialized()) {
+          console.error("Keyclasp not initialized. Run: keyclasp init");
+          process.exit(1);
+        }
+        if (action === "create") {
+          const manifest = await createManagedBackupAuthorized(path.resolve(directory), {
+            authorize: requireOperatorAuthentication,
+            ensureUnlocked: ensureVaultUnlocked,
+          });
+          console.log(`Managed ${manifest.mode} backup created at ${path.resolve(directory)}.`);
+        } else {
+          const source = path.resolve(directory);
+          const result = await restoreManagedBackupAuthorized(source, {
+            authorize: (reason, mode) => requireOperatorAuthentication(reason, {
+              vaultHasPassphrase: () => mode === "passphrase",
+              verifyPassphrase: (passphrase) => verifyManagedBackupPassphrase(source, passphrase),
+            }),
+            promptPassphrase: () => promptSecret("Enter managed backup passphrase: "),
+          });
+          console.log(`Managed ${result.manifest.mode} backup restored from ${path.resolve(directory)}. Verify it with keyclasp status.`);
+          for (const warning of result.cleanupWarnings) console.error(`WARNING: ${warning}`);
+        }
         break;
       }
 
@@ -490,6 +626,7 @@ async function main(): Promise<void> {
             console.error("keyclasp delete --bulk does not take a secret name. Use --project/--environment/--all-projects to select the scope to delete.");
             process.exit(1);
           }
+          await ensureVaultUnlocked();
           await runBulkDelete({ project: pFlag, environment: eFlag, allProjects });
         } else {
           const delName = positionals[0];
@@ -497,6 +634,7 @@ async function main(): Promise<void> {
             console.error("Usage: keyclasp delete <name>  OR  keyclasp delete --bulk ...");
             process.exit(1);
           }
+          await ensureVaultUnlocked();
           const { project, environment } = resolveContext(pFlag, eFlag);
           const deleted = deleteSecret(project, environment, delName);
           console.log(deleted ? `Deleted "${delName}" (${project}/${environment})` : `"${delName}" not found in ${project}/${environment}.`);
@@ -513,32 +651,18 @@ async function main(): Promise<void> {
         const { project: pFlag, environment: eFlag } = extractGlobalFlags(args.slice(1), "scan-all");
         const { project, environment, projectSource, environmentSource } = resolveContext(pFlag, eFlag);
         const scopedCount = (listSecrets(project, environment) as string[]).length;
+        const descriptor = getVaultDescriptor();
+        const names = listSecrets(project, environment) as string[];
+        const authorization = summarizeAuthorizationState(project, environment, names);
 
         console.log("Keyclasp Status");
         console.log("───────────────");
         console.log(`  Scope:      ${project}/${environment}  (project: ${projectSource}, environment: ${environmentSource})`);
         console.log(`  Vault:      ${getVaultLocation()}`);
-        try {
-          if (!isVaultUnlocked()) {
-            console.log(`  Secrets:    ${scopedCount} in scope`);
-            console.log(`  Values:     locked (${vaultHasPassphrase() ? "passphrase" : "machine"} mode)`);
-            break;
-          }
-          const decryptability = checkVaultDecryptability();
-          console.log(`  Secrets:    ${scopedCount} in scope, ${decryptability.checked} vault-wide`);
-          if (decryptability.checked === 0) {
-            console.log("  Values:     no stored values to verify");
-          } else if (decryptability.failures.length === 0) {
-            console.log(`  Values:     verified (${decryptability.checked} decryptable)`);
-          } else {
-            console.log(`  Values:     FAILED (${decryptability.failures.length}/${decryptability.checked} undecryptable)`);
-            process.exit(1);
-          }
-        } catch (err: any) {
-          console.log(`  Secrets:    ${scopedCount} in scope`);
-          console.log(`  Values:     FAILED (${err?.message ?? "decryptability check failed"})`);
-          process.exit(1);
-        }
+        console.log(`  Mode:       software-${descriptor.mode}`);
+        console.log(`  Authorization: ${authorization.state} (${authorization.locked} locked, ${authorization.unlocked} unlocked; future ${authorization.scopeDefault})`);
+        console.log(`  Secrets:    ${scopedCount} in scope`);
+        console.log("  Values:     not inspected by status");
         break;
       }
 
@@ -618,6 +742,8 @@ async function main(): Promise<void> {
           baseEnv: () => process.env,
           stdout: (chunk) => process.stdout.write(chunk),
           stderr: (chunk) => process.stderr.write(chunk),
+          readAuthorizationState,
+          authorize: requireOperatorAuthentication,
         });
         const result = await runtime.run({
           allowUnsafe: parsed.allowUnsafe,
@@ -636,6 +762,7 @@ async function main(): Promise<void> {
     }
   } finally {
     closeDb();
+    lifecycleLock?.release();
   }
 }
 

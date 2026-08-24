@@ -25,7 +25,7 @@ import {
   getDb,
   unlockVault,
   writeLegacyV3KeyFileForTests,
-  verifyVaultPassphrase,
+  authorizeAndUnlockVaultPassphrase,
   vaultHasPassphrase,
   validateScopeName,
   isNewProjectEnvironment,
@@ -241,8 +241,8 @@ describe("vault passphrase verification", () => {
   it("accepts the passphrase used at init and rejects others", () => {
     const vault = withTempVault("operator-passphrase");
     try {
-      expect(verifyVaultPassphrase("operator-passphrase")).toBe(true);
-      expect(verifyVaultPassphrase("wrong-passphrase")).toBe(false);
+      expect(authorizeAndUnlockVaultPassphrase("operator-passphrase")).toBe(true);
+      expect(authorizeAndUnlockVaultPassphrase("wrong-passphrase")).toBe(false);
       expect(vaultHasPassphrase()).toBe(true);
     } finally {
       vault.restore();
@@ -252,8 +252,8 @@ describe("vault passphrase verification", () => {
   it("treats an empty init passphrase as a machine-only key", () => {
     const vault = withTempVault("");
     try {
-      expect(verifyVaultPassphrase("")).toBe(true);
-      expect(verifyVaultPassphrase("anything")).toBe(false);
+      expect(authorizeAndUnlockVaultPassphrase("")).toBe(true);
+      expect(authorizeAndUnlockVaultPassphrase("anything")).toBe(false);
       expect(vaultHasPassphrase()).toBe(false);
     } finally {
       vault.restore();

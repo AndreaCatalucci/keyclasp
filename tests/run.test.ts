@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { requireOperatorAuthentication } from "../src/biometric.js";
+import { requireBiometricAuthentication } from "../src/biometric.js";
 import {
   buildRunEnvironment,
   checkUnsafeCommand,
@@ -9,10 +9,11 @@ import {
 } from "../src/run.js";
 
 vi.mock("../src/biometric.js", () => ({
-  requireOperatorAuthentication: vi.fn(),
+  requireBiometricAuthentication: vi.fn(),
 }));
 
-const biometricMock = vi.mocked(requireOperatorAuthentication);
+const biometricMock = vi.mocked(requireBiometricAuthentication);
+const approveOperator = () => ({ method: "touch-id" } as const);
 
 beforeEach(() => {
   biometricMock.mockReset();
@@ -283,6 +284,61 @@ describe("secret redaction", () => {
 });
 
 describe("guarded command execution", () => {
+  it.each(["cancelled", "unavailable"])("fails closed before unlock when required authorization is %s", async (failure) => {
+    const ensureUnlocked = vi.fn(async () => undefined);
+    const resolveSecret = vi.fn(() => "secret-value");
+    const result = await runCommandWithSecrets({
+      args: ["--env", "API_KEY", "--", process.execPath, "-e", "process.exit(0)"],
+      baseEnv: {},
+      secretNames: ["API_KEY"],
+      resolveSecret,
+      ensureUnlocked,
+      authorizationRequired: true,
+      authorize: () => { throw new Error(`Touch ID ${failure}.`); },
+      stdout: () => {},
+      stderr: () => {},
+    });
+    expect(result).toEqual({ kind: "blocked", exitCode: 2 });
+    expect(ensureUnlocked).not.toHaveBeenCalled();
+    expect(resolveSecret).not.toHaveBeenCalled();
+  });
+
+  it("keeps passphrase unlock failure after successful required authorization", async () => {
+    const events: string[] = [];
+    const resolveSecret = vi.fn(() => "secret-value");
+    const result = await runCommandWithSecrets({
+      args: ["--env", "API_KEY", "--", process.execPath, "-e", "process.exit(0)"],
+      baseEnv: {},
+      secretNames: ["API_KEY"],
+      resolveSecret,
+      authorizationRequired: true,
+      authorize: () => { events.push("authorize"); return approveOperator(); },
+      ensureUnlocked: async () => { events.push("unlock"); throw new Error("Vault passphrase is incorrect."); },
+      stdout: () => {},
+      stderr: () => {},
+    });
+    expect(result).toEqual({ kind: "error", exitCode: 1 });
+    expect(events).toEqual(["authorize", "unlock"]);
+    expect(resolveSecret).not.toHaveBeenCalled();
+  });
+
+  it("does not let --allow-unsafe bypass strict authorization", async () => {
+    const ensureUnlocked = vi.fn(async () => undefined);
+    const result = await runCommandWithSecrets({
+      args: ["--allow-unsafe", "--env", "API_KEY", "--", process.execPath, "-e", "process.exit(0)"],
+      baseEnv: {},
+      secretNames: ["API_KEY"],
+      resolveSecret: () => "secret-value",
+      ensureUnlocked,
+      authorizationRequired: true,
+      authorize: () => { throw new Error("Touch ID cancelled."); },
+      stdout: () => {},
+      stderr: () => {},
+    });
+    expect(result).toEqual({ kind: "blocked", exitCode: 2 });
+    expect(ensureUnlocked).not.toHaveBeenCalled();
+  });
+
   it("requires biometrics before resolving a whole-scope injection", async () => {
     const events: string[] = [];
     const resolvedNames: string[] = [];
@@ -297,6 +353,7 @@ describe("guarded command execution", () => {
         return "sk-test-secret";
       },
       ensureUnlocked: async () => { events.push("unlock"); },
+      authorize: () => { biometricMock("whole-scope test"); return approveOperator(); },
       stdout: () => {},
       stderr: () => {},
     });
@@ -321,6 +378,7 @@ describe("guarded command execution", () => {
       secretNames: ["API_KEY"],
       resolveSecret,
       ensureUnlocked,
+      authorize: () => { biometricMock("whole-scope test"); return approveOperator(); },
       stdout: () => {},
       stderr: (chunk) => { stderr += chunk; },
     });
@@ -409,6 +467,7 @@ describe("guarded command execution", () => {
         return new Map(names.map((name) => [name, decrypt(name)]));
       },
       ensureUnlocked: async () => undefined,
+      authorize: () => { biometricMock("whole-scope test"); return approveOperator(); },
       stdout: (chunk) => { stdout += chunk; },
       stderr: () => {},
     });
@@ -427,6 +486,7 @@ describe("guarded command execution", () => {
       baseEnv: {},
       secretNames: ["API_KEY"],
       resolveSecret: () => "sk-test-secret",
+      authorize: approveOperator,
       stdout: () => {},
       stderr: (chunk) => { stderr += chunk; },
     });
@@ -491,6 +551,7 @@ describe("guarded command execution", () => {
       baseEnv: {},
       secretNames: ["API_KEY"],
       resolveSecret: () => "sk-test-secret",
+      authorize: approveOperator,
       stdout: () => {},
       stderr: (chunk) => { allowedStderr += chunk; },
     });
@@ -551,6 +612,7 @@ describe("guarded command execution", () => {
       baseEnv: {},
       secretNames: ["API_KEY"],
       resolveSecret: () => "sk-test-secret",
+      authorize: approveOperator,
       stdout: (chunk) => { stdout += chunk; },
       stderr: () => {},
     });
@@ -567,6 +629,7 @@ describe("guarded command execution", () => {
       baseEnv: {},
       secretNames: ["LETTER"],
       resolveSecret: () => "a",
+      authorize: approveOperator,
       stdout: (chunk) => { stdout += chunk; },
       stderr: () => {},
     });
@@ -585,6 +648,7 @@ describe("guarded command execution", () => {
       baseEnv: {},
       secretNames: ["API_KEY"],
       resolveSecret: () => "sk-test-secret",
+      authorize: approveOperator,
       stdout: (chunk) => { stdout += chunk; },
       stderr: (chunk) => { stderr += chunk; },
     });
@@ -607,6 +671,7 @@ describe("guarded command execution", () => {
       baseEnv: {},
       secretNames: ["API_KEY"],
       resolveSecret: () => "sk-test-secret",
+      authorize: approveOperator,
       stdout: () => {},
       stderr: (chunk) => { stderr += chunk; },
     });
@@ -633,6 +698,7 @@ describe("guarded command execution", () => {
       baseEnv: {},
       secretNames: ["API_KEY"],
       resolveSecret: () => "sk-😀-secret",
+      authorize: approveOperator,
       stdout: (chunk) => { stdout += chunk; },
       stderr: () => {},
     });
@@ -652,6 +718,7 @@ describe("guarded command execution", () => {
       baseEnv: {},
       secretNames: ["API_KEY"],
       resolveSecret: () => "sk-test-secret",
+      authorize: approveOperator,
       stdout: () => {},
       stderr: () => {},
     });
@@ -666,6 +733,7 @@ describe("guarded command execution", () => {
       baseEnv: {},
       secretNames: [],
       resolveSecret: () => null,
+      authorize: approveOperator,
       stdout: () => {},
       stderr: () => {},
     });
