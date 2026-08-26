@@ -3,7 +3,7 @@
 You want to run your cli tool, and there's no MCP wrapping it. So you might be tempted to copypaste your api key into the agent's prompt to let it call this CLI.
 Don't do that! Keyclasp lets you safely invoke any cli and pass secrets without the agent ever seeing them!
 
-Keyclasp stores credentials in a local encrypted vault and injects selected values into a trusted child process. Normal storage and guarded-run flows keep values out of project files, prompts, command arguments, and Keyclasp's own output.
+Keyclasp stores credentials in a local encrypted vault and injects selected values into a trusted child process. Keyclasp keeps values out of project files, prompts, its own command arguments, and its own output. A trusted child can deliberately copy an injected value into a downstream process argument; that degraded fallback can expose the value through process inspection, accounting, telemetry, or crash reports.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 

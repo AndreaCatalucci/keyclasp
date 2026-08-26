@@ -85,7 +85,7 @@ An unchecked `B` item blocks a beta intended for real secrets. An unchecked `G` 
 - [ ] **B** The core clears secret buffers on success, denial, child failure, timeout, cancellation, panic, and normal shutdown.
 - [ ] **B** Core dumps and crash reports are disabled or configured so secret-bearing memory is not captured.
 - [ ] **B** Logs, audit records, metrics, assertions, panic messages, test snapshots, and errors contain identifiers and outcomes only.
-- [ ] **B** Secret values never enter command arguments, filenames, URLs, diagnostic bundles, clipboard history, or shell history.
+- [ ] **B** Keyclasp-owned protocols and launch arguments never place secret values in command arguments, filenames, URLs, diagnostic bundles, clipboard history, or shell history. Software-mode agent guidance may document a trusted child's argument-only fallback with its process-inspection, accounting, telemetry, and crash-report exposure; hardware-mode guidance prohibits that fallback.
 - [ ] **B** Secret comparison and authentication decisions avoid distinguishable error details and unnecessary data-dependent behavior.
 - [ ] **B** Tests use unique canary secrets and scan Node memory-visible protocol data, logs, stdout, stderr, temporary files, and crash artifacts for those values.
 
