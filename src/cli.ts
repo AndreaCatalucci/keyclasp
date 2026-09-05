@@ -55,9 +55,13 @@ import { stdin, stdout } from "node:process";
 import { assertSoftwarePlatformSupported } from "./platform.js";
 import { revealSecretReason } from "./runtime.js";
 
-async function ensureVaultUnlocked(): Promise<void> {
+async function ensureVaultUnlocked(authorizedPassphrase?: string): Promise<void> {
   if (!vaultHasPassphrase()) throw new Error("Interactive custody is not enrolled. Run: keyclasp passphrase set");
   if (isInteractiveKeyUnlocked()) return;
+  if (authorizedPassphrase !== undefined) {
+    unlockVault(authorizedPassphrase);
+    return;
+  }
   if (!stdin.isTTY) {
     console.error(KEY_LOCKED_ERROR);
     process.exit(1);
@@ -445,6 +449,7 @@ async function recoverAndMigrateVault(): Promise<void> {
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const command = args[0];
+  const liveIndependentRestore = command === "backup" && args[1] === "restore" && Boolean(args[2]) && args.length === 3;
 
   if (command === "version" || command === "--version" || command === "-v") {
     console.log(getDisplayVersion());
@@ -460,13 +465,15 @@ async function main(): Promise<void> {
 
   let lifecycleLock: VaultLifecycleLock | null = null;
   if (command !== "doctor") {
-    const lifecycleMode = hasPendingExclusiveVaultWork()
+    const lifecycleMode = liveIndependentRestore
+      ? "exclusive"
+      : hasPendingExclusiveVaultWork()
       ? "exclusive"
       : lifecycleModeForCommand(command);
     lifecycleLock = acquireVaultLifecycleLock(lifecycleMode);
-    if (lifecycleMode === "exclusive") {
+    if (lifecycleMode === "exclusive" && !liveIndependentRestore) {
       await recoverAndMigrateVault();
-    } else if (hasPendingExclusiveVaultWork()) {
+    } else if (!liveIndependentRestore && hasPendingExclusiveVaultWork()) {
       lifecycleLock.release();
       lifecycleLock = acquireVaultLifecycleLock("exclusive");
       await recoverAndMigrateVault();
@@ -603,6 +610,9 @@ async function main(): Promise<void> {
             promptPassphrase: () => promptSecret("Enter managed backup passphrase: "),
           });
           console.log(`Managed ${result.manifest.custody} backup restored from ${path.resolve(directory)}. Verify it with keyclasp status.`);
+          if (result.rollbackEvidencePath) {
+            console.error(`NOTICE: damaged live files were preserved at ${result.rollbackEvidencePath}. Retain them for incident review or remove them after an explicit retention decision.`);
+          }
           for (const warning of result.cleanupWarnings) console.error(`WARNING: ${warning}`);
         }
         break;

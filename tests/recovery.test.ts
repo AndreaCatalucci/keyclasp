@@ -17,7 +17,8 @@ import {
   unlockVault,
 } from "../src/vault.js";
 import { readAuthorizationState, setAuthorizationRule } from "../src/policy.js";
-import { createManagedBackup, createManagedBackupAuthorized, recoverInterruptedManagedRestore, restoreManagedBackup, restoreManagedBackupAuthorized, setBackupFaultForTests, setRestoreFaultForTests } from "../src/recovery.js";
+import { createManagedBackup, createManagedBackupAuthorized, getRestorePrimitiveCountsForTests, recoverInterruptedManagedRestore, restoreManagedBackup, restoreManagedBackupAuthorized, setBackupFaultForTests, setRestoreFaultForTests, setRestoreOperationFaultForTests, setRestorePrimitiveFaultForTests } from "../src/recovery.js";
+import { assertNoExternalVaultClients } from "../src/vault-files.js";
 
 describe("managed backup and restore", () => {
   let root: string;
@@ -36,6 +37,10 @@ describe("managed backup and restore", () => {
     return /^\s*\d+:\s/m.test(execFileSync("/bin/ls", ["-lde", target], { encoding: "utf8" }));
   }
 
+  function restoreJournalExists(): boolean {
+    return fs.existsSync(home) && fs.readdirSync(home).some((name) => name.startsWith(".restore-transaction.v2."));
+  }
+
   beforeEach(() => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), "keyclasp-recovery-"));
     home = path.join(root, ".keyclasp");
@@ -51,6 +56,8 @@ describe("managed backup and restore", () => {
     clearKey();
     setMachineIdentityForTests(null);
     setRestoreFaultForTests(null);
+    setRestoreOperationFaultForTests(null);
+    setRestorePrimitiveFaultForTests(null);
     setBackupFaultForTests(null);
     if (previousHome === undefined) delete process.env.KEYCLASP_HOME;
     else process.env.KEYCLASP_HOME = previousHome;
@@ -72,6 +79,24 @@ describe("managed backup and restore", () => {
     expect(resolveSecret("app", "prod", "API_KEY")).toBe("before-backup");
     expect(readAuthorizationState("app", "prod", "API_KEY")).toBe("unlocked");
     expect(readAuthorizationState("app", "prod", "FUTURE_SECRET")).toBe("locked");
+  });
+
+  it.runIf(process.platform === "linux")("ignores proc process directories hidden by Linux ptrace policy", () => {
+    initializeVault("");
+    const realReaddir = fs.readdirSync.bind(fs);
+    const pid = String(process.pid);
+    const readdir = vi.spyOn(fs, "readdirSync").mockImplementation(((target: fs.PathLike, options?: any) => {
+      if (String(target) === "/proc") return [pid];
+      if (String(target) === `/proc/${pid}/fd`) {
+        throw Object.assign(new Error("permission denied"), { code: "EACCES" });
+      }
+      return realReaddir(target, options);
+    }) as typeof fs.readdirSync);
+    try {
+      expect(() => assertNoExternalVaultClients(home)).not.toThrow();
+    } finally {
+      readdir.mockRestore();
+    }
   });
 
   it("removes inherited macOS ACLs from a managed backup directory and every backup file", () => {
@@ -184,7 +209,7 @@ describe("managed backup and restore", () => {
     expect(restore).not.toHaveBeenCalled();
   });
 
-  it("authenticates the live policy before backup authorization or unlock", async () => {
+  it("authorizes before authenticating policy or requesting a required key", async () => {
     initializeVault("");
     const authorize = vi.fn();
     const unlock = vi.fn(async () => undefined);
@@ -195,7 +220,7 @@ describe("managed backup and restore", () => {
       ensureUnlocked: unlock,
       create,
     })).rejects.toThrow(/authentication failed/i);
-    expect(authorize).not.toHaveBeenCalled();
+    expect(authorize).toHaveBeenCalledOnce();
     expect(unlock).not.toHaveBeenCalled();
     expect(create).not.toHaveBeenCalled();
   });
@@ -225,6 +250,107 @@ describe("managed backup and restore", () => {
     createManagedBackup(backup);
     fs.appendFileSync(path.join(backup, "vault.db"), "tamper");
     expect(() => restoreManagedBackup(backup)).toThrow(/integrity check/i);
+    expect(resolveSecret("app", "prod", "API_KEY")).toBe("live-value");
+  });
+
+  it("refuses to publish a backup containing a record that fails AAD authentication", () => {
+    initializeVault("");
+    storeSecret("app", "prod", "API_KEY", "live-value");
+    closeDb();
+    clearKey();
+    const database = new Database(path.join(home, "vault.db"));
+    database.prepare("UPDATE secrets SET auth_tag = ? WHERE name = ?").run(crypto.randomBytes(16), "API_KEY");
+    database.close();
+    const destination = path.join(root, "invalid-record-backup");
+    expect(() => createManagedBackup(destination)).toThrow();
+    expect(fs.existsSync(destination)).toBe(false);
+  });
+
+  it("treats SQLITE_BUSY as writer exclusion and leaves live state in place", () => {
+    initializeVault("");
+    storeSecret("app", "prod", "API_KEY", "backup-value");
+    const backup = path.join(root, "busy-backup");
+    createManagedBackup(backup);
+    storeSecret("app", "prod", "API_KEY", "live-value");
+    closeDb();
+    clearKey();
+    const external = new Database(path.join(home, "vault.db"));
+    external.exec("BEGIN IMMEDIATE");
+    const before = crypto.createHash("sha256").update(fs.readFileSync(path.join(home, "vault.db"))).digest("hex");
+    try {
+      expect(() => restoreManagedBackup(backup)).toThrow(/busy|exclusive|SQLite file open/i);
+      expect(crypto.createHash("sha256").update(fs.readFileSync(path.join(home, "vault.db"))).digest("hex")).toBe(before);
+      expect(restoreJournalExists()).toBe(false);
+    } finally {
+      external.exec("ROLLBACK");
+      external.close();
+    }
+    expect(resolveSecret("app", "prod", "API_KEY")).toBe("live-value");
+  });
+
+  it("stops an interrupted rollback while another SQLite client is writing", () => {
+    initializeVault("");
+    storeSecret("app", "prod", "API_KEY", "backup-value");
+    const backup = path.join(root, "busy-recovery-backup");
+    createManagedBackup(backup);
+    storeSecret("app", "prod", "API_KEY", "live-value");
+    setRestoreFaultForTests("crash-after-first-publish");
+    expect(() => restoreManagedBackup(backup)).toThrow(/Injected managed-restore crash/);
+    setRestoreFaultForTests(null);
+
+    const external = new Database(path.join(home, "vault.db"));
+    external.exec("BEGIN IMMEDIATE");
+    try {
+      expect(() => recoverInterruptedManagedRestore()).toThrow(/busy|stop every external SQLite client|SQLite file open/i);
+      expect(restoreJournalExists()).toBe(true);
+    } finally {
+      external.exec("ROLLBACK");
+      external.close();
+    }
+    expect(recoverInterruptedManagedRestore()).toBe(true);
+    expect(resolveSecret("app", "prod", "API_KEY")).toBe("live-value");
+  });
+
+  it("stops on a quiescence I/O failure without creating restore state", () => {
+    initializeVault("");
+    storeSecret("app", "prod", "API_KEY", "backup-value");
+    const backup = path.join(root, "io-backup");
+    createManagedBackup(backup);
+    storeSecret("app", "prod", "API_KEY", "live-value");
+    closeDb();
+    clearKey();
+    const failure = Object.assign(new Error("synthetic fsync failure"), { code: "EIO" });
+    const fsync = vi.spyOn(fs, "fsyncSync").mockImplementationOnce(() => { throw failure; });
+    expect(() => restoreManagedBackup(backup)).toThrow(/synthetic fsync failure/);
+    fsync.mockRestore();
+    expect(restoreJournalExists()).toBe(false);
+    expect(fs.readdirSync(home).filter((name) => /^\.restore-(?:staging|previous|damaged-evidence)\./.test(name))).toEqual([]);
+    expect(resolveSecret("app", "prod", "API_KEY")).toBe("live-value");
+  });
+
+  it("rejects a recognized live file that appears during staging", () => {
+    initializeVault("");
+    storeSecret("app", "prod", "API_KEY", "backup-value");
+    const backup = path.join(root, "inventory-race-backup");
+    createManagedBackup(backup);
+    storeSecret("app", "prod", "API_KEY", "live-value");
+    closeDb();
+    clearKey();
+    const originalCopy = fs.copyFileSync.bind(fs);
+    let injected = false;
+    const copy = vi.spyOn(fs, "copyFileSync").mockImplementation((source, destination, mode) => {
+      originalCopy(source, destination, mode);
+      if (!injected && String(source) === path.join(backup, "vault.db")) {
+        injected = true;
+        fs.writeFileSync(path.join(home, "strict-policy.v1.json"), "{}\n", { mode: 0o600 });
+      }
+    });
+    try {
+      expect(() => restoreManagedBackup(backup)).toThrow(/appeared during restore preparation/);
+    } finally {
+      copy.mockRestore();
+    }
+    expect(restoreJournalExists()).toBe(false);
     expect(resolveSecret("app", "prod", "API_KEY")).toBe("live-value");
   });
 
@@ -271,6 +397,90 @@ describe("managed backup and restore", () => {
     expect(resolveSecret("app", "prod", "API_KEY")).toBe("restored-value");
   });
 
+  it("restores over a missing current key after excluding SQLite writers", () => {
+    initializeVault("");
+    storeSecret("app", "prod", "API_KEY", "restored-value");
+    const backup = path.join(root, "missing-key-backup");
+    createManagedBackup(backup);
+    closeDb();
+    clearKey();
+    fs.unlinkSync(path.join(home, ".keyclasp.key"));
+    restoreManagedBackup(backup);
+    expect(resolveSecret("app", "prod", "API_KEY")).toBe("restored-value");
+  });
+
+  it("restores over a non-canonical current v5 key bundle", () => {
+    initializeVault("");
+    storeSecret("app", "prod", "API_KEY", "restored-value");
+    const backup = path.join(root, "corrupt-v5-backup");
+    createManagedBackup(backup);
+    closeDb();
+    clearKey();
+    fs.writeFileSync(path.join(home, ".keyclasp.key"), "keyclasp:v5\n{", { mode: 0o600 });
+    restoreManagedBackup(backup);
+    expect(resolveSecret("app", "prod", "API_KEY")).toBe("restored-value");
+  });
+
+  it("quarantines an obsolete corrupt restore-journal key", () => {
+    initializeVault("");
+    storeSecret("app", "prod", "API_KEY", "restored-value");
+    const backup = path.join(root, "corrupt-journal-key-backup");
+    createManagedBackup(backup);
+    fs.writeFileSync(path.join(home, ".restore-journal.key"), "x", { mode: 0o600 });
+
+    const result = restoreManagedBackup(backup);
+    expect(result.rollbackEvidencePath).toBeTruthy();
+    expect(fs.readFileSync(path.join(result.rollbackEvidencePath!, ".restore-journal.key"), "utf8")).toBe("x");
+    expect(resolveSecret("app", "prod", "API_KEY")).toBe("restored-value");
+  });
+
+  it("uses a new transaction key when a pending restore key is corrupt", () => {
+    initializeVault("");
+    storeSecret("app", "prod", "API_KEY", "backup-value");
+    const backup = path.join(root, "pending-corrupt-key-backup");
+    createManagedBackup(backup);
+    storeSecret("app", "prod", "API_KEY", "live-value");
+    setRestoreFaultForTests("crash-after-first-publish");
+    expect(() => restoreManagedBackup(backup)).toThrow(/first staged publication/);
+    setRestoreFaultForTests(null);
+    const oldKey = fs.readdirSync(home).find((name) => name.startsWith(".restore-journal.v2."))!;
+    fs.writeFileSync(path.join(home, oldKey), "x", { mode: 0o600 });
+
+    const result = restoreManagedBackup(backup);
+    expect(result.rollbackEvidencePath).toBeTruthy();
+    expect(fs.readFileSync(path.join(result.rollbackEvidencePath!, oldKey), "utf8")).toBe("x");
+    expect(resolveSecret("app", "prod", "API_KEY")).toBe("backup-value");
+  });
+
+  it("uses a corrupt ordinary recovery journal only as quarantined rollback material", () => {
+    initializeVault("");
+    storeSecret("app", "prod", "API_KEY", "restored-value");
+    const backup = path.join(root, "journal-backup");
+    createManagedBackup(backup);
+    storeSecret("app", "prod", "API_KEY", "live-value");
+    const corruptJournal = Buffer.from("synthetic-corrupt-journal");
+    fs.writeFileSync(path.join(home, ".restore-transaction.v1.json"), corruptJournal, { mode: 0o600 });
+
+    const result = restoreManagedBackup(backup);
+    expect(result.rollbackEvidencePath).toBeTruthy();
+    expect(fs.readFileSync(path.join(result.rollbackEvidencePath!, ".restore-transaction.v1.json"))).toEqual(corruptJournal);
+    expect(resolveSecret("app", "prod", "API_KEY")).toBe("restored-value");
+    expect(restoreJournalExists()).toBe(false);
+  });
+
+  it("cleans a transaction key and deterministic journal temp left before intent publication", () => {
+    initializeVault("");
+    const transactionId = "orphan";
+    const keyName = `.restore-journal.v2.${transactionId}.key`;
+    const temporaryName = `.restore-transaction.v2.${transactionId}.tmp`;
+    fs.writeFileSync(path.join(home, keyName), crypto.randomBytes(32), { mode: 0o600 });
+    fs.writeFileSync(path.join(home, temporaryName), "incomplete", { mode: 0o600 });
+
+    expect(recoverInterruptedManagedRestore()).toBe(true);
+    expect(fs.existsSync(path.join(home, keyName))).toBe(false);
+    expect(fs.existsSync(path.join(home, temporaryName))).toBe(false);
+  });
+
   it("restores after total loss without requiring live initialization state", () => {
     initializeVault("");
     storeSecret("app", "prod", "API_KEY", "recovered-after-loss");
@@ -300,13 +510,34 @@ describe("managed backup and restore", () => {
       storeSecret("app", "prod", "API_KEY", "live-value");
       setRestoreFaultForTests(boundary);
       expect(() => restoreManagedBackup(backup)).toThrow(/Injected managed-restore crash/);
-      expect(fs.existsSync(path.join(home, ".restore-transaction.v1.json"))).toBe(true);
+      expect(restoreJournalExists()).toBe(true);
       setRestoreFaultForTests(null);
       expect(recoverInterruptedManagedRestore()).toBe(true);
       expect(resolveSecret("app", "prod", "API_KEY")).toBe("live-value");
-      expect(fs.existsSync(path.join(home, ".restore-transaction.v1.json"))).toBe(false);
+      expect(restoreJournalExists()).toBe(false);
     });
   }
+
+  it("cleans a partial staging copy left by process death", () => {
+    initializeVault("");
+    storeSecret("app", "prod", "API_KEY", "backup-value");
+    const backup = path.join(root, "partial-copy-backup");
+    createManagedBackup(backup);
+    storeSecret("app", "prod", "API_KEY", "live-value");
+    setRestoreFaultForTests("crash-after-first-stage-copy");
+    expect(() => restoreManagedBackup(backup)).toThrow(/first staged copy/);
+    setRestoreFaultForTests(null);
+    const stagingName = fs.readdirSync(home).find((name) => name.startsWith(".restore-staging."))!;
+    const stagedDatabase = path.join(home, stagingName, "vault.db");
+    const partialDatabase = `${stagedDatabase}.partial`;
+    fs.renameSync(stagedDatabase, partialDatabase);
+    fs.truncateSync(partialDatabase, 31);
+
+    expect(recoverInterruptedManagedRestore()).toBe(true);
+    expect(restoreJournalExists()).toBe(false);
+    expect(fs.existsSync(path.join(home, stagingName))).toBe(false);
+    expect(resolveSecret("app", "prod", "API_KEY")).toBe("live-value");
+  });
 
   it("recovers an interrupted restore in a fresh process after the faulting process exits", () => {
     initializeVault("restart-passphrase");
@@ -326,7 +557,7 @@ describe("managed backup and restore", () => {
       "process.exit(24);",
     ].join("\n")], { encoding: "utf8", env: environment });
     expect(crashed.status, crashed.stderr).toBe(23);
-    expect(fs.existsSync(path.join(home, ".restore-transaction.v1.json"))).toBe(true);
+    expect(restoreJournalExists()).toBe(true);
 
     const recovered = spawnSync(process.execPath, ["--input-type=module", "-e", [
       `import { recoverInterruptedManagedRestore } from ${JSON.stringify(recoveryUrl)};`,
@@ -337,7 +568,459 @@ describe("managed backup and restore", () => {
     ].join("\n")], { encoding: "utf8", env: environment });
     expect(recovered.status, recovered.stderr).toBe(0);
     expect(recovered.stdout).toBe("live-value");
-    expect(fs.existsSync(path.join(home, ".restore-transaction.v1.json"))).toBe(false);
+    expect(restoreJournalExists()).toBe(false);
+  });
+
+  it("does not replay an abruptly exited writer WAL over an authenticated backup", () => {
+    initializeVault("");
+    storeSecret("app", "prod", "API_KEY", "backup-value");
+    const backup = path.join(root, "wal-backup");
+    createManagedBackup(backup);
+    closeDb();
+    clearKey();
+
+    const vaultUrl = pathToFileURL(path.join(process.cwd(), "dist", "vault.js")).href;
+    const writer = spawnSync(process.execPath, ["--input-type=module", "-e", [
+      `import * as vault from ${JSON.stringify(vaultUrl)};`,
+      "vault.setMachineIdentityForTests({ stable: Buffer.alloc(32, 3) });",
+      "vault.storeSecret('app', 'prod', 'API_KEY', 'live-after-backup');",
+      "process.exit(23);",
+    ].join("\n")], { env: { ...process.env, KEYCLASP_HOME: home }, encoding: "utf8" });
+    expect(writer.status, writer.stderr).toBe(23);
+    expect(fs.existsSync(path.join(home, "vault.db-wal"))).toBe(true);
+
+    restoreManagedBackup(backup);
+    expect(fs.existsSync(path.join(home, "vault.db-wal"))).toBe(false);
+    expect(fs.existsSync(path.join(home, "vault.db-shm"))).toBe(false);
+    closeDb();
+    clearKey();
+    const reader = spawnSync(process.execPath, ["--input-type=module", "-e", [
+      `import * as vault from ${JSON.stringify(vaultUrl)};`,
+      "vault.setMachineIdentityForTests({ stable: Buffer.alloc(32, 3) });",
+      "process.stdout.write(vault.resolveSecret('app', 'prod', 'API_KEY') === 'backup-value' ? 'MATCH' : 'MISMATCH');",
+    ].join("\n")], { env: { ...process.env, KEYCLASP_HOME: home }, encoding: "utf8" });
+    expect(reader.status, reader.stderr).toBe(0);
+    expect(reader.stdout).toBe("MATCH");
+  });
+
+  it("restores the abruptly committed WAL value when publication rolls back", () => {
+    initializeVault("");
+    storeSecret("app", "prod", "API_KEY", "backup-value");
+    const backup = path.join(root, "wal-rollback-backup");
+    createManagedBackup(backup);
+    closeDb();
+    clearKey();
+    const vaultUrl = pathToFileURL(path.join(process.cwd(), "dist", "vault.js")).href;
+    const writer = spawnSync(process.execPath, ["--input-type=module", "-e", [
+      `import * as vault from ${JSON.stringify(vaultUrl)};`,
+      "vault.setMachineIdentityForTests({ stable: Buffer.alloc(32, 3) });",
+      "vault.storeSecret('app', 'prod', 'API_KEY', 'committed-in-wal');",
+      "process.exit(23);",
+    ].join("\n")], { env: { ...process.env, KEYCLASP_HOME: home }, encoding: "utf8" });
+    expect(writer.status, writer.stderr).toBe(23);
+    setRestoreFaultForTests("crash-after-all-published");
+    expect(() => restoreManagedBackup(backup)).toThrow(/complete staged publication/);
+    setRestoreFaultForTests(null);
+    expect(recoverInterruptedManagedRestore()).toBe(true);
+    closeDb();
+    clearKey();
+
+    const reader = spawnSync(process.execPath, ["--input-type=module", "-e", [
+      `import * as vault from ${JSON.stringify(vaultUrl)};`,
+      "vault.setMachineIdentityForTests({ stable: Buffer.alloc(32, 3) });",
+      "process.stdout.write(vault.resolveSecret('app', 'prod', 'API_KEY') ?? 'missing');",
+    ].join("\n")], { env: { ...process.env, KEYCLASP_HOME: home }, encoding: "utf8" });
+    expect(reader.status, reader.stderr).toBe(0);
+    expect(reader.stdout).toBe("committed-in-wal");
+  });
+
+  it("converges after two consecutive interruptions during rollback", () => {
+    initializeVault("");
+    storeSecret("app", "prod", "API_KEY", "backup-value");
+    const backup = path.join(root, "rollback-backup");
+    createManagedBackup(backup);
+    storeSecret("app", "prod", "API_KEY", "live-value");
+    setRestoreFaultForTests("crash-after-all-published");
+    expect(() => restoreManagedBackup(backup)).toThrow(/complete staged publication/);
+    setRestoreFaultForTests(null);
+
+    setRestoreOperationFaultForTests({ occurrence: 1, point: "after-mutation" });
+    expect(() => recoverInterruptedManagedRestore()).toThrow(/after-mutation interruption/);
+    setRestoreOperationFaultForTests({ occurrence: 1, point: "after-completion" });
+    expect(() => recoverInterruptedManagedRestore()).toThrow(/after-completion interruption/);
+    setRestoreOperationFaultForTests(null);
+    expect(recoverInterruptedManagedRestore()).toBe(true);
+    expect(resolveSecret("app", "prod", "API_KEY")).toBe("live-value");
+    expect(fs.readdirSync(home).some((name) => /^\.restore-(?:transaction|staging|previous)\./.test(name))).toBe(false);
+  });
+
+  it("resumes in a fresh process after rollback cleanup unlinks a staged database", () => {
+    initializeVault("");
+    storeSecret("app", "prod", "API_KEY", "backup-value");
+    const backup = path.join(root, "cleanup-backup");
+    createManagedBackup(backup);
+    storeSecret("app", "prod", "API_KEY", "live-value");
+    setRestoreFaultForTests("crash-after-all-published");
+    expect(() => restoreManagedBackup(backup)).toThrow(/complete staged publication/);
+    setRestoreFaultForTests(null);
+    const journalName = fs.readdirSync(home).find((name) => name.startsWith(".restore-transaction.v2."))!;
+    const renameCount = JSON.parse(fs.readFileSync(path.join(home, journalName), "utf8")).operations.length as number;
+    const recoveryUrl = pathToFileURL(path.join(process.cwd(), "dist", "recovery.js")).href;
+    const environment = { ...process.env, KEYCLASP_HOME: home };
+    const interrupted = spawnSync(process.execPath, ["--input-type=module", "-e", [
+      `import { recoverInterruptedManagedRestore, setRestoreOperationFaultForTests } from ${JSON.stringify(recoveryUrl)};`,
+      `setRestoreOperationFaultForTests({ occurrence: ${renameCount + 1}, point: 'after-mutation' });`,
+      "try { recoverInterruptedManagedRestore(); } catch { process.exit(23); }",
+      "process.exit(24);",
+    ].join("\n")], { encoding: "utf8", env: environment });
+    expect(interrupted.status, interrupted.stderr).toBe(23);
+    expect(restoreJournalExists()).toBe(true);
+
+    const recovered = spawnSync(process.execPath, ["--input-type=module", "-e", [
+      `import { recoverInterruptedManagedRestore } from ${JSON.stringify(recoveryUrl)};`,
+      "recoverInterruptedManagedRestore();",
+    ].join("\n")], { encoding: "utf8", env: environment });
+    expect(recovered.status, recovered.stderr).toBe(0);
+    expect(restoreJournalExists()).toBe(false);
+    expect(resolveSecret("app", "prod", "API_KEY")).toBe("live-value");
+  });
+
+  it("reconciles every rollback rename at all three operation boundaries in fresh processes", () => {
+    const recoveryUrl = pathToFileURL(path.join(process.cwd(), "dist", "recovery.js")).href;
+    for (const point of ["before-mutation", "after-mutation", "after-completion"] as const) {
+      for (const occurrence of [1, 2, 3, 4]) {
+        closeDb();
+        clearKey();
+        home = path.join(root, `rename-${point}-${occurrence}`);
+        process.env.KEYCLASP_HOME = home;
+        initializeVault("");
+        storeSecret("app", "prod", "API_KEY", "backup-value");
+        const backup = path.join(root, `rename-backup-${point}-${occurrence}`);
+        createManagedBackup(backup);
+        storeSecret("app", "prod", "API_KEY", "live-value");
+        setRestoreFaultForTests("crash-after-all-published");
+        expect(() => restoreManagedBackup(backup)).toThrow(/complete staged publication/);
+        setRestoreFaultForTests(null);
+        const journalName = fs.readdirSync(home).find((name) => name.startsWith(".restore-transaction.v2."))!;
+        expect(JSON.parse(fs.readFileSync(path.join(home, journalName), "utf8")).operations).toHaveLength(4);
+
+        const interrupted = spawnSync(process.execPath, ["--input-type=module", "-e", [
+          `import { recoverInterruptedManagedRestore, setRestoreOperationFaultForTests } from ${JSON.stringify(recoveryUrl)};`,
+          `setRestoreOperationFaultForTests({ occurrence: ${occurrence}, point: ${JSON.stringify(point)} });`,
+          "try { recoverInterruptedManagedRestore(); } catch { process.exit(23); }",
+          "process.exit(24);",
+        ].join("\n")], { encoding: "utf8", env: { ...process.env, KEYCLASP_HOME: home } });
+        expect(interrupted.status, interrupted.stderr).toBe(23);
+        expect(recoverInterruptedManagedRestore()).toBe(true);
+        expect(resolveSecret("app", "prod", "API_KEY")).toBe("live-value");
+      }
+    }
+  }, 120_000);
+
+  it("reconciles each rollback cleanup unlink at all three operation boundaries", () => {
+    const recoveryUrl = pathToFileURL(path.join(process.cwd(), "dist", "recovery.js")).href;
+    for (const point of ["before-mutation", "after-mutation", "after-completion"] as const) {
+      for (const unlinkOccurrence of [1, 2]) {
+        closeDb();
+        clearKey();
+        home = path.join(root, `unlink-${point}-${unlinkOccurrence}`);
+        process.env.KEYCLASP_HOME = home;
+        initializeVault("");
+        storeSecret("app", "prod", "API_KEY", "backup-value");
+        const backup = path.join(root, `unlink-backup-${point}-${unlinkOccurrence}`);
+        createManagedBackup(backup);
+        storeSecret("app", "prod", "API_KEY", "live-value");
+        setRestoreFaultForTests("crash-after-all-published");
+        expect(() => restoreManagedBackup(backup)).toThrow(/complete staged publication/);
+        setRestoreFaultForTests(null);
+        const journalName = fs.readdirSync(home).find((name) => name.startsWith(".restore-transaction.v2."))!;
+        const renameCount = JSON.parse(fs.readFileSync(path.join(home, journalName), "utf8")).operations.length as number;
+
+        const interrupted = spawnSync(process.execPath, ["--input-type=module", "-e", [
+          `import { recoverInterruptedManagedRestore, setRestoreOperationFaultForTests } from ${JSON.stringify(recoveryUrl)};`,
+          `setRestoreOperationFaultForTests({ occurrence: ${renameCount + unlinkOccurrence}, point: ${JSON.stringify(point)} });`,
+          "try { recoverInterruptedManagedRestore(); } catch { process.exit(23); }",
+          "process.exit(24);",
+        ].join("\n")], { encoding: "utf8", env: { ...process.env, KEYCLASP_HOME: home } });
+        expect(interrupted.status, interrupted.stderr).toBe(23);
+        expect(recoverInterruptedManagedRestore()).toBe(true);
+        expect(resolveSecret("app", "prod", "API_KEY")).toBe("live-value");
+      }
+    }
+  }, 120_000);
+
+  it("recovers in a fresh process from every indexed restore primitive boundary", () => {
+    const recoveryUrl = pathToFileURL(path.join(process.cwd(), "dist", "recovery.js")).href;
+    const vaultUrl = pathToFileURL(path.join(process.cwd(), "dist", "vault.js")).href;
+    const topologyNames = ["vault.db", "vault.db-wal", "vault.db-shm", ".keyclasp.key", "strict-policy.v1.json", ".strict-policy.key"];
+    const snapshot = (directory: string): Record<string, string | null> => Object.fromEntries(topologyNames.map((name) => {
+      const file = path.join(directory, name);
+      return [name, fs.existsSync(file) ? crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex") : null];
+    }));
+
+    const backupHome = path.join(root, "primitive-backup-home");
+    home = backupHome;
+    process.env.KEYCLASP_HOME = home;
+    initializeVault("");
+    storeSecret("app", "prod", "API_KEY", "backup-value");
+    setAuthorizationRule({ project: "app" }, false);
+    const countBackup = path.join(root, "primitive-count-backup");
+    createManagedBackup(countBackup);
+    const completeNewState = snapshot(countBackup);
+    closeDb();
+    clearKey();
+
+    const liveTemplate = path.join(root, "primitive-live-template");
+    home = liveTemplate;
+    process.env.KEYCLASP_HOME = home;
+    initializeVault("");
+    storeSecret("app", "prod", "API_KEY", "live-value");
+    setAuthorizationRule({ environment: "prod" }, false);
+    closeDb();
+    clearKey();
+    const writer = spawnSync(process.execPath, ["--input-type=module", "-e", [
+      `import { setMachineIdentityForTests, storeSecret } from ${JSON.stringify(vaultUrl)};`,
+      "setMachineIdentityForTests({ stable: Buffer.alloc(32, 3) });",
+      "storeSecret('app', 'prod', 'API_KEY', 'live-wal-value');",
+      "process.exit(23);",
+    ].join("\n")], { encoding: "utf8", env: { ...process.env, KEYCLASP_HOME: liveTemplate } });
+    expect(writer.status, writer.stderr).toBe(23);
+    expect(fs.existsSync(path.join(liveTemplate, "vault.db-wal"))).toBe(true);
+    expect(fs.existsSync(path.join(liveTemplate, "vault.db-shm"))).toBe(true);
+    const completeOldState = snapshot(liveTemplate);
+    expect(completeOldState[".keyclasp.key"]).not.toBe(completeNewState[".keyclasp.key"]);
+    expect(completeOldState["strict-policy.v1.json"]).not.toBe(completeNewState["strict-policy.v1.json"]);
+
+    home = path.join(root, "primitive-count-home");
+    process.env.KEYCLASP_HOME = home;
+    fs.cpSync(liveTemplate, home, { recursive: true });
+    setRestorePrimitiveFaultForTests(null);
+    restoreManagedBackup(countBackup);
+    const counts = getRestorePrimitiveCountsForTests();
+    expect(Object.keys(counts).sort()).toEqual(["copy", "directory-cleanup", "journal", "rename", "sync", "unlink", "validation"]);
+    expect(Object.values(counts).every((count) => count > 0)).toBe(true);
+    fs.rmSync(home, { recursive: true, force: true });
+
+    for (const [primitive, count] of Object.entries(counts)) {
+      for (const point of ["before-mutation", "after-mutation", "after-completion"] as const) {
+        for (let occurrence = 1; occurrence <= count!; occurrence += 1) {
+          closeDb();
+          clearKey();
+          const caseName = `${primitive}-${point}-${occurrence}`;
+          home = path.join(root, `primitive-${caseName}`);
+          process.env.KEYCLASP_HOME = home;
+          fs.cpSync(liveTemplate, home, { recursive: true });
+
+          const interrupted = spawnSync(process.execPath, ["--input-type=module", "-e", [
+            `import { restoreManagedBackup, setRestorePrimitiveFaultForTests, wasRestorePrimitiveFaultTriggeredForTests } from ${JSON.stringify(recoveryUrl)};`,
+            `import { setMachineIdentityForTests } from ${JSON.stringify(vaultUrl)};`,
+            "setMachineIdentityForTests({ stable: Buffer.alloc(32, 3) });",
+            `setRestorePrimitiveFaultForTests({ primitive: ${JSON.stringify(primitive)}, occurrence: ${occurrence}, point: ${JSON.stringify(point)} });`,
+            `try { restoreManagedBackup(${JSON.stringify(countBackup)}); } catch { if (wasRestorePrimitiveFaultTriggeredForTests()) process.exit(23); throw new Error('Unexpected restore failure'); }`,
+            "if (wasRestorePrimitiveFaultTriggeredForTests()) process.exit(23);",
+            "process.exit(24);",
+          ].join("\n")], { encoding: "utf8", env: { ...process.env, KEYCLASP_HOME: home } });
+          expect(interrupted.status, `${caseName}: ${interrupted.stderr}`).toBe(23);
+
+          const recovered = spawnSync(process.execPath, ["--input-type=module", "-e", [
+            `import { recoverInterruptedManagedRestore } from ${JSON.stringify(recoveryUrl)};`,
+            "recoverInterruptedManagedRestore();",
+          ].join("\n")], { encoding: "utf8", env: { ...process.env, KEYCLASP_HOME: home } });
+          expect(recovered.status, `${caseName}: ${recovered.stderr}`).toBe(0);
+          const recoveredState = snapshot(home);
+          expect(
+            [JSON.stringify(completeOldState), JSON.stringify(completeNewState)],
+            `${caseName}: mixed managed-file generation`,
+          ).toContain(JSON.stringify(recoveredState));
+          expect(fs.readdirSync(home).some((name) => /^\.restore-(?:transaction|journal\.v2|staging|previous)\./.test(name))).toBe(false);
+          const readback = spawnSync(process.execPath, ["--input-type=module", "-e", [
+            `import { resolveSecret, setMachineIdentityForTests } from ${JSON.stringify(vaultUrl)};`,
+            "setMachineIdentityForTests({ stable: Buffer.alloc(32, 3) });",
+            "const value = resolveSecret('app', 'prod', 'API_KEY');",
+            "if (value !== 'live-wal-value' && value !== 'backup-value') process.exit(25);",
+          ].join("\n")], { encoding: "utf8", env: { ...process.env, KEYCLASP_HOME: home } });
+          expect(readback.status, `${caseName}: ${readback.stderr}`).toBe(0);
+          fs.rmSync(home, { recursive: true, force: true });
+        }
+      }
+    }
+  }, 1_800_000);
+
+  it("quarantines every pending v2 transaction file during emergency restore", () => {
+    initializeVault("");
+    storeSecret("app", "prod", "API_KEY", "backup-value");
+    const backup = path.join(root, "pending-backup");
+    createManagedBackup(backup);
+    storeSecret("app", "prod", "API_KEY", "live-value");
+    setRestoreFaultForTests("crash-after-first-publish");
+    expect(() => restoreManagedBackup(backup)).toThrow(/Injected managed-restore crash/);
+    setRestoreFaultForTests(null);
+    const oldJournal = fs.readdirSync(home).find((name) => name.startsWith(".restore-transaction.v2."))!;
+    const oldTransactionId = oldJournal.slice(".restore-transaction.v2.".length, -".json".length);
+    const oldPaths = [`.restore-staging.${oldTransactionId}`, `.restore-previous.${oldTransactionId}`];
+    expect(oldPaths.every((name) => fs.existsSync(path.join(home, name)))).toBe(true);
+
+    const result = restoreManagedBackup(backup);
+    expect(result.rollbackEvidencePath).toBeTruthy();
+    expect(fs.existsSync(path.join(result.rollbackEvidencePath!, oldJournal))).toBe(true);
+    for (const oldPath of oldPaths) {
+      expect(fs.existsSync(path.join(home, oldPath))).toBe(false);
+      expect(fs.existsSync(path.join(result.rollbackEvidencePath!, oldPath))).toBe(true);
+    }
+    expect(resolveSecret("app", "prod", "API_KEY")).toBe("backup-value");
+  });
+
+  it("rolls back an interrupted emergency restore before resuming the prior transaction", () => {
+    initializeVault("");
+    storeSecret("app", "prod", "API_KEY", "backup-value");
+    const backup = path.join(root, "nested-recovery-backup");
+    createManagedBackup(backup);
+    storeSecret("app", "prod", "API_KEY", "live-value");
+    setRestoreFaultForTests("crash-after-first-publish");
+    expect(() => restoreManagedBackup(backup)).toThrow(/first staged publication/);
+    const oldJournal = fs.readdirSync(home).find((name) => name.startsWith(".restore-transaction.v2."))!;
+
+    setRestoreFaultForTests("crash-after-all-published");
+    expect(() => restoreManagedBackup(backup)).toThrow(/complete staged publication/);
+    setRestoreFaultForTests(null);
+    expect(fs.readdirSync(home).filter((name) => name.startsWith(".restore-transaction.v2.")).length).toBe(1);
+
+    expect(recoverInterruptedManagedRestore()).toBe(true);
+    expect(fs.existsSync(path.join(home, oldJournal))).toBe(true);
+    expect(fs.readdirSync(home).filter((name) => name.startsWith(".restore-transaction.v2.")).length).toBe(1);
+    expect(recoverInterruptedManagedRestore()).toBe(true);
+    expect(restoreJournalExists()).toBe(false);
+    expect(resolveSecret("app", "prod", "API_KEY")).toBe("live-value");
+  });
+
+  it("recursively quarantines two interrupted transaction topologies on a third restore", () => {
+    initializeVault("");
+    storeSecret("app", "prod", "API_KEY", "backup-value");
+    const backup = path.join(root, "recursive-emergency-backup");
+    createManagedBackup(backup);
+    storeSecret("app", "prod", "API_KEY", "live-value");
+    setRestoreFaultForTests("crash-after-first-publish");
+    expect(() => restoreManagedBackup(backup)).toThrow(/first staged publication/);
+
+    setRestoreFaultForTests("crash-after-journal");
+    expect(() => restoreManagedBackup(backup)).toThrow(/journal publication/);
+    setRestoreFaultForTests(null);
+    expect(fs.readdirSync(home).filter((name) => name.startsWith(".restore-transaction.v2.")).length).toBe(2);
+
+    const result = restoreManagedBackup(backup);
+    expect(result.rollbackEvidencePath).toBeTruthy();
+    const retainedEvidence = path.basename(result.rollbackEvidencePath!);
+    expect(fs.readdirSync(home).some((name) => name !== retainedEvidence && /^\.restore-(?:transaction|journal\.v2|staging|previous|damaged-evidence)\./.test(name))).toBe(false);
+    expect(resolveSecret("app", "prod", "API_KEY")).toBe("backup-value");
+  });
+
+  it("quarantines a damaged raw DB, WAL, and SHM before publishing the backup", () => {
+    initializeVault("");
+    storeSecret("app", "prod", "API_KEY", "backup-value");
+    const backup = path.join(root, "damaged-backup");
+    createManagedBackup(backup);
+    closeDb();
+    clearKey();
+    const damaged = {
+      "vault.db": Buffer.from("not-a-database"),
+      "vault.db-wal": Buffer.from("damaged-wal"),
+      "vault.db-shm": Buffer.from("damaged-shm"),
+    };
+    for (const [name, contents] of Object.entries(damaged)) {
+      fs.writeFileSync(path.join(home, name), contents, { mode: 0o600 });
+    }
+
+    const result = restoreManagedBackup(backup);
+    expect(result.rollbackEvidencePath).toBeTruthy();
+    for (const [name, contents] of Object.entries(damaged)) {
+      expect(fs.readFileSync(path.join(result.rollbackEvidencePath!, name))).toEqual(contents);
+    }
+    expect(fs.existsSync(path.join(home, "vault.db-wal"))).toBe(false);
+    expect(fs.existsSync(path.join(home, "vault.db-shm"))).toBe(false);
+    expect(resolveSecret("app", "prod", "API_KEY")).toBe("backup-value");
+  });
+
+  it("quarantines a valid-header database that SQLite reports as NOTADB", () => {
+    initializeVault("");
+    storeSecret("app", "prod", "API_KEY", "backup-value");
+    const backup = path.join(root, "notadb-backup");
+    createManagedBackup(backup);
+    closeDb();
+    clearKey();
+    const invalid = crypto.randomBytes(4096);
+    Buffer.from("SQLite format 3\0", "binary").copy(invalid);
+    fs.writeFileSync(path.join(home, "vault.db"), invalid, { mode: 0o600 });
+
+    const result = restoreManagedBackup(backup);
+    expect(result.rollbackEvidencePath).toBeTruthy();
+    expect(fs.readFileSync(path.join(result.rollbackEvidencePath!, "vault.db"))).toEqual(invalid);
+    expect(resolveSecret("app", "prod", "API_KEY")).toBe("backup-value");
+  });
+
+  it("quarantines a valid SQLite vault whose metadata schema is missing a required column", () => {
+    initializeVault("");
+    storeSecret("app", "prod", "API_KEY", "backup-value");
+    const backup = path.join(root, "malformed-schema-backup");
+    createManagedBackup(backup);
+    closeDb();
+    clearKey();
+    const database = new Database(path.join(home, "vault.db"));
+    database.exec(`
+      ALTER TABLE vault_metadata RENAME TO vault_metadata_original;
+      CREATE TABLE vault_metadata (
+        singleton INTEGER PRIMARY KEY,
+        vault_id BLOB NOT NULL,
+        bundle_generation INTEGER NOT NULL,
+        bundle_hash BLOB NOT NULL,
+        machine_key_check_iv BLOB NOT NULL,
+        machine_key_check_tag BLOB NOT NULL,
+        interactive_key_check_iv BLOB,
+        interactive_key_check_tag BLOB,
+        interactive_key_present INTEGER NOT NULL
+      );
+      INSERT INTO vault_metadata
+      SELECT singleton, vault_id, bundle_generation, bundle_hash,
+             machine_key_check_iv, machine_key_check_tag,
+             interactive_key_check_iv, interactive_key_check_tag, interactive_key_present
+      FROM vault_metadata_original;
+      DROP TABLE vault_metadata_original;
+    `);
+    database.close();
+    const malformed = fs.readFileSync(path.join(home, "vault.db"));
+
+    const result = restoreManagedBackup(backup);
+
+    expect(result.rollbackEvidencePath).toBeTruthy();
+    expect(fs.readFileSync(path.join(result.rollbackEvidencePath!, "vault.db"))).toEqual(malformed);
+    expect(resolveSecret("app", "prod", "API_KEY")).toBe("backup-value");
+  });
+
+  it("preserves abrupt-writer DB, WAL, and SHM bytes when the live key is corrupt", () => {
+    initializeVault("");
+    storeSecret("app", "prod", "API_KEY", "backup-value");
+    const backup = path.join(root, "corrupt-key-wal-backup");
+    createManagedBackup(backup);
+    closeDb();
+    clearKey();
+    const vaultUrl = pathToFileURL(path.join(process.cwd(), "dist", "vault.js")).href;
+    const writer = spawnSync(process.execPath, ["--input-type=module", "-e", [
+      `import * as vault from ${JSON.stringify(vaultUrl)};`,
+      "vault.setMachineIdentityForTests({ stable: Buffer.alloc(32, 3) });",
+      "vault.storeSecret('app', 'prod', 'API_KEY', 'committed-in-wal');",
+      "process.exit(23);",
+    ].join("\n")], { env: { ...process.env, KEYCLASP_HOME: home }, encoding: "utf8" });
+    expect(writer.status, writer.stderr).toBe(23);
+    fs.writeFileSync(path.join(home, ".keyclasp.key"), "corrupt", { mode: 0o600 });
+    const raw = Object.fromEntries(["vault.db", "vault.db-wal", "vault.db-shm"]
+      .filter((name) => fs.existsSync(path.join(home, name)))
+      .map((name) => [name, fs.readFileSync(path.join(home, name))]));
+    expect(Object.keys(raw)).toContain("vault.db-wal");
+
+    const result = restoreManagedBackup(backup);
+    expect(result.rollbackEvidencePath).toBeTruthy();
+    for (const [name, contents] of Object.entries(raw)) {
+      expect(fs.readFileSync(path.join(result.rollbackEvidencePath!, name))).toEqual(contents);
+    }
   });
 
   it("finishes durable cleanup after a committed restore is interrupted", () => {
@@ -348,7 +1031,7 @@ describe("managed backup and restore", () => {
     storeSecret("app", "prod", "API_KEY", "live-value");
     setRestoreFaultForTests("crash-after-commit-journal");
     expect(() => restoreManagedBackup(backup)).toThrow(/commit journal/);
-    expect(fs.existsSync(path.join(home, ".restore-transaction.v1.json"))).toBe(true);
+    expect(restoreJournalExists()).toBe(true);
     setRestoreFaultForTests(null);
     expect(recoverInterruptedManagedRestore()).toBe(true);
     expect(resolveSecret("app", "prod", "API_KEY")).toBe("backup-value");
@@ -361,18 +1044,20 @@ describe("managed backup and restore", () => {
     closeDb();
     clearKey();
     const transactionId = "forged";
-    fs.copyFileSync(path.join(home, ".keyclasp.key"), path.join(home, `.keyclasp.key.${transactionId}.previous`));
-    fs.writeFileSync(path.join(home, ".restore-transaction.v1.json"), `${JSON.stringify({
-      version: 1,
-      phase: "replacing",
+    fs.writeFileSync(path.join(home, `.restore-transaction.v2.${transactionId}.json`), `${JSON.stringify({
+      version: 2,
+      phase: "publishing",
+      branch: "healthy",
       transactionId,
-      staged: [],
-      previous: [".keyclasp.key"],
+      stagingDirectory: `.restore-staging.${transactionId}`,
+      previousDirectory: `.restore-previous.${transactionId}`,
+      transactionDirectories: [],
       previousHashes: {},
       stagedHashes: {},
+      operations: [],
       mac: "forged",
     })}\n`, { mode: 0o600 });
-    expect(() => recoverInterruptedManagedRestore()).toThrow(/failed authentication/i);
+    expect(() => recoverInterruptedManagedRestore()).toThrow(/transaction key is missing|failed authentication/i);
     expect(resolveSecret("app", "prod", "API_KEY")).toBe("live-value");
   });
 
@@ -386,6 +1071,50 @@ describe("managed backup and restore", () => {
     restoreManagedBackup(backup, "portable-passphrase");
     unlockVault("portable-passphrase");
     expect(resolveSecret("app", "prod", "API_KEY")).toBe("portable-value");
+  });
+
+  it("cleans converted portable staging files after process death", () => {
+    initializeVault("portable-passphrase");
+    unlockVault("portable-passphrase");
+    storeSecret("app", "prod", "API_KEY", "portable-value", "interactive");
+    const backup = path.join(root, "portable-crash-backup");
+    createManagedBackup(backup);
+    setMachineIdentityForTests({ stable: Buffer.alloc(32, 9) });
+    setRestoreFaultForTests("crash-during-portable-conversion");
+    expect(() => restoreManagedBackup(backup, "portable-passphrase")).toThrow(/portable conversion/);
+    setRestoreFaultForTests(null);
+
+    expect(recoverInterruptedManagedRestore()).toBe(true);
+    expect(restoreJournalExists()).toBe(false);
+    expect(fs.readdirSync(home).some((name) => name.startsWith(".restore-staging."))).toBe(false);
+  });
+
+  it("cleans portable SQLite sidecars after fresh-process death inside conversion", () => {
+    initializeVault("portable-passphrase");
+    unlockVault("portable-passphrase");
+    storeSecret("app", "prod", "API_KEY", "portable-value", "interactive");
+    const backup = path.join(root, "portable-open-crash-backup");
+    createManagedBackup(backup);
+    setMachineIdentityForTests({ stable: Buffer.alloc(32, 9) });
+    closeDb();
+    clearKey();
+    const recoveryUrl = pathToFileURL(path.join(process.cwd(), "dist", "recovery.js")).href;
+    const vaultUrl = pathToFileURL(path.join(process.cwd(), "dist", "vault.js")).href;
+    const crashed = spawnSync(process.execPath, ["--input-type=module", "-e", [
+      `import { restoreManagedBackup, setRestoreFaultForTests } from ${JSON.stringify(recoveryUrl)};`,
+      `import { setMachineIdentityForTests } from ${JSON.stringify(vaultUrl)};`,
+      "setMachineIdentityForTests({ stable: Buffer.alloc(32, 9) });",
+      "setRestoreFaultForTests('crash-during-open-portable-conversion');",
+      `restoreManagedBackup(${JSON.stringify(backup)}, 'portable-passphrase');`,
+    ].join("\n")], { encoding: "utf8", env: { ...process.env, KEYCLASP_HOME: home } });
+    expect(crashed.status, crashed.stderr).toBe(23);
+    const stagingName = fs.readdirSync(home).find((name) => name.startsWith(".restore-staging."))!;
+    const possibleSidecars = ["vault.db.portable-journal", "vault.db.portable-wal", "vault.db.portable-shm"];
+    expect(possibleSidecars.some((name) => fs.existsSync(path.join(home, stagingName, name)))).toBe(true);
+
+    expect(recoverInterruptedManagedRestore()).toBe(true);
+    expect(restoreJournalExists()).toBe(false);
+    expect(fs.readdirSync(home).some((name) => name.startsWith(".restore-staging."))).toBe(false);
   });
 
   it("rejects a wrong backup passphrase without changing live state", () => {

@@ -132,7 +132,7 @@ describe("platform operator authorization", () => {
     expect(events).toEqual(["touch-id", "passphrase-unlock"]);
   });
 
-  it("requires macOS Touch ID before passphrase unlock for policy mutation and backup creation", async () => {
+  it("requires only the key classes needed after macOS authorization", async () => {
     initializeVault("operator-passphrase");
     storeSecret("app", "prod", "API_KEY", "secret");
     const runner = vi.fn<BiometricRunner>(() => ({ status: 0 }));
@@ -155,20 +155,55 @@ describe("platform operator authorization", () => {
       } else {
         await createManagedBackupAuthorized(path.join(root, "authorized-backup"), { authorize, ensureUnlocked });
       }
-      expect(events).toEqual(["touch-id", "passphrase-unlock"]);
+      expect(events).toEqual(operation === "policy" ? ["touch-id", "passphrase-unlock"] : ["touch-id"]);
     }
   });
 
-  it("uses one Linux prompt for backup authorization and live-vault unlock", async () => {
+  it("uses one Linux prompt for backup authorization without unlocking an unused interactive key", async () => {
     initializeVault("backup-passphrase");
     storeSecret("app", "prod", "API_KEY", "secret");
     clearKey();
     const promptPassphrase = vi.fn(async () => "backup-passphrase");
+    const ensureUnlocked = vi.fn(async () => { getKey(); });
     await createManagedBackupAuthorized(path.join(root, "linux-backup"), {
       authorize: (reason) => requireOperatorAuthentication(reason, { platform: "linux", promptPassphrase }),
-      ensureUnlocked: async () => { getKey(); },
+      ensureUnlocked,
     });
     expect(promptPassphrase).toHaveBeenCalledOnce();
+    expect(ensureUnlocked).not.toHaveBeenCalled();
+  });
+
+  it("unlocks the interactive class after authorization for a mixed backup", async () => {
+    initializeVault("mixed-backup-passphrase");
+    storeSecret("app", "prod", "MACHINE", "machine");
+    storeSecret("app", "prod", "INTERACTIVE", "interactive", "interactive");
+    const events: string[] = [];
+    await createManagedBackupAuthorized(path.join(root, "mixed-backup"), {
+      authorize: async () => {
+        events.push("authorize");
+        return { method: "touch-id" };
+      },
+      ensureUnlocked: async () => {
+        events.push("interactive-unlock");
+        unlockVault("mixed-backup-passphrase");
+      },
+    });
+    expect(events).toEqual(["authorize", "interactive-unlock"]);
+  });
+
+  it("reuses one Linux authorization passphrase to unlock an interactive backup", async () => {
+    initializeVault("one-prompt-passphrase");
+    unlockVault("one-prompt-passphrase");
+    storeSecret("app", "prod", "INTERACTIVE", "interactive", "interactive");
+    clearKey();
+    const promptPassphrase = vi.fn(async () => "one-prompt-passphrase");
+    const ensureUnlocked = vi.fn(async (passphrase?: string) => { unlockVault(passphrase!); });
+    await createManagedBackupAuthorized(path.join(root, "interactive-backup"), {
+      authorize: (reason) => requireOperatorAuthentication(reason, { platform: "linux", promptPassphrase }),
+      ensureUnlocked,
+    });
+    expect(promptPassphrase).toHaveBeenCalledOnce();
+    expect(ensureUnlocked).toHaveBeenCalledWith("one-prompt-passphrase");
   });
 
   it.each([

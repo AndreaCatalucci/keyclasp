@@ -281,6 +281,33 @@ export interface VaultDescriptor {
   generation: number;
 }
 
+export class VaultSemanticDamageError extends Error {}
+
+function assertRestoreValidationColumns(
+  database: Database.Database,
+  table: "vault_metadata" | "secrets",
+  required: readonly string[],
+): void {
+  const columns = new Set(
+    (database.pragma(`table_info(${table})`) as { name: string }[]).map((column) => column.name),
+  );
+  const missing = required.filter((column) => !columns.has(column));
+  if (missing.length > 0) {
+    throw new VaultSemanticDamageError(
+      `Keyclasp live vault schema is missing ${table} column${missing.length === 1 ? "" : "s"}: ${missing.join(", ")}.`,
+    );
+  }
+}
+
+function isOperationalVaultValidationError(error: unknown): boolean {
+  if (typeof error === "object" && error !== null && "code" in error) {
+    const code = String((error as { code?: unknown }).code ?? "");
+    if (/SQLITE_(?:CORRUPT|NOTADB|FORMAT)/.test(code)) return false;
+    if (code) return true;
+  }
+  return error instanceof Error && /Unsafe |owner-only|permission|ACL|changed during/.test(error.message);
+}
+
 export function getVaultDescriptor(): VaultDescriptor {
   enforceOwnerOnlyVaultPermissions();
   const encoded = fs.readFileSync(getKeyPath());
@@ -303,6 +330,47 @@ export function getVaultDescriptor(): VaultDescriptor {
     custody: parsed.mode === "passphrase" ? "dual-key" : "machine-only",
     generation: 0,
   };
+}
+
+/** Validate live key/database semantics for emergency-restore classification.
+ * Filesystem, SQLite, permission, and identity failures remain operational
+ * failures; format, schema, identity, and cryptographic mismatches are damage. */
+export function validateLiveVaultSemanticsForRestore(
+  databasePath = getVaultPath(),
+  keyPath = getKeyPath(),
+): void {
+  try {
+    const encoded = fs.readFileSync(keyPath);
+    const database = new Database(databasePath, { readonly: true, fileMustExist: true });
+    try {
+      if (encoded.subarray(0, KEY_BUNDLE_MAGIC.length).equals(KEY_BUNDLE_MAGIC)) {
+        const bundle = parseKeyBundle(encoded);
+        assertRestoreValidationColumns(database, "vault_metadata", [
+          "singleton", "format_version", "vault_id", "bundle_generation", "bundle_hash",
+          "machine_key_check_iv", "machine_key_check_tag", "interactive_key_check_iv",
+          "interactive_key_check_tag", "interactive_key_present",
+        ]);
+        assertRestoreValidationColumns(database, "secrets", [
+          "project", "environment", "name", "record_id", "record_kind", "key_class",
+          "encrypted_value", "iv", "auth_tag", "created_at", "updated_at",
+        ]);
+        validateBundleAgainstDatabase(database, bundle);
+      } else {
+        const parsed = parseKeyFile(encoded);
+        if (tableExists(database, "vault_metadata")) {
+          assertRestoreValidationColumns(database, "vault_metadata", [
+            "singleton", "format_version", "vault_id", "key_check_iv", "key_check_tag",
+          ]);
+        }
+        validateDatabaseStateForKeyFile(database, parsed);
+      }
+    } finally {
+      database.close();
+    }
+  } catch (error) {
+    if (isOperationalVaultValidationError(error)) throw error;
+    throw new VaultSemanticDamageError(error instanceof Error ? error.message : "Live vault semantic validation failed.");
+  }
 }
 
 function readActiveKeyBundle(filePath = getKeyPath()): KeyBundleDescriptor {
@@ -365,16 +433,50 @@ export function unlockManagedBackupKeys(keyPath: string, databasePath: string, p
   }
 }
 
-export function getManagedBackupKeys(): Required<Pick<ManagedBackupKeys, "bundle" | "machineKey">> & { interactiveKey?: Buffer } {
+export function getManagedBackupKeys(required: readonly KeyClass[] = ["machine", "interactive"]): ManagedBackupKeys & { bundle: KeyBundleDescriptor } {
   const bundle = readActiveKeyBundle();
-  const machineKey = getKey();
   const db = getDb();
   validateBundleAgainstDatabase(db, bundle);
-  const interactiveKey = bundle.interactive ? keyForClass("interactive", db, bundle) : undefined;
-  return { bundle, machineKey, ...(interactiveKey ? { interactiveKey } : {}) };
+  const machineKey = required.includes("machine") ? getKey() : undefined;
+  const interactiveKey = required.includes("interactive") && bundle.interactive
+    ? keyForClass("interactive", db, bundle)
+    : undefined;
+  return { bundle, ...(machineKey ? { machineKey } : {}), ...(interactiveKey ? { interactiveKey } : {}) };
 }
 
-export function preparePortableInteractiveRestore(keyPath: string, databasePath: string, passphrase: string): void {
+/** Validate every stored record against its authenticated identity and key class. */
+export function validateManagedVaultContents(
+  databasePath: string,
+  keyPath: string,
+  keys: Pick<ManagedBackupKeys, "machineKey" | "interactiveKey">,
+): void {
+  const bundle = readActiveKeyBundle(keyPath);
+  const database = new Database(databasePath, { readonly: true, fileMustExist: true });
+  try {
+    validateBundleAgainstDatabase(database, bundle);
+    if (keys.machineKey) verifyClassKeyCheck(database, keys.machineKey, bundle.vaultId, "machine");
+    if (keys.interactiveKey) verifyClassKeyCheck(database, keys.interactiveKey, bundle.vaultId, "interactive");
+    const rows = database.prepare(`SELECT ${currentSecretColumns(database)} FROM secrets ORDER BY project, environment, name`)
+      .all() as CurrentSecretRow[];
+    for (const row of rows) {
+      if (row.key_class !== "machine" && row.key_class !== "interactive") {
+        throw new Error("Managed backup contains a record with an invalid key class.");
+      }
+      const key = row.key_class === "machine" ? keys.machineKey : keys.interactiveKey;
+      if (!key) throw new Error(`Managed backup requires the ${row.key_class} data key to authenticate its records.`);
+      authenticateRecord(row, key, bundle.vaultId);
+    }
+  } finally {
+    database.close();
+  }
+}
+
+export function preparePortableInteractiveRestore(
+  keyPath: string,
+  databasePath: string,
+  passphrase: string,
+  afterDatabaseWriteForTests?: () => void,
+): void {
   const keys = unlockManagedBackupKeys(keyPath, databasePath, passphrase);
   if (!keys.interactiveKey) throw new Error("All-interactive portable restore requires the backup passphrase.");
   const inventory = summarizeKeyClasses(databasePath);
@@ -396,6 +498,7 @@ export function preparePortableInteractiveRestore(keyPath: string, databasePath:
       database.prepare(`UPDATE vault_metadata SET bundle_generation = ?, bundle_hash = ?,
         machine_key_check_iv = ?, machine_key_check_tag = ? WHERE singleton = 1`)
         .run(next.generation, keyBundleHash(next), machineCheck.iv, machineCheck.authTag);
+      afterDatabaseWriteForTests?.();
     });
     update.immediate();
   } finally {
@@ -794,6 +897,25 @@ function decryptRecord(
   }));
   decipher.setAuthTag(row.auth_tag);
   return Buffer.concat([decipher.update(row.encrypted_value), decipher.final()]).toString("utf8");
+}
+
+function authenticateRecord(row: NamedEncryptedVaultRow, key: Buffer, vaultId: Buffer): void {
+  if (!row.record_id || row.record_id.length !== 16 || row.record_kind !== RECORD_KIND_SECRET) {
+    throw new Error("Keyclasp vault record identity is missing or invalid.");
+  }
+  const decipher = crypto.createDecipheriv(ALGORITHM, key, row.iv, { authTagLength: AUTH_TAG_LENGTH });
+  decipher.setAAD(buildRecordAssociatedData({
+    vaultId,
+    recordId: row.record_id,
+    project: row.project,
+    environment: row.environment,
+    name: row.name,
+    recordKind: row.record_kind,
+    keyClass: row.key_class ?? "machine",
+  }));
+  decipher.setAuthTag(row.auth_tag);
+  const plaintext = Buffer.concat([decipher.update(row.encrypted_value), decipher.final()]);
+  plaintext.fill(0);
 }
 
 function createVaultKeyCheck(key: Buffer, vaultId: Buffer): { iv: Buffer; authTag: Buffer } {
