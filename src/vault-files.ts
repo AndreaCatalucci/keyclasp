@@ -140,10 +140,7 @@ export function assertNoExternalVaultClients(vaultDir: string, relativeNames: re
     return;
   }
   if (process.platform === "linux") {
-    const identities = targets.map((target) => {
-      const stat = fs.statSync(target);
-      return `${stat.dev}:${stat.ino}`;
-    });
+    const exactTargets = new Set(targets.map((target) => path.resolve(target)));
     for (const pid of fs.readdirSync("/proc").filter((name) => /^\d+$/.test(name))) {
       const fdDirectory = `/proc/${pid}/fd`;
       try {
@@ -160,8 +157,11 @@ export function assertNoExternalVaultClients(vaultDir: string, relativeNames: re
       }
       for (const descriptor of descriptors) {
         try {
-          const stat = fs.statSync(path.join(fdDirectory, descriptor));
-          if (identities.includes(`${stat.dev}:${stat.ino}`)) {
+          // stat follows every descriptor target and can fail on an unrelated
+          // protected path. The proc descriptor link identifies the opened
+          // pathname without traversing that target.
+          const openedPath = fs.readlinkSync(path.join(fdDirectory, descriptor));
+          if (path.isAbsolute(openedPath) && exactTargets.has(path.normalize(openedPath))) {
             throw new VaultWriterExclusionError("A process has a live vault SQLite file open; stop every external SQLite client before restoring.");
           }
         } catch (error) {
