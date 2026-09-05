@@ -1,0 +1,64 @@
+name: software source checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  source-tests:
+    name: source / ${{ matrix.os }} / Node ${{ matrix.node }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, ubuntu-24.04]
+        node: [24, 26]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - name: Compile the Touch ID source and verify the reviewed helper
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          build_root=$(mktemp -d)
+          trap 'rm -rf "$build_root"' EXIT
+          bundle="$build_root/Keyclasp.app"
+          mkdir -p "$bundle/Contents/MacOS"
+          cp native/macos-biometric/Info.plist "$bundle/Contents/Info.plist"
+          clang \
+            -arch arm64 \
+            -mmacosx-version-min=13.0 \
+            -fobjc-arc \
+            -framework Foundation \
+            -framework AppKit \
+            -framework LocalAuthentication \
+            native/macos-biometric/main.m \
+            -o "$bundle/Contents/MacOS/keyclasp-biometric"
+          codesign --force --sign - --timestamp=none --identifier dev.keyclasp.biometric "$bundle"
+          codesign --verify --strict "$bundle"
+          test "$(lipo -archs "$bundle/Contents/MacOS/keyclasp-biometric")" = arm64
+          codesign --verify --strict native/Keyclasp.app
+          test "$(lipo -archs native/Keyclasp.app/Contents/MacOS/keyclasp-biometric)" = arm64
+      - run: npm run release:inventory:check
+      - name: Run the source suite
+        if: runner.os != 'macOS'
+        run: npm run test:source
+      - name: Run the macOS source suite outside the qualification-host byte check
+        if: runner.os == 'macOS'
+        run: >-
+          npm run test:source --
+          --hookTimeout=30000
+          --testNamePattern='^(?!.*ships an arm64 ad-hoc-signed Keyclasp app).*$'
+      - run: git diff --check
