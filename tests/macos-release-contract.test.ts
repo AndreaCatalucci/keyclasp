@@ -8,6 +8,17 @@ const root = process.cwd();
 const read = (relativePath: string) => fs.readFileSync(path.join(root, relativePath), "utf8");
 
 describe("macOS release contracts", () => {
+  it("keeps source compilation on PR/main and exact helper qualification release-only", () => {
+    const sourceWorkflow = read(".github/workflows/software-source.yml");
+    const releaseWorkflow = read(".github/workflows/software-beta.yml");
+
+    expect(sourceWorkflow).toContain("push:\n    branches: [main]");
+    expect(sourceWorkflow).toContain("pull_request:");
+    expect(sourceWorkflow).toContain("build-macos-biometric-helper.mjs --source-check");
+    expect(sourceWorkflow).not.toContain("build-macos-biometric-helper.mjs --check");
+    expect(releaseWorkflow).toContain("build-macos-biometric-helper.mjs --check");
+  });
+
   it("pins every GitHub Action to an immutable commit", () => {
     const workflow = read(".github/workflows/macos-release.yml");
     const uses = [...workflow.matchAll(/^\s*- uses:\s*(\S+)/gm)].map((match) => match[1]);

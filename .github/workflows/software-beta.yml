@@ -29,6 +29,8 @@ jobs:
         run: test "$(npm --version)" = 11.19.0
       - run: npm ci --ignore-scripts
       - run: npm run build
+      - name: Require the declared helper toolchain and exact local candidate
+        run: node scripts/build-macos-biometric-helper.mjs --check
       - run: npm run release:inventory:check
       - id: pack
         name: Repack source and require the qualified rc6 contents

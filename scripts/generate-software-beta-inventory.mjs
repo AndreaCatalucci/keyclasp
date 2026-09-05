@@ -81,31 +81,25 @@ const nativePrebuilds = Object.fromEntries(
 );
 const nativePrebuildManifest = `${JSON.stringify({ schemaVersion: 1, package: betterSqliteIdentity, prebuilds: nativePrebuilds }, null, 2)}\n`;
 const nativePrebuildManifestPath = path.join(repository, "software-beta-native-prebuilds.json");
-function collectPrefixedFiles(directory, prefix) {
-  return collectNativeSourceFiles(directory).map((descriptor) => ({
-    ...descriptor,
-    path: path.posix.join(prefix, descriptor.path),
-  }));
+const biometricManifestPath = path.join(repository, "keyclasp-macos-helper-candidate.json");
+const biometricManifest = JSON.parse(fs.readFileSync(biometricManifestPath, "utf8"));
+if (
+  biometricManifest.schemaVersion !== 2 ||
+  biometricManifest.status !== "local-source-candidate" ||
+  biometricManifest.qualified !== false ||
+  biometricManifest.signature?.hardenedRuntime !== true ||
+  biometricManifest.signature?.entitlements?.length !== 0
+) {
+  throw new Error("keyclasp-macos-helper-candidate.json does not describe the unqualified hardened local candidate.");
 }
-
-const biometricSourceFiles = collectPrefixedFiles(
-  path.join(repository, "native", "macos-biometric"),
-  "native/macos-biometric",
-);
-const biometricBundleFiles = collectPrefixedFiles(
-  path.join(repository, "native", "Keyclasp.app"),
-  "native/Keyclasp.app",
-);
-const biometricManifest = `${JSON.stringify({
-  schemaVersion: 1,
-  bundle: "Keyclasp.app",
-  bundleIdentifier: "dev.keyclasp.biometric",
-  architecture: "arm64",
-  signature: "ad-hoc",
-  sourceFiles: biometricSourceFiles,
-  bundleFiles: biometricBundleFiles,
-}, null, 2)}\n`;
-const biometricManifestPath = path.join(repository, "software-beta-macos-biometric.json");
+for (const descriptor of [...biometricManifest.sourceFiles, ...biometricManifest.bundleFiles]) {
+  const actual = crypto.createHash("sha256")
+    .update(fs.readFileSync(path.join(repository, descriptor.path)))
+    .digest("hex");
+  if (actual !== descriptor.sha256) {
+    throw new Error(`The Touch ID candidate manifest is stale for ${descriptor.path}.`);
+  }
+}
 if (process.argv.includes("--check")) {
   if (fs.readFileSync(dependencyManifestPath, "utf8") !== dependencyManifest) {
     throw new Error("software-beta-dependencies.json is stale; regenerate and review the release inventory before packing.");
@@ -119,9 +113,6 @@ if (process.argv.includes("--check")) {
   if (fs.readFileSync(nativePrebuildManifestPath, "utf8") !== nativePrebuildManifest) {
     throw new Error("software-beta-native-prebuilds.json is stale; regenerate it from the reviewed bundled prebuilds before packing.");
   }
-  if (fs.readFileSync(biometricManifestPath, "utf8") !== biometricManifest) {
-    throw new Error("software-beta-macos-biometric.json is stale; rebuild and review the Touch ID helper before packing.");
-  }
   console.log("The bundled production and native-source manifests match the reviewed dependency trees.");
   process.exit(0);
 }
@@ -129,7 +120,6 @@ fs.writeFileSync(dependencyManifestPath, dependencyManifest, { mode: 0o644 });
 fs.writeFileSync(betterSqliteSourceManifestPath, betterSqliteSourceManifest, { mode: 0o644 });
 fs.writeFileSync(nodeAddonApiSourceManifestPath, nodeAddonApiSourceManifest, { mode: 0o644 });
 fs.writeFileSync(nativePrebuildManifestPath, nativePrebuildManifest, { mode: 0o644 });
-fs.writeFileSync(biometricManifestPath, biometricManifest, { mode: 0o644 });
 
 const licenses = Object.entries(lockfile.packages)
   .filter(([location]) => location !== "")

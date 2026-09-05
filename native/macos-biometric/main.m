@@ -62,6 +62,7 @@ static int KeyclaspExitCodeForError(NSError *error) {
 
 int main(int argc, const char *argv[]) {
   @autoreleasepool {
+    (void)argv;
     if (argc != 1) return KeyclaspBiometricInvalidInput;
 
     NSData *reasonData = [[NSFileHandle fileHandleWithStandardInput] readDataToEndOfFile];

@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "architecture": "arm64",
+  "sdk": "macosx",
+  "deploymentTarget": "13.0",
+  "compiler": "/usr/bin/clang",
+  "compileFlags": [
+    "-O2",
+    "-fobjc-arc",
+    "-fstack-protector-strong",
+    "-fno-omit-frame-pointer",
+    "-Wall",
+    "-Wextra",
+    "-Werror"
+  ],
+  "frameworks": [
+    "Foundation",
+    "AppKit",
+    "LocalAuthentication"
+  ],
+  "bundleIdentifier": "dev.keyclasp.biometric",
+  "signing": {
+    "identity": "-",
+    "timestamp": "none",
+    "hardenedRuntime": true,
+    "entitlements": []
+  },
+  "qualificationToolchain": {
+    "developerDirectory": "/Library/Developer/CommandLineTools",
+    "xcodeVersion": null,
+    "clangVersion": "Apple clang version 21.0.0 (clang-2100.3.33.1)",
+    "linkerProject": "ld-27037.1",
+    "sdkVersion": "27.0",
+    "sdkBuildVersion": "26A5419a",
+    "codesignProject": "codesign-135.0.6"
+  }
+}
