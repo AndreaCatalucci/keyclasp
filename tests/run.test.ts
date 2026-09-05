@@ -7,6 +7,7 @@ import {
   checkUnsafeCommand,
   createSecretRedactor,
   parseRunArgs,
+  REDACTION,
   runCommandWithSecrets,
 } from "../src/run.js";
 
@@ -174,6 +175,14 @@ describe("run environment preparation", () => {
     expect(resolveSecret).toHaveBeenCalledTimes(2);
   });
 
+  it.each(["abcdefg\ud800", "abcdefg\udc00"])("rejects a malformed Unicode secret before injection", (value) => {
+    expect(() => buildRunEnvironment({
+      baseEnv: {},
+      secretNames: ["API_KEY"],
+      resolveSecret: () => value,
+    })).toThrow(/not well-formed Unicode/);
+  });
+
   it("injects explicit env mappings from source names to target names", () => {
     const result = buildRunEnvironment({
       baseEnv: {},
@@ -235,7 +244,7 @@ describe("secret redaction", () => {
     const final = redactor.end();
 
     expect(written.leaked || final.leaked).toBe(true);
-    expect(written.output + final.output).toBe("before [KEYCLASP_REDACTED] after");
+    expect(written.output + final.output).toBe("before [KEYCLASP_REDACTED]");
   });
 
   it("does not flush a split secret before it can be detected", () => {
@@ -246,7 +255,7 @@ describe("secret redaction", () => {
 
     expect(first.output).not.toContain("sk-test");
     expect(first.leaked).toBe(false);
-    expect(first.output + second.output + final.output).toBe("prefix [KEYCLASP_REDACTED] suffix");
+    expect(first.output + second.output + final.output).toBe("prefix [KEYCLASP_REDACTED]");
     expect(second.leaked).toBe(true);
   });
 
@@ -267,7 +276,7 @@ describe("secret redaction", () => {
     expect(written.output + final.output).toBe("KEYCLASP_SANDBOX_deadbeef");
   });
 
-  it("keeps carry state after one leak to catch a second split secret", () => {
+  it("stops forwarding after the first complete selected value", () => {
     const redactor = createSecretRedactor(["first-secret", "second-secret"]);
     const first = redactor.write("before first-secret then second");
     const second = redactor.write("-secret after");
@@ -275,13 +284,56 @@ describe("secret redaction", () => {
     const output = first.output + second.output + final.output;
 
     expect(first.leaked || second.leaked || final.leaked).toBe(true);
-    expect(output).toBe("before [KEYCLASP_REDACTED] then [KEYCLASP_REDACTED] after");
+    expect(output).toBe("before [KEYCLASP_REDACTED]");
     expect(output).not.toContain("first-secret");
     expect(output).not.toContain("second-secret");
+  });
+
+  it.each([
+    ["self overlap", ["abcd123a"], "abcd123a", "[KEYCLASP_REDACTED]"],
+    ["repeated characters", ["aaaaaaaa"], "aaaaaaaa", "[KEYCLASP_REDACTED]"],
+    ["longest same-position match", ["abcdefgh", "abcdefghij"], "abcdefghij", "[KEYCLASP_REDACTED]"],
+    ["suffix overlap", ["01234567", "456789ab"], "0123456789ab", "[KEYCLASP_REDACTED]"],
+    ["duplicate values", ["duplicate-value", "duplicate-value"], "duplicate-value", "[KEYCLASP_REDACTED]"],
+    ["adjacent values", ["first-secret", "second-secret"], "first-secretsecond-secret", "[KEYCLASP_REDACTED]"],
+  ])("redacts %s at every character split", (_label, values, input, expected) => {
+    for (let split = 0; split <= input.length; split += 1) {
+      const redactor = createSecretRedactor(values);
+      const parts = [redactor.write(input.slice(0, split)), redactor.write(input.slice(split)), redactor.end()];
+      expect(parts.some((part) => part.leaked), `split ${split}`).toBe(true);
+      expect(parts.map((part) => part.output).join(""), `split ${split}`).toBe(expected);
+    }
+  });
+
+  it("flushes large clean output while retaining only a possible secret prefix", () => {
+    const redactor = createSecretRedactor(["sk-test-secret"]);
+    const clean = "x".repeat(1_000_000);
+    const written = redactor.write(`${clean}sk-test`);
+    const final = redactor.end();
+
+    expect(written).toEqual({ output: clean, leaked: false });
+    expect(final).toEqual({ output: "sk-test", leaked: false });
   });
 });
 
 describe("guarded command execution", () => {
+  it.each(["abcdefg\ud800", "abcdefg\udc00"])("rejects a malformed Unicode secret before child launch", async (value) => {
+    let stdout = "";
+    let stderr = "";
+    const result = await runCommandWithSecrets({
+      args: ["--env", "API_KEY", "--", process.execPath, "-e", "process.stdout.write('launched')"],
+      baseEnv: {},
+      secretNames: ["API_KEY"],
+      resolveSecret: () => value,
+      stdout: (chunk) => { stdout += chunk; },
+      stderr: (chunk) => { stderr += chunk; },
+    });
+
+    expect(result).toEqual({ kind: "error", exitCode: 1 });
+    expect(stdout).toBe("");
+    expect(stderr).toContain("not well-formed Unicode");
+  });
+
   it.each(["cancelled", "unavailable"])("fails closed before unlock when required authorization is %s", async (failure) => {
     const ensureUnlocked = vi.fn(async () => undefined);
     const resolveSecret = vi.fn(() => "secret-value");
@@ -658,6 +710,76 @@ describe("guarded command execution", () => {
     expect(stderr).toContain("terminated");
   });
 
+  it.each(["stdout", "stderr"] as const)("redacts the exact abcd123a EOF reproduction on %s", async (stream) => {
+    let stdout = "";
+    let stderr = "";
+    const target = stream === "stdout" ? "process.stdout" : "process.stderr";
+    const result = await runCommandWithSecrets({
+      args: [process.execPath, "-e", `${target}.write(process.env.API_KEY)`],
+      baseEnv: {},
+      secretNames: ["API_KEY"],
+      resolveSecret: () => "abcd123a",
+      authorize: approveOperator,
+      stdout: (chunk) => { stdout += chunk; },
+      stderr: (chunk) => { stderr += chunk; },
+    });
+
+    expect(result).toEqual({ kind: "leak", exitCode: 2 });
+    expect(stdout).not.toContain("abcd123a");
+    expect(stderr).not.toContain("abcd123a");
+    expect(stream === "stdout" ? stdout : stderr).toContain(REDACTION);
+  });
+
+  it("stops forwarding both streams after either stream leaks", async () => {
+    let stdout = "";
+    let stderr = "";
+    const result = await runCommandWithSecrets({
+      args: [
+        process.execPath,
+        "-e",
+        "process.stdout.write(process.env.API_KEY); setTimeout(() => process.stderr.write('must-not-forward'), 50); setInterval(() => {}, 1000)",
+      ],
+      baseEnv: {},
+      secretNames: ["API_KEY"],
+      resolveSecret: () => "stream-secret",
+      authorize: approveOperator,
+      stdout: (chunk) => { stdout += chunk; },
+      stderr: (chunk) => { stderr += chunk; },
+    });
+
+    expect(result).toEqual({ kind: "leak", exitCode: 2 });
+    expect(stdout).toBe(REDACTION);
+    expect(stderr).not.toContain("must-not-forward");
+  });
+
+  it("redacts a Unicode value split at every UTF-8 byte boundary", async () => {
+    const value = "päss-🔐-秘密";
+    const bytes = Buffer.from(value, "utf8");
+    for (let split = 0; split <= bytes.length; split += 1) {
+      let stdout = "";
+      const result = await runCommandWithSecrets({
+        args: [
+          process.execPath,
+          "-e",
+          [
+            "const value = Buffer.from(process.env.API_KEY, 'utf8');",
+            `process.stdout.write(value.subarray(0, ${split}));`,
+            `setTimeout(() => process.stdout.write(value.subarray(${split})), 1);`,
+          ].join(" "),
+        ],
+        baseEnv: {},
+        secretNames: ["API_KEY"],
+        resolveSecret: () => value,
+        authorize: approveOperator,
+        stdout: (chunk) => { stdout += chunk; },
+        stderr: () => {},
+      });
+
+      expect(result, `byte split ${split}`).toEqual({ kind: "leak", exitCode: 2 });
+      expect(stdout, `byte split ${split}`).toBe(REDACTION);
+    }
+  });
+
   it("redacts stderr leaks split across chunks", async () => {
     let stderr = "";
     const result = await runCommandWithSecrets({
@@ -676,7 +798,8 @@ describe("guarded command execution", () => {
 
     expect(result.kind).toBe("leak");
     expect(stderr).toContain("before ");
-    expect(stderr).toContain("[KEYCLASP_REDACTED] after");
+    expect(stderr).toContain("[KEYCLASP_REDACTED]");
+    expect(stderr).not.toContain(" after");
     expect(stderr).not.toContain("sk-test-secret");
   });
 
@@ -702,7 +825,8 @@ describe("guarded command execution", () => {
     });
 
     expect(result.kind).toBe("leak");
-    expect(stdout).toContain("before [KEYCLASP_REDACTED] after");
+    expect(stdout).toContain("before [KEYCLASP_REDACTED]");
+    expect(stdout).not.toContain(" after");
     expect(stdout).not.toContain("sk-😀-secret");
   });
 
@@ -723,6 +847,33 @@ describe("guarded command execution", () => {
 
     expect(result.kind).toBe("leak");
     expect(result.exitCode).toBe(2);
+  });
+
+  it.runIf(process.platform !== "win32")("reports when descendant termination cannot be confirmed", async () => {
+    const originalKill = process.kill.bind(process);
+    const kill = vi.spyOn(process, "kill").mockImplementation(((pid: number, signal?: NodeJS.Signals | number) => {
+      if (pid < 0 && signal === 0) {
+        throw Object.assign(new Error("not permitted"), { code: "EPERM" });
+      }
+      return originalKill(pid, signal);
+    }) as typeof process.kill);
+    let stderr = "";
+    try {
+      const result = await runCommandWithSecrets({
+        args: [process.execPath, "-e", "process.stdout.write(process.env.API_KEY); setInterval(() => {}, 1000)"],
+        baseEnv: {},
+        secretNames: ["API_KEY"],
+        resolveSecret: () => "sk-test-secret",
+        authorize: approveOperator,
+        stdout: () => {},
+        stderr: (chunk) => { stderr += chunk; },
+      });
+
+      expect(result).toEqual({ kind: "leak", exitCode: 2 });
+      expect(stderr).toContain("could not confirm that every supervised descendant terminated");
+    } finally {
+      kill.mockRestore();
+    }
   });
 
   it("kills a detached-output descendant when a trailing buffered leak appears after its leader exits", async () => {

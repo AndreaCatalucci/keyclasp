@@ -34,7 +34,7 @@ keyclasp run --project myapp --environment prod \
   --env STORED_API_KEY:OPENAI_API_KEY -- npm test
 ```
 
-Keyclasp launches the command without a shell. It blocks common environment-dump commands and scans stdout and stderr for injected values of at least eight characters. On a match it prints `[KEYCLASP_REDACTED]` and terminates the child. This catches accidental output; it cannot stop a trusted child from sending, storing, or transforming a credential.
+Keyclasp launches the command without a shell. It rejects secret strings that cannot be represented unchanged as UTF-8, blocks common environment-dump commands, and scans stdout and stderr for injected values of at least eight characters. On a match it prints `[KEYCLASP_REDACTED]`, stops forwarding child output, terminates every supervised process-group member that the invoking user can signal, and returns a nonzero result. If the operating system refuses a descendant signal, Keyclasp reports that containment could not be confirmed. This catches accidental exact-value output; it cannot stop a trusted child from sending, storing, transforming, or privilege-elevating with a credential.
 
 
 ## How custody works
@@ -106,6 +106,7 @@ See the [command reference](docs/commands.md), [getting started guide](docs/gett
 - The interactive key is portable with its passphrase when no machine-key record is present in the backup.
 - `get` prints plaintext into terminal output. Agents must never invoke it.
 - `--allow-unsafe` disables command preflight and output scanning for that invocation; it never bypasses authorization.
+- On macOS, Keyclasp validates the packaged Touch ID helper's path, ownership, mode bits, write-granting ACLs, manifest hash, signature, hardened-runtime flag, identifier, and designated requirement before launch. It starts the helper with a fixed minimal environment. These checks detect a damaged or replaced package but do not isolate Keyclasp from arbitrary code already running as the same user.
 - Project, environment, secret names, and policy metadata are not encrypted.
 - Keyclasp has not received a professional third-party security audit.
 

@@ -55,13 +55,20 @@ describe("npm package contents", () => {
       fs.readFileSync(path.join(process.cwd(), "software-beta-node-addon-api-source.json"), "utf8"),
     );
     const biometricManifest = JSON.parse(
-      fs.readFileSync(path.join(process.cwd(), "software-beta-macos-biometric.json"), "utf8"),
+      fs.readFileSync(path.join(process.cwd(), "keyclasp-macos-helper-candidate.json"), "utf8"),
     );
     expect(biometricManifest).toEqual(expect.objectContaining({
+      schemaVersion: 2,
+      status: "local-source-candidate",
+      qualified: false,
       bundle: "Keyclasp.app",
       bundleIdentifier: "dev.keyclasp.biometric",
       architecture: "arm64",
-      signature: "ad-hoc",
+      signature: expect.objectContaining({
+        kind: "ad-hoc",
+        hardenedRuntime: true,
+        entitlements: [],
+      }),
     }));
     for (const descriptor of [...biometricManifest.sourceFiles, ...biometricManifest.bundleFiles]) {
       expect(crypto.createHash("sha256").update(fs.readFileSync(path.join(process.cwd(), descriptor.path))).digest("hex")).toBe(descriptor.sha256);
@@ -97,7 +104,7 @@ describe("npm package contents", () => {
 
   it("ships the active biometric helper and excludes development and native-spike files", () => {
     const biometricManifest = JSON.parse(
-      fs.readFileSync(path.join(process.cwd(), "software-beta-macos-biometric.json"), "utf8"),
+      fs.readFileSync(path.join(process.cwd(), "keyclasp-macos-helper-candidate.json"), "utf8"),
     );
     const result = spawnSync(
       "npm",
@@ -119,7 +126,8 @@ describe("npm package contents", () => {
     expect(files).toContain("software-beta-better-sqlite3-source.json");
     expect(files).toContain("software-beta-node-addon-api-source.json");
     expect(files).toContain("software-beta-native-prebuilds.json");
-    expect(files).toContain("software-beta-macos-biometric.json");
+    expect(files).toContain("keyclasp-macos-helper-candidate.json");
+    expect(files).not.toContain("software-beta-macos-biometric.json");
     expect(files).toContain("scripts/install-native-binding.mjs");
     expect(files).toContain("scripts/native-source-manifest.mjs");
     expect(files).toContain("scripts/verify-native-binding.mjs");

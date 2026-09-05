@@ -43,7 +43,7 @@ import { parseRunArgs } from "./run.js";
 import { createSoftwareRunRuntime } from "./software/runtime.js";
 import { getDisplayVersion } from "./version.js";
 import { extractGlobalFlags, resolveContext, writeContext, clearContext } from "./context.js";
-import { processPassphraseInput, requireOperatorAuthentication } from "./biometric.js";
+import { preflightBiometricAuthentication, processPassphraseInput, requireOperatorAuthentication } from "./biometric.js";
 import { formatHardwareDoctor, inspectHardwareMode } from "./hardware/status.js";
 import { appendAuthorizationPolicyAudit, authorizationSelectorFromCommand, evaluateAuthorizationRules, hasInterruptedAuthorizationPolicy, mutateAuthorizationRuleAuthorized, readAuthorizationState, recoverInterruptedAuthorizationPolicy, summarizeAuthorizationState, validateLiveAuthorizationPolicy } from "./policy.js";
 import { createManagedBackupAuthorized, hasInterruptedManagedRestore, recoverInterruptedManagedRestore, restoreManagedBackupAuthorized, verifyManagedBackupPassphrase } from "./recovery.js";
@@ -462,6 +462,7 @@ async function main(): Promise<void> {
   }
 
   if (command !== "doctor") assertSoftwarePlatformSupported();
+  if (command !== "doctor") preflightBiometricAuthentication();
 
   let lifecycleLock: VaultLifecycleLock | null = null;
   if (command !== "doctor") {

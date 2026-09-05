@@ -113,7 +113,7 @@ function repairMacOsAcl(filePath: string, label: string): void {
   }
 }
 
-function assertNoWriteGrantingMacOsAcl(filePath: string, label: string): void {
+export function assertNoWriteGrantingMacOsAcl(filePath: string, label: string): void {
   const writePermission = /(?:^|,)(?:write|append|add_file|add_subdirectory|delete|delete_child|writeattr|writeextattr|writesecurity|chown)(?:,|$)/;
   const grantingEntry = macOsAclEntries(filePath, label).find((entry) => {
     const match = entry.match(/\ballow\s+([^\s]+)/);

@@ -232,6 +232,9 @@ function buildValidatedRunEnvironment(input: RunEnvironmentInput, specs: readonl
     if (value.includes("\0")) {
       throw new Error(`Secret "${spec.sourceName}" contains a null byte and cannot be injected.`);
     }
+    if (Buffer.from(value, "utf8").toString("utf8") !== value) {
+      throw new Error(`Secret "${spec.sourceName}" is not well-formed Unicode and cannot be injected.`);
+    }
 
     env[spec.targetName] = value;
     if (value.length >= MIN_LEAK_VALUE_LENGTH && !seenLeakValues.has(value)) {
@@ -245,40 +248,55 @@ function buildValidatedRunEnvironment(input: RunEnvironmentInput, specs: readonl
 
 export function createSecretRedactor(secretValues: string[]) {
   const values = [...new Set(secretValues.filter((value) => value.length > 0))]
-    .sort((a, b) => b.length - a.length);
+    .sort((a, b) => b.length - a.length || a.localeCompare(b));
   const maxSecretLength = values.reduce((max, value) => Math.max(max, value.length), 0);
   let carry = "";
+  let stopped = false;
 
-  function redact(input: string): RedactorResult {
-    let output = input;
-    let leaked = false;
-
+  function firstCompleteMatch(input: string): { index: number; value: string } | null {
+    let match: { index: number; value: string } | null = null;
     for (const value of values) {
-      if (!output.includes(value)) continue;
-      leaked = true;
-      output = output.split(value).join(REDACTION);
+      const index = input.indexOf(value);
+      if (index === -1) continue;
+      if (!match || index < match.index || (index === match.index && value.length > match.value.length)) {
+        match = { index, value };
+      }
     }
-
-    return { output, leaked };
+    return match;
   }
 
   return {
     write(chunk: string): RedactorResult {
+      if (stopped) return { output: "", leaked: false };
       if (values.length === 0) return { output: chunk, leaked: false };
 
       const combined = carry + chunk;
+      const match = firstCompleteMatch(combined);
+      if (match) {
+        stopped = true;
+        carry = "";
+        return {
+          output: `${combined.slice(0, match.index)}${REDACTION}`,
+          leaked: true,
+        };
+      }
+
       const keepLength = prefixCarryLength(combined, values, maxSecretLength);
       const flushLength = combined.length - keepLength;
 
       carry = combined.slice(flushLength);
-      const redacted = redact(combined.slice(0, flushLength));
-      return redacted;
+      return { output: combined.slice(0, flushLength), leaked: false };
     },
 
     end(): RedactorResult {
-      const redacted = redact(carry);
+      if (stopped) return { output: "", leaked: false };
+      const match = firstCompleteMatch(carry);
+      const output = match
+        ? `${carry.slice(0, match.index)}${REDACTION}`
+        : carry;
       carry = "";
-      return redacted;
+      stopped = match !== null;
+      return { output, leaked: match !== null };
     },
   };
 }
@@ -453,6 +471,7 @@ function spawnGuarded(
   const stdoutDecoder = new StringDecoder("utf8");
   const stderrDecoder = new StringDecoder("utf8");
   let leakDetected = false;
+  let outputForwardingStopped = false;
   let settled = false;
   let leakTermination: Promise<void> | null = null;
 
@@ -473,17 +492,21 @@ function spawnGuarded(
     const handleLeak = () => {
       if (leakDetected) return;
       leakDetected = true;
+      outputForwardingStopped = true;
       writeStderr("\nBLOCKED: command output contained an injected secret; terminated.\n");
       leakTermination = terminateChildGroup(child, "SIGTERM", 250);
+      void leakTermination.catch(() => {});
     };
 
     child.stdout?.on("data", (chunk: Buffer) => {
+      if (outputForwardingStopped) return;
       const result = stdoutRedactor.write(stdoutDecoder.write(chunk));
       if (result.output) writeStdout(result.output);
       if (result.leaked) handleLeak();
     });
 
     child.stderr?.on("data", (chunk: Buffer) => {
+      if (outputForwardingStopped) return;
       const result = stderrRedactor.write(stderrDecoder.write(chunk));
       if (result.output) writeStderr(result.output);
       if (result.leaked) handleLeak();
@@ -497,28 +520,41 @@ function spawnGuarded(
       const relayedSignal = relay.signal;
 
       const lastStdout = stdoutDecoder.end();
-      if (lastStdout) {
+      if (!outputForwardingStopped && lastStdout) {
         const result = stdoutRedactor.write(lastStdout);
         if (result.output) writeStdout(result.output);
         if (result.leaked) handleLeak();
       }
       const lastStderr = stderrDecoder.end();
-      if (lastStderr) {
+      if (!outputForwardingStopped && lastStderr) {
         const result = stderrRedactor.write(lastStderr);
         if (result.output) writeStderr(result.output);
         if (result.leaked) handleLeak();
       }
 
-      const finalStdout = stdoutRedactor.end();
-      if (finalStdout.output) writeStdout(finalStdout.output);
-      const finalStderr = stderrRedactor.end();
-      if (finalStderr.output) writeStderr(finalStderr.output);
-      if (finalStdout.leaked || finalStderr.leaked) handleLeak();
+      if (!outputForwardingStopped) {
+        const finalStdout = stdoutRedactor.end();
+        if (finalStdout.output) writeStdout(finalStdout.output);
+        if (finalStdout.leaked) handleLeak();
+      }
+      if (!outputForwardingStopped) {
+        const finalStderr = stderrRedactor.end();
+        if (finalStderr.output) writeStderr(finalStderr.output);
+        if (finalStderr.leaked) handleLeak();
+      }
 
-      await Promise.all([relay.waitForTermination(), leakTermination ?? Promise.resolve()]);
+      let terminationFailure = false;
+      try {
+        await Promise.all([relay.waitForTermination(), leakTermination ?? Promise.resolve()]);
+      } catch {
+        terminationFailure = true;
+      }
       relay.cleanup();
 
       if (leakDetected) {
+        if (terminationFailure) {
+          writeStderr("ERROR: could not confirm that every supervised descendant terminated.\n");
+        }
         resolveOnce({ kind: "leak", exitCode: 2 });
       } else {
         resolveOnce({ kind: "exit", exitCode: exitCodeForClose(code, relayedSignal ?? signal) });
@@ -558,7 +594,10 @@ async function terminateChildGroup(
       process.kill(group, 0);
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
-      if (code === "ESRCH" || code === "EPERM") return;
+      if (code === "ESRCH") return;
+      if (code === "EPERM") {
+        throw new Error("The supervised process group still exists but cannot be signalled by this user.");
+      }
       throw error;
     }
     if (!forced && Date.now() >= forceAt) {
@@ -583,6 +622,7 @@ function installTerminationRelay(child: ReturnType<typeof spawn>): {
       if (relayedSignal) return;
       relayedSignal = signal;
       termination = terminateChildGroup(child, signal, 1_000);
+      void termination.catch(() => {});
     };
     handlers.set(signal, handler);
     process.on(signal, handler);
