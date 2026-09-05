@@ -20,6 +20,30 @@ function run(args: string[], opts: { input?: string; env?: NodeJS.ProcessEnv } =
   });
 }
 
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", `'\\''`)}'`;
+}
+
+function runLinuxPty(args: string[], input: string) {
+  const command = [process.execPath, cliPath, ...args].map(shellQuote).join(" ");
+  return spawnSync("/usr/bin/script", [
+    "--quiet",
+    "--return",
+    "--flush",
+    "--echo",
+    "never",
+    "--command",
+    command,
+    "/dev/null",
+  ], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    env: { ...process.env, KEYCLASP_HOME: vaultHome },
+    input,
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+}
+
 function runSecretCheck(
   name: string,
   expectedValue: string,
@@ -155,13 +179,14 @@ describe("CLI end-to-end flow", () => {
     initializeVault("emergency-passphrase");
     unlockVault("emergency-passphrase");
     storeSecret("app", "prod", "API_KEY", "restored-value", "interactive");
-    const backup = path.join(path.dirname(vaultHome), "emergency-backup");
+    const backupRoot = fs.mkdtempSync(path.join(os.tmpdir(), "keyclasp-backup-"));
+    const backup = path.join(backupRoot, "emergency-backup");
     createManagedBackup(backup);
     closeDb();
     clearKey();
     fs.writeFileSync(path.join(vaultHome, ".keyclasp.key"), "corrupt", { mode: 0o600 });
 
-    const restored = run(["backup", "restore", backup], { input: "emergency-passphrase\n" });
+    const restored = runLinuxPty(["backup", "restore", backup], "emergency-passphrase\n");
     expect(restored.status, restored.stderr).toBe(0);
     expect(restored.stdout).toMatch(/backup restored/i);
     clearKey();
@@ -170,7 +195,7 @@ describe("CLI end-to-end flow", () => {
     closeDb();
     clearKey();
     fs.unlinkSync(path.join(vaultHome, ".keyclasp.key"));
-    const restoredWithoutLiveKey = run(["backup", "restore", backup], { input: "emergency-passphrase\n" });
+    const restoredWithoutLiveKey = runLinuxPty(["backup", "restore", backup], "emergency-passphrase\n");
     expect(restoredWithoutLiveKey.status, restoredWithoutLiveKey.stderr).toBe(0);
     expect(restoredWithoutLiveKey.stdout).toMatch(/backup restored/i);
     if (previous === undefined) delete process.env.KEYCLASP_HOME;

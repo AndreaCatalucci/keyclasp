@@ -18,6 +18,7 @@ import {
 } from "../src/vault.js";
 import { readAuthorizationState, setAuthorizationRule } from "../src/policy.js";
 import { createManagedBackup, createManagedBackupAuthorized, getRestorePrimitiveCountsForTests, recoverInterruptedManagedRestore, restoreManagedBackup, restoreManagedBackupAuthorized, setBackupFaultForTests, setRestoreFaultForTests, setRestoreOperationFaultForTests, setRestorePrimitiveFaultForTests } from "../src/recovery.js";
+import { assertNoExternalVaultClients } from "../src/vault-files.js";
 
 describe("managed backup and restore", () => {
   let root: string;
@@ -78,6 +79,22 @@ describe("managed backup and restore", () => {
     expect(resolveSecret("app", "prod", "API_KEY")).toBe("before-backup");
     expect(readAuthorizationState("app", "prod", "API_KEY")).toBe("unlocked");
     expect(readAuthorizationState("app", "prod", "FUTURE_SECRET")).toBe("locked");
+  });
+
+  it.runIf(process.platform === "linux")("ignores proc descriptors hidden by Linux ptrace policy", () => {
+    initializeVault("");
+    const realReadlink = fs.readlinkSync.bind(fs);
+    const readlink = vi.spyOn(fs, "readlinkSync").mockImplementation(((target: fs.PathLike, options?: any) => {
+      if (String(target).startsWith("/proc/")) {
+        throw Object.assign(new Error("permission denied"), { code: "EACCES" });
+      }
+      return realReadlink(target, options);
+    }) as typeof fs.readlinkSync);
+    try {
+      expect(() => assertNoExternalVaultClients(home)).not.toThrow();
+    } finally {
+      readlink.mockRestore();
+    }
   });
 
   it("removes inherited macOS ACLs from a managed backup directory and every backup file", () => {

@@ -166,7 +166,11 @@ export function assertNoExternalVaultClients(vaultDir: string, relativeNames: re
           }
         } catch (error) {
           if (error instanceof VaultWriterExclusionError) throw error;
-          if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+          const code = (error as NodeJS.ErrnoException).code;
+          // Linux may deny fd-link inspection across otherwise same-UID
+          // processes (for example under ptrace restrictions). Such holders
+          // are outside this documented observable-process guard.
+          if (code !== "ENOENT" && code !== "EACCES" && code !== "EPERM") {
             throw new VaultWriterExclusionError("Keyclasp could not inspect a same-user process descriptor for open vault files.");
           }
         }
