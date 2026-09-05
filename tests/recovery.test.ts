@@ -12,11 +12,13 @@ import {
   initializeVault,
   readSecretKeyClass,
   resolveSecret,
+  rotateInteractivePassphrase,
+  setCustodyFaultForTests,
   setMachineIdentityForTests,
   storeSecret,
   unlockVault,
 } from "../src/vault.js";
-import { readAuthorizationState, setAuthorizationRule } from "../src/policy.js";
+import { initializeAuthorizationPolicy, readAuthorizationState, setAuthorizationRule } from "../src/policy.js";
 import { createManagedBackup, createManagedBackupAuthorized, getRestorePrimitiveCountsForTests, recoverInterruptedManagedRestore, restoreManagedBackup, restoreManagedBackupAuthorized, setBackupFaultForTests, setRestoreFaultForTests, setRestoreOperationFaultForTests, setRestorePrimitiveFaultForTests } from "../src/recovery.js";
 import { assertNoExternalVaultClients } from "../src/vault-files.js";
 
@@ -55,6 +57,7 @@ describe("managed backup and restore", () => {
     closeDb();
     clearKey();
     setMachineIdentityForTests(null);
+    setCustodyFaultForTests(null);
     setRestoreFaultForTests(null);
     setRestoreOperationFaultForTests(null);
     setRestorePrimitiveFaultForTests(null);
@@ -62,6 +65,37 @@ describe("managed backup and restore", () => {
     if (previousHome === undefined) delete process.env.KEYCLASP_HOME;
     else process.env.KEYCLASP_HOME = previousHome;
     fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it("recovers the managed-restore journal before parsing older custody state", () => {
+    setMachineIdentityForTests(null);
+    initializeVault("old-passphrase");
+    initializeAuthorizationPolicy("interactive");
+    storeSecret("app", "prod", "API_KEY", "backup-value", "interactive");
+    const backup = path.join(root, "restore-order-backup");
+    createManagedBackup(backup);
+
+    setCustodyFaultForTests("after-journal");
+    expect(() => rotateInteractivePassphrase("old-passphrase", "new-passphrase")).toThrow(/custody crash/i);
+    setCustodyFaultForTests(null);
+    closeDb();
+    clearKey();
+    fs.writeFileSync(path.join(home, "vault.db"), Buffer.from("synthetic-corrupt-live-db"), { mode: 0o600 });
+
+    setRestoreFaultForTests("crash-after-journal");
+    expect(() => restoreManagedBackup(backup, "old-passphrase")).toThrow(/crash after journal publication/i);
+    setRestoreFaultForTests(null);
+    expect(restoreJournalExists()).toBe(true);
+    expect(fs.existsSync(path.join(home, ".custody-transaction.v1.json"))).toBe(true);
+
+    const result = spawnSync(process.execPath, [path.join(process.cwd(), "dist", "cli.js"), "status"], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env: { ...process.env, KEYCLASP_HOME: home },
+    });
+    expect(result.status).toBe(1);
+    expect(restoreJournalExists()).toBe(false);
+    expect(fs.existsSync(path.join(home, ".custody-transaction.v1.json"))).toBe(true);
   });
 
   it("restores one consistent machine-vault snapshot including broad and exact authorization rules", () => {

@@ -12,7 +12,7 @@ keyclasp init
 
 Before publication, install only the exact local tarball and SHA-256 named in the release-candidate receipt. Do not treat the registry command as evidence that this beta has been published.
 
-Press Enter for a machine-only vault, or enter a non-empty passphrase to create both the machine and interactive keys. The machine key serves unattended records. The passphrase wraps the separate interactive key; losing it makes interactive records unrecoverable unless a tested backup exists.
+`keyclasp init` requires a non-empty passphrase and makes new unmatched records interactive. The passphrase wraps the separate interactive key; losing it makes interactive records unrecoverable unless a tested backup exists. For an explicitly unattended vault instead run `keyclasp init --machine-only`; this weaker software-bound choice is not implied by an empty response.
 
 The install uses `better-sqlite3@13.0.3`. Its reviewed prebuilds are carried inside the exact Keyclasp tarball, and Keyclasp verifies the selected native binding's SHA-256 before loading it. Installation does not download native code. Set `npm_config_build_from_source=true` to compile the bundled reviewed sources instead. A source build needs Xcode Command Line Tools on macOS or Python plus a C++ toolchain on Linux.
 
@@ -48,13 +48,22 @@ keyclasp unlock --project demo --environment local DEMO_SECRET
 keyclasp inherit --project demo --environment local DEMO_SECRET
 ```
 
+Set the fallback for records without a more-specific rule with an authorized explicit choice:
+
+```bash
+keyclasp lock --default    # interactive fallback
+keyclasp unlock --default  # unattended machine fallback
+```
+
+An upgraded vault reports `legacy machine default` until this choice is made. Machine-to-interactive transitions remain pending until the database, free pages, WAL, and SHM are sanitized and verified. When the last machine record moves, Keyclasp retires the old machine key.
+
 ## Back up the complete vault
 
 ```bash
 keyclasp backup create /secure/path/keyclasp-backup
 ```
 
-Keep the database, key bundle, policy, and manifest together by using the managed command. Mixed backups are same-machine only. An all-interactive backup can be restored on another supported machine with its passphrase.
+Keep the database, key bundle, policy, and manifest together by using the managed command. Mixed backups are same-machine only. An all-interactive backup can be restored on another supported machine with its passphrase. Authentication proves a backup is genuine, not that it is the newest copy. Record a retention decision for old backups and snapshots; rotate the service credential if an earlier copy must no longer grant access.
 
 ## Agent use
 

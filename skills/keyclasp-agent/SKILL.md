@@ -28,7 +28,7 @@ keyclasp status --project <project> --environment <environment>
 keyclasp list --project <project> --environment <environment>
 ```
 
-`list` prints names. `status` is metadata-only: it never loads a data key or decrypts a value. A machine-only or dual-key vault can serve a named request unattended when every selected secret is effectively unlocked and machine-key protected. Stop for a locked selection or any prompt. Map each required env var to a listed name (`--env STORE:EXPECTED` when they differ).
+`list` prints names. Once startup recovery is complete, `status` is metadata-only: it does not decrypt a value. A pre-versioned or interrupted vault may first resume exclusive sanitation, which can load data keys or request interactive unlock before `status` runs. A machine-only or dual-key vault can serve a named request unattended when every selected secret is effectively unlocked and machine-key protected. Fresh passphrase vaults default to interactive custody. `legacy machine default` means an upgraded vault retained unattended compatibility but still needs an explicit operator default decision; it does not authorize the agent to change that choice. Stop when a selected record is locked or interactive, when cleanup is pending, or when any command prompts. Map each required env var to a listed name (`--env STORE:EXPECTED` when they differ).
 
 Done when the binary exists, status and list show that every requested name is eligible for an unattended named run, or the missing or locked state has been reported.
 
@@ -66,7 +66,7 @@ Done when this form has run, or a failure below was handled without exposing a v
 - Never run `keyclasp get`. If the user needs plaintext, give them the exact operator command to run in their terminal.
 - Never omit `--env` (broad runs are operator-only).
 - Never pass `--allow-unsafe` unless the user authorizes that one invocation.
-- Never write a secret value into prompts, files, agent-authored arguments, logs, snapshots, commits, or summaries. Never inspect injection with `env`, `printenv`, or debug dumps. Verify through child behavior, or a check that reports only set vs length. If a trusted child requires the secret as an argument, expand it only inside the Keyclasp-launched child as described above and account for process-list exposure.
+- Never write a secret value into prompts, files, agent-authored arguments, logs, snapshots, commits, or summaries. Never inspect injection with `env`, `printenv`, or debug dumps. Verify through child behavior, or a check that reports only set vs length. If a trusted child requires the secret as an argument, expand it only inside the Keyclasp-launched child as described above and account for process-list exposure. Locking and key retirement do not revoke a credential copied elsewhere; provider-side rotation is required when revocation matters.
 - Never invent a value or read one from a project file. Do not run `init`, `set`, `delete`, `rename`, `lock`, `unlock`, `inherit`, `passphrase`, or `backup`. Give the user the exact operator command for a requested state change.
 - The child is trusted code and receives every injected secret. Keyclasp does not authorize the child's external actions.
 

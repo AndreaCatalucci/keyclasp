@@ -18,7 +18,11 @@ The canonical v5 key bundle holds two independent random 32-byte data keys and a
 
 Every record is encrypted with its assigned data key. AES-GCM associated data binds the format version, vault ID, stable record ID, project, environment, secret name, record kind, and custody class. Moving ciphertext or changing `key_class` without authorized re-encryption fails authentication.
 
-`lock`, `unlock`, and `inherit` update authenticated policy and re-encrypt matching existing records inside one exclusive lifecycle operation. A journal, key-bundle generation, and database commit point recover interrupted transitions without silently changing custody.
+`lock`, `unlock`, and `inherit` update authenticated policy and re-encrypt matching existing records inside one exclusive lifecycle operation. Fresh passphrase vaults use interactive fallback custody; machine-only initialization requires the explicit `--machine-only` choice. Existing vaults migrate without reclassification to a labelled `legacy-machine` fallback until the operator explicitly runs `lock --default` or `unlock --default`. Exact-secret, exact-scope, project-only, and environment-only rules retain precedence over that fallback.
+
+A machine-to-interactive database commit also records `custody_sanitization_required`. Normal dispatch cannot report the change complete while that phase exists. Recovery repeats secure deletion, WAL checkpoint/truncation, database compaction, explicit WAL/SHM cleanup, closed-file integrity checking, and cryptographic record validation. When no machine records remain, the active bundle and database key check advance to a fresh machine key before the phase clears. If machine records remain, their existing key stays active and those records are revalidated after cleanup.
+
+Vaults created before this sanitation contract, including legacy vaults upgraded to dual-key storage, enter the same one-time pending phase before their first ordinary command. A machine-only inventory completes without an interactive prompt; an inventory containing interactive records requires the passphrase so every current record can be authenticated, and an all-interactive inventory retires the obsolete machine key in that invocation.
 
 ## Authorization
 
@@ -29,7 +33,7 @@ Broad runs, `get`, custody changes, passphrase rotation, backup, and restore req
 
 First Linux enrollment confirms a new passphrase because no previous interactive credential exists. This protects future interactive custody but does not authenticate enrollment against another same-user process with terminal access.
 
-Policy resolution prefers exact secret, exact project/environment, project-only or environment-only, then unlocked. Locked wins when project-only and environment-only rules conflict at equal specificity. Rules cover future records. The policy document is authenticated, vault-bound, generation-bound, and committed into the database.
+Policy resolution prefers exact secret, exact project/environment, project-only or environment-only, then the authenticated vault-wide fallback. Locked wins when project-only and environment-only rules conflict at equal specificity. Rules cover future records. The version 3 policy document authenticates its fallback, rules, vault identity, and generation and is committed into the database.
 
 ## Child-process boundary
 
@@ -49,6 +53,10 @@ Managed backups authenticate the database, complete key bundle, policy, manifest
 
 Managed restore treats `vault.db`, WAL, and SHM as one live state. Healthy state is copied, then checkpointed and validated without mutating the raw live files; those exact raw bytes become rollback material. Damaged raw state and recognized pending journals are quarantined without using them as restore authority. The authenticated backup is reopened and fully validated before commit. Repeated interruption of publication, rollback, or cleanup resumes from authenticated pre/post file states.
 
+Backup authentication proves origin and internal consistency, not that a backup is newer than another valid copy. Locking, passphrase rotation, live-file sanitization, and machine-key retirement do not invalidate external filesystem snapshots, copied backups, or credentials copied by an authorized child. Operators must define retention for every saved copy and rotate the credential at its provider when prior access must be revoked.
+
+Keyclasp overwrites Keyclasp-owned machine, interactive, wrapping, and temporary plaintext buffers on a best-effort basis when their lifetime ends. It cannot reliably erase JavaScript strings, child-process environments, OS caches, swap, crash collectors, filesystem snapshots, or prior copies, and it makes no protected-memory claim.
+
 The lifecycle lock excludes cooperating Keyclasp processes, not arbitrary SQLite clients. Restore rejects observable busy or changing state, but an operator must stop every external client before starting it. Direct same-inode overwrite of an open SQLite database remains unsupported.
 
 ## Package boundary and dependencies
@@ -61,6 +69,8 @@ The public package exports parsing, context, biometric-result classification, pa
 
 - Machine custody is software-bound and weaker than passphrase custody.
 - Interactive custody is portable with its passphrase when a backup contains no machine record.
+- Authenticated backups provide authenticity, not newest-state freshness or revocation of older valid copies.
+- Best-effort owned-buffer cleanup does not establish erasure from JavaScript strings, process environments, swap, crash data, snapshots, or prior copies.
 - The same-user boundary permits another local process to request an unlocked known secret.
 - Output scanning is accidental-leak containment, not an exfiltration boundary.
 - `get` prints plaintext into terminal scrollback after authorization.

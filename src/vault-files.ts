@@ -47,6 +47,12 @@ function isUnobservableProcEntry(error: unknown): boolean {
 }
 export class DamagedLiveDatabaseError extends Error {}
 
+export type VaultSanitizationStage =
+  | "after-checkpoint"
+  | "after-vacuum"
+  | "after-sidecar-cleanup"
+  | "after-validation";
+
 function hashFile(filePath: string): string {
   return crypto.createHash("sha256").update(fs.readFileSync(filePath)).digest("hex");
 }
@@ -59,6 +65,13 @@ export function fsyncFile(filePath: string): void {
 export function fsyncDirectory(directory: string): void {
   const descriptor = fs.openSync(directory, "r");
   try { fs.fsyncSync(descriptor); } finally { fs.closeSync(descriptor); }
+}
+
+export function configureWritableVaultDatabase(database: Database.Database): void {
+  const enabled = database.pragma("secure_delete = ON", { simple: true });
+  if (enabled !== 1) throw new Error("Keyclasp could not enable SQLite secure deletion.");
+  const verified = database.pragma("secure_delete", { simple: true });
+  if (verified !== 1) throw new Error("Keyclasp SQLite secure deletion is not active.");
 }
 
 function assertRelativeName(name: string): void {
@@ -113,6 +126,7 @@ export function assertExactVaultFilesUnchanged(vaultDir: string, inventory: read
 export function quiesceSqliteCopy(databasePath: string): void {
   const database = new Database(databasePath, { fileMustExist: true });
   try {
+    configureWritableVaultDatabase(database);
     database.pragma("busy_timeout = 0");
     const quick = database.pragma("quick_check") as { quick_check?: string }[];
     if (quick.length !== 1 || quick[0]?.quick_check !== "ok") {
@@ -127,6 +141,49 @@ export function quiesceSqliteCopy(databasePath: string): void {
   }
   fsyncFile(databasePath);
   fsyncDirectory(path.dirname(databasePath));
+}
+
+/** Remove obsolete SQLite payload representations after a custody tightening.
+ * The caller owns policy, keys, authorization, and the durable pending phase.
+ * Repeating this operation after interruption is safe while that phase exists. */
+export function sanitizeClosedVaultSqlite(
+  vaultDir: string,
+  validateContents: (databasePath: string) => void,
+  fault?: (stage: VaultSanitizationStage) => void,
+): void {
+  assertNoExternalVaultClients(vaultDir);
+  const databasePath = path.join(vaultDir, SQLITE_LIVE_FILES[0]);
+  const database = new Database(databasePath, { fileMustExist: true });
+  try {
+    database.pragma("busy_timeout = 0");
+    configureWritableVaultDatabase(database);
+    database.exec("BEGIN EXCLUSIVE");
+    database.exec("COMMIT");
+    database.pragma("wal_checkpoint(TRUNCATE)");
+    database.pragma("journal_mode = DELETE");
+    fault?.("after-checkpoint");
+    database.exec("VACUUM");
+    fault?.("after-vacuum");
+    const quick = database.pragma("quick_check") as { quick_check?: string }[];
+    if (quick.length !== 1 || quick[0]?.quick_check !== "ok") {
+      throw new Error("Sanitized Keyclasp vault failed SQLite quick_check.");
+    }
+  } finally {
+    database.close();
+  }
+
+  for (const name of SQLITE_LIVE_FILES.slice(1)) {
+    const sidecarPath = path.join(vaultDir, name);
+    if (!fs.existsSync(sidecarPath)) continue;
+    assertOwnerOnlyPath(sidecarPath, { kind: "file", label: `obsolete SQLite sidecar \"${name}\"` });
+    fs.unlinkSync(sidecarPath);
+    fsyncDirectory(vaultDir);
+  }
+  fault?.("after-sidecar-cleanup");
+  fsyncFile(databasePath);
+  fsyncDirectory(vaultDir);
+  validatePublishedSqlite(vaultDir, validateContents, true);
+  fault?.("after-validation");
 }
 
 /** Fail closed when another process already has a live SQLite file open.

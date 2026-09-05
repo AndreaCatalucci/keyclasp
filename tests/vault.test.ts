@@ -366,7 +366,7 @@ describe("legacy schema migration", () => {
   afterEach(() => vault.restore());
 
   it("backfills pre-scoping rows under project=default, environment=default", () => {
-    const key = getKey();
+    const key = Buffer.from(getKey());
     writeLegacyV3KeyFileForTests(key, "scope-test-passphrase");
     closeDb();
 

@@ -15,9 +15,16 @@ import {
 } from "../src/vault.js";
 import {
   appendAuthorizationPolicyAudit,
+  authorizationPolicyNeedsDefaultMigration,
   authorizationSelectorFromCommand,
   evaluateAuthorizationRules,
+  initializeAuthorizationPolicy,
+  migrateAuthorizationPolicyDefault,
+  mutateAuthorizationDefault,
+  mutateAuthorizationDefaultAuthorized,
   mutateAuthorizationRule,
+  previewAuthorizationDefault,
+  readAuthorizationDefault,
   mutateAuthorizationRuleAuthorized,
   readAuthorizationState,
   setAuthorizationRule,
@@ -147,6 +154,90 @@ describe("authenticated authorization policy", () => {
     ], "app", "prod", "API_KEY")).toBe("unlocked");
   });
 
+  it("uses the vault-wide fallback only below more-specific rules", () => {
+    const rules = [
+      { project: "app", locked: false },
+      { project: "app", environment: "prod", secret: "LOCKED", locked: true },
+    ];
+    expect(evaluateAuthorizationRules(rules, "other", "prod", "API_KEY", "interactive")).toBe("locked");
+    expect(evaluateAuthorizationRules(rules, "app", "prod", "API_KEY", "interactive")).toBe("unlocked");
+    expect(evaluateAuthorizationRules(rules, "app", "prod", "LOCKED", "machine")).toBe("locked");
+  });
+
+  it("persists an explicit fresh-vault default and migrates old policy as legacy machine", () => {
+    initializeAuthorizationPolicy("machine");
+    expect(readAuthorizationDefault()).toBe("machine");
+    expect(authorizationPolicyNeedsDefaultMigration()).toBe(false);
+
+    const policyPath = path.join(process.env.KEYCLASP_HOME!, "strict-policy.v1.json");
+    const document = JSON.parse(fs.readFileSync(policyPath, "utf8"));
+    expect(document.version).toBe(3);
+    expect(document.defaultCustody).toBe("machine");
+  });
+
+  it("authenticates the initialization default seed before policy publication", () => {
+    expect(readAuthorizationDefault()).toBe("machine");
+    closeDb();
+    const database = new Database(path.join(process.env.KEYCLASP_HOME!, "vault.db"));
+    database.prepare("UPDATE vault_metadata SET authorization_default_seed_mac = ? WHERE singleton = 1")
+      .run(Buffer.alloc(32, 99));
+    database.close();
+    clearKey();
+    expect(() => readAuthorizationDefault()).toThrow(/seed failed authentication/i);
+  });
+
+  it("previews and authorizes an exact default choice before mutation", async () => {
+    initializeAuthorizationPolicy("machine");
+    const records = [
+      { project: "app", environment: "prod", name: "A", keyClass: "machine" as const },
+      { project: "app", environment: "prod", name: "B", keyClass: "interactive" as const },
+    ];
+    const preview = previewAuthorizationDefault("lock", records);
+    expect(preview).toEqual({
+      currentDefault: "machine",
+      nextDefault: "interactive",
+      machineToInteractive: 1,
+      interactiveToMachine: 0,
+      unchangedMachine: 0,
+      unchangedInteractive: 1,
+    });
+    const events: string[] = [];
+    const result = await mutateAuthorizationDefaultAuthorized("lock", preview, {
+      authorize: (reason) => {
+        events.push(reason);
+        return { method: "passphrase", passphrase: "operator-passphrase" };
+      },
+      ensureUnlocked: async (passphrase) => {
+        events.push(`unlock:${passphrase}`);
+        return passphrase;
+      },
+      mutate: (action) => {
+        events.push(`mutate:${action}`);
+        return mutateAuthorizationDefault(action);
+      },
+    });
+    expect(result).toEqual({ defaultCustody: "interactive", passphrase: "operator-passphrase" });
+    expect(events[0]).toMatch(/1 machine to interactive, 0 interactive to machine, 1 unchanged/);
+    expect(events.slice(1)).toEqual(["unlock:operator-passphrase", "mutate:lock"]);
+    expect(readAuthorizationDefault()).toBe("interactive");
+  });
+
+  it("previews zero-record and whole-vault default transitions", () => {
+    initializeAuthorizationPolicy("machine");
+    expect(previewAuthorizationDefault("lock", [])).toEqual({
+      currentDefault: "machine",
+      nextDefault: "interactive",
+      machineToInteractive: 0,
+      interactiveToMachine: 0,
+      unchangedMachine: 0,
+      unchangedInteractive: 0,
+    });
+    expect(previewAuthorizationDefault("lock", [
+      { project: "app", environment: "prod", name: "A", keyClass: "machine" },
+      { project: "app", environment: "prod", name: "B", keyClass: "machine" },
+    ])).toMatchObject({ machineToInteractive: 2, interactiveToMachine: 0, unchangedMachine: 0, unchangedInteractive: 0 });
+  });
+
   it("commits the database callback and policy anchor in one SQLite transaction", () => {
     const seen: { rules: unknown; generation: number }[] = [];
     mutateAuthorizationRule({ project: "app" }, "lock", (db, nextRules, nextGeneration) => {
@@ -217,9 +308,13 @@ describe("authenticated authorization policy", () => {
     db.close();
 
     expect(readAuthorizationState("legacy", "prod", "FUTURE")).toBe("locked");
+    expect(readAuthorizationDefault()).toBe("legacy-machine");
+    expect(authorizationPolicyNeedsDefaultMigration()).toBe(true);
+    expect(migrateAuthorizationPolicyDefault()).toBe(true);
     setAuthorizationRule({ project: "legacy", environment: "prod" }, false);
     const upgraded = JSON.parse(fs.readFileSync(path.join(home, "strict-policy.v1.json"), "utf8"));
-    expect(upgraded.version).toBe(2);
+    expect(upgraded.version).toBe(3);
+    expect(upgraded.defaultCustody).toBe("legacy-machine");
     expect(upgraded.rules).toEqual([{ project: "legacy", environment: "prod", locked: false }]);
   });
 
@@ -395,10 +490,11 @@ describe("authenticated authorization policy", () => {
       version: document.version,
       vaultId: document.vaultId,
       generation: document.generation,
+      defaultCustody: document.defaultCustody,
       rules: document.rules,
     });
     document.mac = crypto.createHmac("sha256", Buffer.from(anchor.key, "base64"))
-      .update("keyclasp:authorization-policy:v2")
+      .update("keyclasp:authorization-policy:v3")
       .update("\0")
       .update(canonical)
       .digest("base64");

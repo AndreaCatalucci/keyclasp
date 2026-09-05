@@ -33,10 +33,15 @@ import {
   inspectLegacyVaultMode,
   migrateLegacyVaultToDualKey,
   recoverInterruptedCustodyTransition,
+  completePendingCustodySanitization,
+  custodySanitizationRequiresUnlock,
+  hasPendingCustodySanitization,
   hasInterruptedCustodyTransition,
   hasInterruptedDualKeyMigration,
   recoverInterruptedDualKeyMigration,
   summarizeKeyClasses,
+  listRecordCustody,
+  authorizationDefaultSeedRequiresUnlock,
   type ScopedSecret,
 } from "./vault.js";
 import { parseRunArgs } from "./run.js";
@@ -45,7 +50,24 @@ import { getDisplayVersion } from "./version.js";
 import { extractGlobalFlags, resolveContext, writeContext, clearContext } from "./context.js";
 import { processPassphraseInput, requireOperatorAuthentication } from "./biometric.js";
 import { formatHardwareDoctor, inspectHardwareMode } from "./hardware/status.js";
-import { appendAuthorizationPolicyAudit, authorizationSelectorFromCommand, evaluateAuthorizationRules, hasInterruptedAuthorizationPolicy, mutateAuthorizationRuleAuthorized, readAuthorizationState, recoverInterruptedAuthorizationPolicy, summarizeAuthorizationState, validateLiveAuthorizationPolicy } from "./policy.js";
+import {
+  appendAuthorizationPolicyAudit,
+  authorizationPolicyNeedsDefaultMigration,
+  authorizationPolicyUsesDefaultSeed,
+  authorizationSelectorFromCommand,
+  evaluateAuthorizationRules,
+  hasInterruptedAuthorizationPolicy,
+  initializeAuthorizationPolicy,
+  migrateAuthorizationPolicyDefault,
+  mutateAuthorizationDefaultAuthorized,
+  mutateAuthorizationRuleAuthorized,
+  previewAuthorizationDefault,
+  readAuthorizationDefault,
+  readAuthorizationState,
+  recoverInterruptedAuthorizationPolicy,
+  summarizeAuthorizationState,
+  validateLiveAuthorizationPolicy,
+} from "./policy.js";
 import { createManagedBackupAuthorized, hasInterruptedManagedRestore, recoverInterruptedManagedRestore, restoreManagedBackupAuthorized, verifyManagedBackupPassphrase } from "./recovery.js";
 import { acquireVaultLifecycleLock, lifecycleModeForCommand, type VaultLifecycleLock } from "./lifecycle-lock.js";
 import readline from "node:readline";
@@ -55,12 +77,12 @@ import { stdin, stdout } from "node:process";
 import { assertSoftwarePlatformSupported } from "./platform.js";
 import { revealSecretReason } from "./runtime.js";
 
-async function ensureVaultUnlocked(authorizedPassphrase?: string): Promise<void> {
+async function ensureVaultUnlocked(authorizedPassphrase?: string): Promise<string | undefined> {
   if (!vaultHasPassphrase()) throw new Error("Interactive custody is not enrolled. Run: keyclasp passphrase set");
-  if (isInteractiveKeyUnlocked()) return;
+  if (isInteractiveKeyUnlocked()) return authorizedPassphrase;
   if (authorizedPassphrase !== undefined) {
     unlockVault(authorizedPassphrase);
-    return;
+    return authorizedPassphrase;
   }
   if (!stdin.isTTY) {
     console.error(KEY_LOCKED_ERROR);
@@ -69,6 +91,7 @@ async function ensureVaultUnlocked(authorizedPassphrase?: string): Promise<void>
   const passphrase = await promptSecret("Enter vault passphrase: ");
   try {
     unlockVault(passphrase);
+    return passphrase;
   } catch (err: any) {
     console.error(err.message);
     process.exit(1);
@@ -94,6 +117,7 @@ Software beta: macOS arm64 and glibc Linux arm64 or x64, Node.js 24 or 26. Hardw
 
 Usage:
   keyclasp init                Initialize the encrypted vault
+  keyclasp init --machine-only Initialize explicitly for unattended machine custody
   keyclasp set <name>          Store a secret (value read from stdin)
   keyclasp set <name> -        Store a secret (prompts securely)
   keyclasp get <name>          Print a secret after Touch ID or vault passphrase
@@ -112,6 +136,8 @@ Usage:
   keyclasp unlock [--project P] [--environment E] [SECRET]
   keyclasp inherit [--project P] [--environment E] [SECRET]
                               Change authenticated policy and record custody
+  keyclasp lock|unlock --default
+                              Choose interactive or machine custody for unmatched records
   keyclasp passphrase set|rotate
                               Enroll or rotate interactive custody
   keyclasp backup create|restore <directory>
@@ -402,20 +428,20 @@ function runRename(flags: RenameFlags): void {
   process.exit(1);
 }
 
-async function migrateLegacyIfNeeded(): Promise<void> {
-  if (!isInitialized() || !needsDualKeyMigration()) return;
+async function migrateLegacyIfNeeded(): Promise<string | undefined> {
+  if (!isInitialized() || !needsDualKeyMigration()) return undefined;
   validateLivePolicyBeforeMigration();
   const mode = inspectLegacyVaultMode();
   if (mode === "passphrase") {
     const currentPassphrase = await promptSecret("Enter current vault passphrase to migrate: ");
     migrateLegacyVaultToDualKey(readAuthorizationState, { currentPassphrase });
-    return;
+    return currentPassphrase;
   }
   const rows = listSecrets() as ScopedSecret[];
   const hasLockedRecord = rows.some((row) => readAuthorizationState(row.project, row.environment, row.name) === "locked");
   if (!hasLockedRecord) {
     migrateLegacyVaultToDualKey(readAuthorizationState);
-    return;
+    return undefined;
   }
   if (process.platform === "darwin") {
     await requireOperatorAuthentication("Enroll interactive custody while migrating locked Keyclasp records");
@@ -424,6 +450,7 @@ async function migrateLegacyIfNeeded(): Promise<void> {
   }
   const newInteractivePassphrase = await promptConfirmedPassphrase("Enter new interactive passphrase: ");
   migrateLegacyVaultToDualKey(readAuthorizationState, { newInteractivePassphrase });
+  return newInteractivePassphrase;
 }
 
 function validateLivePolicyBeforeMigration(): void {
@@ -431,19 +458,33 @@ function validateLivePolicyBeforeMigration(): void {
 }
 
 function hasPendingExclusiveVaultWork(): boolean {
-  return needsDualKeyMigration() ||
+  return hasInterruptedManagedRestore() ||
+    needsDualKeyMigration() ||
     hasInterruptedCustodyTransition() ||
     hasInterruptedDualKeyMigration() ||
-    hasInterruptedManagedRestore() ||
-    hasInterruptedAuthorizationPolicy();
+    hasInterruptedAuthorizationPolicy() ||
+    hasPendingCustodySanitization() ||
+    (isInitialized() && authorizationPolicyNeedsDefaultMigration());
 }
 
 async function recoverAndMigrateVault(): Promise<void> {
+  recoverInterruptedManagedRestore();
   recoverInterruptedDualKeyMigration();
   recoverInterruptedCustodyTransition();
-  recoverInterruptedManagedRestore();
   recoverInterruptedAuthorizationPolicy();
-  await migrateLegacyIfNeeded();
+  const migrationPassphrase = await migrateLegacyIfNeeded();
+  if (isInitialized() && authorizationPolicyNeedsDefaultMigration()) {
+    if (authorizationPolicyUsesDefaultSeed() && authorizationDefaultSeedRequiresUnlock()) {
+      await ensureVaultUnlocked();
+    }
+    migrateAuthorizationPolicyDefault();
+  }
+  if (isInitialized() && hasPendingCustodySanitization()) {
+    const passphrase = custodySanitizationRequiresUnlock()
+      ? migrationPassphrase ?? await ensureVaultUnlocked()
+      : undefined;
+    completePendingCustodySanitization(passphrase);
+  }
 }
 
 async function main(): Promise<void> {
@@ -487,9 +528,18 @@ async function main(): Promise<void> {
           console.error(`Keyclasp is already initialized at ${getVaultLocation()}.`);
           process.exit(1);
         }
+        const machineOnly = args[1] === "--machine-only" && args.length === 2;
+        if ((!machineOnly && args.length !== 1) || (args[1] === "--machine-only" && args.length !== 2)) {
+          console.error("Usage: keyclasp init [--machine-only]");
+          process.exit(1);
+        }
         console.log(`🔑 Initializing Keyclasp vault...`);
-        const passphrase = await readPassphrase("Enter vault passphrase (or empty for machine-only key): ");
+        const passphrase = machineOnly ? "" : await readPassphrase("Enter new vault passphrase: ");
+        if (!machineOnly && !passphrase) {
+          throw new Error("A non-empty passphrase is required. Use keyclasp init --machine-only for unattended machine custody.");
+        }
         initializeVault(passphrase);
+        initializeAuthorizationPolicy(machineOnly ? "machine" : "interactive");
         getKey(); // Verify key works
         console.log(`Keyclasp vault created at ${getVaultLocation()}`);
         console.log("Next: store a secret with `keyclasp set <name>`, then use it with `keyclasp run`.");
@@ -511,6 +561,37 @@ async function main(): Promise<void> {
           process.exit(1);
         }
         const { project, environment, rest } = extractGlobalFlags(args.slice(1), "scan-all");
+        if (rest.length === 1 && rest[0] === "--default" && project === undefined && environment === undefined) {
+          if (command === "inherit") {
+            console.error("Usage: keyclasp lock|unlock --default");
+            process.exit(1);
+          }
+          const preview = previewAuthorizationDefault(command, listRecordCustody());
+          let transitionPassphrase: string | undefined;
+          let transition = { changed: 0, tightened: 0, machineRemaining: 0 };
+          const result = await mutateAuthorizationDefaultAuthorized(command, preview, {
+            authorize: requireOperatorAuthentication,
+            ensureUnlocked: async (authorizedPassphrase) => {
+              transitionPassphrase = await ensureVaultUnlocked(authorizedPassphrase);
+              return transitionPassphrase;
+            },
+            databaseMutation: (db, nextRules, _generation, defaultCustody) => {
+              transition = transitionRecordCustody(db, nextRules, evaluateAuthorizationRules, defaultCustody);
+            },
+          });
+          const cleanup = transition.tightened > 0
+            ? completePendingCustodySanitization(transitionPassphrase)
+            : { completed: false, machineKeyRetired: false };
+          try {
+            appendAuthorizationPolicyAudit({}, `${command}-default`, "success");
+          } catch (auditError) {
+            console.error(`WARNING: authorization default changed, but its audit entry could not be written: ${auditError instanceof Error ? auditError.message : "unknown error"}`);
+          }
+          console.log(`Default custody: ${result.defaultCustody}.`);
+          console.log(`Transitioned ${transition.changed} record(s); ${preview.machineToInteractive} machine to interactive, ${preview.interactiveToMachine} interactive to machine.`);
+          if (cleanup.machineKeyRetired) console.log("Retired the obsolete machine data key.");
+          break;
+        }
         let selector;
         try {
           selector = authorizationSelectorFromCommand(project, environment, rest);
@@ -520,15 +601,20 @@ async function main(): Promise<void> {
         }
         const secret = selector.secret;
         let changed = false;
+        let transitionPassphrase: string | undefined;
+        let transition = { changed: 0, tightened: 0, machineRemaining: 0 };
         try {
           const effective = await mutateAuthorizationRuleAuthorized(selector, command, {
             authorize: requireOperatorAuthentication,
-            ensureUnlocked: ensureVaultUnlocked,
-            databaseMutation: (db, nextRules) => {
-              transitionRecordCustody(db, nextRules, evaluateAuthorizationRules);
+            ensureUnlocked: async (authorizedPassphrase) => {
+              transitionPassphrase = await ensureVaultUnlocked(authorizedPassphrase);
+            },
+            databaseMutation: (db, nextRules, _generation, defaultCustody) => {
+              transition = transitionRecordCustody(db, nextRules, evaluateAuthorizationRules, defaultCustody);
             },
           });
           changed = true;
+          if (transition.tightened > 0) completePendingCustodySanitization(transitionPassphrase);
           try {
             appendAuthorizationPolicyAudit(selector, command, "success");
           } catch (auditError) {
@@ -536,6 +622,7 @@ async function main(): Promise<void> {
           }
           const target = [project ?? "*", environment ?? "*", secret].filter((part) => part !== undefined).join("/");
           console.log(`Authorization ${effective} for ${target}.`);
+          if (transition.tightened > 0 && transition.machineRemaining === 0) console.log("Retired the obsolete machine data key.");
         } catch (error) {
           if (!changed) {
             try {
@@ -597,7 +684,7 @@ async function main(): Promise<void> {
         if (action === "create") {
           const manifest = await createManagedBackupAuthorized(path.resolve(directory), {
             authorize: requireOperatorAuthentication,
-            ensureUnlocked: ensureVaultUnlocked,
+            ensureUnlocked: async () => { await ensureVaultUnlocked(); },
           });
           console.log(`Managed ${manifest.custody} backup created at ${path.resolve(directory)}.`);
         } else {
@@ -762,6 +849,7 @@ async function main(): Promise<void> {
         const descriptor = getVaultDescriptor();
         const names = listSecrets(project, environment) as string[];
         const authorization = summarizeAuthorizationState(project, environment, names);
+        const authorizationDefault = readAuthorizationDefault();
 
         console.log("Keyclasp Status");
         console.log("───────────────");
@@ -769,8 +857,9 @@ async function main(): Promise<void> {
         console.log(`  Vault:      ${getVaultLocation()}`);
         console.log(`  Mode:       software-${descriptor.custody}`);
         console.log(`  Authorization: ${authorization.state} (${authorization.locked} locked, ${authorization.unlocked} unlocked; future ${authorization.scopeDefault})`);
+        console.log(`  Default:    ${authorizationDefault === "legacy-machine" ? "legacy machine default (explicit choice required)" : `${authorizationDefault} custody`}`);
         console.log(`  Secrets:    ${scopedCount} in scope`);
-        console.log("  Values:     not inspected by status");
+        console.log("  Values:     not displayed by status");
         break;
       }
 
@@ -843,7 +932,7 @@ async function main(): Promise<void> {
 
         const { project, environment } = resolveContext(parsed.project, parsed.environment);
         const runtime = createSoftwareRunRuntime({
-          ensureUnlocked: ensureVaultUnlocked,
+          ensureUnlocked: async () => { await ensureVaultUnlocked(); },
           listSecretNames: (selectedProject, selectedEnvironment) =>
             listSecrets(selectedProject, selectedEnvironment) as string[],
           resolveSecret,

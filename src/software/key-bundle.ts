@@ -75,6 +75,14 @@ export interface EnrollInteractiveDescriptor {
   randomBytes?: (length: number) => Buffer;
 }
 
+export interface RotateMachineDescriptor {
+  interactivePassphrase: string;
+  machineIdentity: Buffer;
+  machineKey: Buffer;
+  interactiveKey: Buffer;
+  randomBytes?: (length: number) => Buffer;
+}
+
 type SerializedEnvelope = {
   mode: string;
   key_class: string;
@@ -254,14 +262,24 @@ function wrapBundle(
     machine,
     ...(interactiveEnvelope ? { interactive: interactiveEnvelope } : {}),
   };
-  Object.assign(machine, wrapKey(machineKey, machineKek(machine.salt, machineIdentity), machine.iv, wrapAad(bundle, machine)));
+  const machineWrappingKey = machineKek(machine.salt, machineIdentity);
+  try {
+    Object.assign(machine, wrapKey(machineKey, machineWrappingKey, machine.iv, wrapAad(bundle, machine)));
+  } finally {
+    machineWrappingKey.fill(0);
+  }
   if (interactiveEnvelope && interactive) {
-    Object.assign(interactiveEnvelope, wrapKey(
-      interactive.key,
-      interactiveKek(interactiveEnvelope.salt, interactive.passphrase),
-      interactiveEnvelope.iv,
-      wrapAad(bundle, interactiveEnvelope),
-    ));
+    const interactiveWrappingKey = interactiveKek(interactiveEnvelope.salt, interactive.passphrase);
+    try {
+      Object.assign(interactiveEnvelope, wrapKey(
+        interactive.key,
+        interactiveWrappingKey,
+        interactiveEnvelope.iv,
+        wrapAad(bundle, interactiveEnvelope),
+      ));
+    } finally {
+      interactiveWrappingKey.fill(0);
+    }
   }
   return bundle;
 }
@@ -390,17 +408,23 @@ export function parse(encoded: Buffer): KeyBundleDescriptor {
 
 export function unwrapMachine(bundle: KeyBundleDescriptor, machineIdentity: Buffer): Buffer {
   validateBundle(bundle);
-  return unwrapKey(bundle.machine, machineKek(bundle.machine.salt, machineIdentity), wrapAad(bundle, bundle.machine));
+  const wrappingKey = machineKek(bundle.machine.salt, machineIdentity);
+  try {
+    return unwrapKey(bundle.machine, wrappingKey, wrapAad(bundle, bundle.machine));
+  } finally {
+    wrappingKey.fill(0);
+  }
 }
 
 export function unwrapInteractive(bundle: KeyBundleDescriptor, passphrase: string): Buffer {
   validateBundle(bundle);
   if (!bundle.interactive) throw new Error("Keyclasp v5 key bundle has no interactive key.");
-  return unwrapKey(
-    bundle.interactive,
-    interactiveKek(bundle.interactive.salt, passphrase),
-    wrapAad(bundle, bundle.interactive),
-  );
+  const wrappingKey = interactiveKek(bundle.interactive.salt, passphrase);
+  try {
+    return unwrapKey(bundle.interactive, wrappingKey, wrapAad(bundle, bundle.interactive));
+  } finally {
+    wrappingKey.fill(0);
+  }
 }
 
 export function rewrapInteractive(
@@ -432,6 +456,37 @@ export function enrollInteractive(
   return {
     bundle: rebuildBundle(bundle, options.machineKey, interactiveKey, options.machineIdentity, options.newPassphrase, randomBytes),
     interactiveKey,
+  };
+}
+
+export function rotateMachine(
+  bundle: KeyBundleDescriptor,
+  options: RotateMachineDescriptor,
+): { bundle: KeyBundleDescriptor; machineKey: Buffer } {
+  validateBundle(bundle);
+  if (!bundle.interactive) throw new Error("Keyclasp machine-key retirement requires interactive custody.");
+  assertBuffer(options.machineKey, KEY_LENGTH, "machine data key");
+  assertBuffer(options.interactiveKey, KEY_LENGTH, "interactive data key");
+  if (!options.interactivePassphrase) throw new Error("Keyclasp machine-key retirement requires the interactive passphrase.");
+  const randomBytes = options.randomBytes ?? crypto.randomBytes;
+  let machineKey = randomBuffer(randomBytes, KEY_LENGTH, "replacement machine data key");
+  if (machineKey.equals(options.interactiveKey) || machineKey.equals(options.machineKey)) {
+    machineKey.fill(0);
+    machineKey = randomBuffer(randomBytes, KEY_LENGTH, "independent replacement machine data key");
+  }
+  if (machineKey.equals(options.interactiveKey) || machineKey.equals(options.machineKey)) {
+    throw new Error("Keyclasp replacement machine data key must be independent.");
+  }
+  return {
+    bundle: wrapBundle(
+      bundle.vaultId,
+      bundle.generation + 1,
+      machineKey,
+      options.machineIdentity,
+      { key: options.interactiveKey, passphrase: options.interactivePassphrase },
+      randomBytes,
+    ),
+    machineKey,
   };
 }
 
