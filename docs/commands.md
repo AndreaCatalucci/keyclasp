@@ -6,10 +6,11 @@ Keyclasp `0.2.0-beta.1` supports macOS `arm64` and glibc Linux `arm64` or `x64` 
 
 | Command | Behavior |
 |---|---|
-| `keyclasp init` | Empty input creates machine-only custody; a non-empty passphrase creates machine and interactive keys |
+| `keyclasp init` | Require a non-empty passphrase and create an interactive-default dual-key vault |
+| `keyclasp init --machine-only` | Explicitly create an unattended machine-default vault |
 | `keyclasp passphrase set` | Enroll the interactive key in a machine-only vault |
 | `keyclasp passphrase rotate` | Rewrap the interactive key without rewriting record ciphertext |
-| `keyclasp status` | Report custody counts and effective policy without loading a data key |
+| `keyclasp status` | Report custody counts and effective policy after any required startup recovery |
 | `keyclasp doctor` | Report the disabled, status-only hardware adapter |
 
 Passphrase removal is unavailable in this beta. macOS requires Touch ID before enrollment or rotation and then requests the required passphrase. Linux uses a confirmed new passphrase for first enrollment and the current passphrase for rotation.
@@ -51,11 +52,13 @@ keyclasp lock --environment prod
 keyclasp lock --project myapp --environment prod
 keyclasp unlock --project myapp --environment prod API_KEY
 keyclasp inherit --project myapp --environment prod API_KEY
+keyclasp lock --default
+keyclasp unlock --default
 ```
 
-Each command requires at least one explicit scope flag. An exact secret requires both project and environment. Rules resolve in this order: exact secret, exact project/environment, project-only or environment-only, then unlocked. Locked wins an equal-specificity project/environment conflict.
+Scoped commands require at least one explicit scope flag. An exact secret requires both project and environment. Rules resolve in this order: exact secret, exact project/environment, project-only or environment-only, then the vault-wide default. Locked wins an equal-specificity project/environment conflict. `lock --default` selects the interactive fallback; `unlock --default` explicitly selects the machine fallback. Upgraded vaults report `legacy machine default` until one of those authorized choices is made.
 
-`lock` moves matching existing records into interactive custody. `unlock` moves them into machine custody. `inherit` removes the exact matching override and moves records according to the next effective rule. Each operation updates the authenticated policy, record ciphertext, custody metadata, and future-record default as one exclusive lifecycle transaction.
+`lock` moves matching existing records into interactive custody. `unlock` moves them into machine custody. `inherit` removes the exact matching override and moves records according to the next effective rule. The authorization prompt previews machine-to-interactive, interactive-to-machine, and unchanged counts for a default choice. A tightening records a durable pending phase in the same database transaction, then enables secure deletion, checkpoints and truncates WAL, compacts the database, removes obsolete sidecars, and validates the closed state before success. If no machine records remain, it advances the bundle generation and retires the prior machine key.
 
 ## Managed backup and restore
 
@@ -72,6 +75,8 @@ Both commands require operator authorization. A backup contains one consistent d
 - Emergency restore is dispatched before ordinary live-vault migration or journal recovery, so an authenticated backup can replace a damaged key, database, policy, or pending journal. No unsafe bypass is available: authorization and complete backup validation still precede live mutation.
 - Healthy restore copies the exact DB/WAL/SHM state, checkpoints and validates only that transaction-owned copy, then preserves the byte-identical raw live set as rollback material before publication. Proven damaged state is quarantined as owner-only evidence. Busy or changing live files stop without replacement.
 - Restore validates the published database, key classes, policy anchor, and every record before commit. Its per-operation journal makes publication, rollback, and cleanup restartable after repeated interruption.
+
+The manifest authenticates one internally consistent backup; it does not prove that the backup is the newest valid copy. Retained backups and external filesystem snapshots remain usable after a live-vault lock or passphrase change. Delete them only under an explicit retention decision, and rotate provider credentials when an earlier copy must be revoked.
 
 ## Projects, environments, rename, and bulk delete
 

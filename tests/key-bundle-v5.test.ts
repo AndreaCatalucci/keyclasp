@@ -4,6 +4,7 @@ import {
   enrollInteractive,
   parse,
   rewrapInteractive,
+  rotateMachine,
   serialize,
   unwrapInteractive,
   unwrapMachine,
@@ -190,5 +191,26 @@ describe("v5 key bundle", () => {
     expect(unwrapMachine(enrolled.bundle, machineIdentity)).toEqual(created.machineKey);
     expect(unwrapInteractive(enrolled.bundle, "new-passphrase")).toEqual(enrolled.interactiveKey);
     expect(enrolled.interactiveKey).not.toEqual(created.machineKey);
+  });
+
+  it("retires the machine key while preserving the interactive key under a new generation", () => {
+    const created = create({
+      vaultId,
+      generation: 5,
+      machineIdentity,
+      interactivePassphrase: "interactive-passphrase",
+      randomBytes: deterministicRandom(23),
+    });
+    const rotated = rotateMachine(created.bundle, {
+      interactivePassphrase: "interactive-passphrase",
+      machineIdentity,
+      machineKey: created.machineKey,
+      interactiveKey: created.interactiveKey!,
+      randomBytes: deterministicRandom(199),
+    });
+    expect(rotated.bundle.generation).toBe(6);
+    expect(rotated.machineKey).not.toEqual(created.machineKey);
+    expect(unwrapMachine(rotated.bundle, machineIdentity)).toEqual(rotated.machineKey);
+    expect(unwrapInteractive(rotated.bundle, "interactive-passphrase")).toEqual(created.interactiveKey);
   });
 });

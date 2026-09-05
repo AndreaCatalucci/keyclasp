@@ -10,12 +10,18 @@ import {
   createFromKeys,
   enrollInteractive,
   parse as parseKeyBundle,
+  rotateMachine,
   rewrapInteractive,
   serialize as serializeKeyBundle,
   unwrapInteractive,
   unwrapMachine,
   type KeyBundleDescriptor,
 } from "./software/key-bundle.js";
+import {
+  configureWritableVaultDatabase,
+  sanitizeClosedVaultSqlite,
+  type VaultSanitizationStage,
+} from "./vault-files.js";
 
 const ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 12;
@@ -45,7 +51,9 @@ const RECORD_AAD_MAGIC = Buffer.from("keyclasp:record-aad:v2\0", "utf8");
 const LEGACY_RECORD_AAD_MAGIC = Buffer.from("keyclasp:record-aad:v1\0", "utf8");
 const VAULT_KEY_CHECK_AAD = Buffer.from("keyclasp:vault-key-check:v1\0", "utf8");
 const VAULT_CLASS_KEY_CHECK_AAD = Buffer.from("keyclasp:vault-class-key-check:v1\0", "utf8");
+const AUTHORIZATION_DEFAULT_SEED_DOMAIN = Buffer.from("keyclasp:authorization-default-seed:v1\0", "utf8");
 const KEY_BUNDLE_MAGIC = Buffer.from("keyclasp:v5\n", "utf8");
+const CUSTODY_SANITIZATION_VERSION = 1;
 
 export { KEY_FILE_OLD_FORMAT_ERROR, KEY_LOCKED_ERROR };
 // Names written by features that have since been removed. Guarded against so
@@ -97,6 +105,7 @@ let _machineIdentityForTests: { stable?: Buffer; legacy?: Buffer } | null = null
 let _migrationFaultForTests: "after-backup" | "before-commit" | "after-commit" | null = null;
 let _migrationBackupHookForTests: ((backupPath: string) => void) | null = null;
 let _custodyFaultForTests: "after-journal" | "after-bundle" | "after-database" | null = null;
+let _sanitizationFaultForTests: VaultSanitizationStage | "after-machine-retirement" | "after-clear" | null = null;
 let _dualMigrationFaultForTests: "after-backup" | "after-journal" | "after-bundle" | "after-database" | null = null;
 let _keyAccessCountsForTests = { interactiveUnwraps: 0, interactiveDecrypts: 0 };
 let _initializingVault = false;
@@ -493,6 +502,7 @@ export function preparePortableInteractiveRestore(
   });
   const database = new Database(databasePath, { fileMustExist: true });
   try {
+    configureWritableVaultDatabase(database);
     const update = database.transaction(() => {
       const machineCheck = createClassKeyCheck(machineKey, next.vaultId, "machine");
       database.prepare(`UPDATE vault_metadata SET bundle_generation = ?, bundle_hash = ?,
@@ -589,12 +599,17 @@ function unwrapDek(parsed: ParsedKeyFile, kek: Buffer): Buffer {
 function unwrapWithAnyStableIdentity(parsed: ParsedKeyFile): Buffer {
   const identities = deriveStableMachineIdentities();
   for (const identity of identities) {
+    const wrappingKey = deriveWrappingKey(parsed.salt, identity, parsed.magic);
+    let dek: Buffer | undefined;
     try {
-      const dek = unwrapDek(parsed, deriveWrappingKey(parsed.salt, identity, parsed.magic));
+      dek = unwrapDek(parsed, wrappingKey);
       assertKeyUnlocksVault(dek, parsed.vaultId, parsed.state === "migration-pending");
       return dek;
     } catch {
+      dek?.fill(0);
       // Try the next machine-identity candidate.
+    } finally {
+      wrappingKey.fill(0);
     }
   }
 
@@ -625,22 +640,26 @@ function writeKeyFile(
   const kek = mode === "passphrase"
     ? deriveKey(salt, passphrase)
     : deriveWrappingKey(salt, deriveStableMachineIdentity(), KEY_FILE_MAGIC_V4);
-  const { iv, authTag, wrapped } = wrapDek(dek, kek, aad);
-  const tmpPath = `${keyPath}.${process.pid}.${Date.now()}.tmp`;
-  fs.writeFileSync(tmpPath, Buffer.concat([
-    KEY_FILE_MAGIC_V4,
-    Buffer.from([modeByte, KEY_FILE_KDF_PBKDF2_SHA256]),
-    Buffer.from([stateByte]),
-    iterations,
-    salt,
-    vaultId,
-    iv,
-    authTag,
-    wrapped,
-  ]), { mode: 0o600 });
-  backupExistingKeyFile(keyPath);
-  fs.renameSync(tmpPath, keyPath);
-  enforceOwnerOnlyPath(keyPath, { kind: "file", label: "vault key file" });
+  try {
+    const { iv, authTag, wrapped } = wrapDek(dek, kek, aad);
+    const tmpPath = `${keyPath}.${process.pid}.${Date.now()}.tmp`;
+    fs.writeFileSync(tmpPath, Buffer.concat([
+      KEY_FILE_MAGIC_V4,
+      Buffer.from([modeByte, KEY_FILE_KDF_PBKDF2_SHA256]),
+      Buffer.from([stateByte]),
+      iterations,
+      salt,
+      vaultId,
+      iv,
+      authTag,
+      wrapped,
+    ]), { mode: 0o600 });
+    backupExistingKeyFile(keyPath);
+    fs.renameSync(tmpPath, keyPath);
+    enforceOwnerOnlyPath(keyPath, { kind: "file", label: "vault key file" });
+  } finally {
+    kek.fill(0);
+  }
 }
 
 export function writeLegacyV3KeyFileForTests(dek: Buffer, passphrase: string): void {
@@ -658,17 +677,21 @@ export function writeLegacyV3KeyFileForTests(dek: Buffer, passphrase: string): v
   const kek = mode === "passphrase"
     ? deriveKey(salt, passphrase)
     : deriveWrappingKey(salt, deriveStableMachineIdentity(), KEY_FILE_MAGIC_V3);
-  const { iv, authTag, wrapped } = wrapDek(dek, kek, aad);
-  fs.writeFileSync(getKeyPath(), Buffer.concat([
-    KEY_FILE_MAGIC_V3,
-    Buffer.from([modeByte, KEY_FILE_KDF_PBKDF2_SHA256]),
-    iterations,
-    salt,
-    iv,
-    authTag,
-    wrapped,
-  ]), { mode: 0o600 });
-  clearKey();
+  try {
+    const { iv, authTag, wrapped } = wrapDek(dek, kek, aad);
+    fs.writeFileSync(getKeyPath(), Buffer.concat([
+      KEY_FILE_MAGIC_V3,
+      Buffer.from([modeByte, KEY_FILE_KDF_PBKDF2_SHA256]),
+      iterations,
+      salt,
+      iv,
+      authTag,
+      wrapped,
+    ]), { mode: 0o600 });
+    clearKey();
+  } finally {
+    kek.fill(0);
+  }
 }
 
 function backupExistingKeyFile(keyPath: string): void {
@@ -874,6 +897,38 @@ function encryptRecord(value: string, key: Buffer, identity: Parameters<typeof b
   return { encrypted, iv, authTag: cipher.getAuthTag() };
 }
 
+function encryptRecordBuffer(value: Buffer, key: Buffer, identity: Parameters<typeof buildRecordAssociatedData>[0]): ReturnType<typeof encrypt> {
+  const iv = crypto.randomBytes(IV_LENGTH);
+  const cipher = crypto.createCipheriv(ALGORITHM, key, iv, { authTagLength: AUTH_TAG_LENGTH });
+  cipher.setAAD(buildRecordAssociatedData(identity));
+  const encrypted = Buffer.concat([cipher.update(value), cipher.final()]);
+  return { encrypted, iv, authTag: cipher.getAuthTag() };
+}
+
+function decryptRecordBuffer(
+  row: NamedEncryptedVaultRow,
+  key: Buffer,
+  vaultId: Buffer,
+  formatVersion = VAULT_FORMAT_VERSION,
+): Buffer {
+  if (!row.record_id || row.record_id.length !== 16 || row.record_kind !== RECORD_KIND_SECRET) {
+    throw new Error("Keyclasp vault record identity is missing or invalid.");
+  }
+  const decipher = crypto.createDecipheriv(ALGORITHM, key, row.iv, { authTagLength: AUTH_TAG_LENGTH });
+  decipher.setAAD(buildRecordAssociatedData({
+    vaultId,
+    recordId: row.record_id,
+    project: row.project,
+    environment: row.environment,
+    name: row.name,
+    recordKind: row.record_kind,
+    keyClass: row.key_class ?? "machine",
+    formatVersion,
+  }));
+  decipher.setAuthTag(row.auth_tag);
+  return Buffer.concat([decipher.update(row.encrypted_value), decipher.final()]);
+}
+
 function decryptRecord(
   row: NamedEncryptedVaultRow,
   key: Buffer,
@@ -946,6 +1001,14 @@ function createClassKeyCheck(key: Buffer, vaultId: Buffer, keyClass: KeyClass): 
   cipher.setAAD(Buffer.concat([VAULT_CLASS_KEY_CHECK_AAD, vaultId, Buffer.from(keyClass, "utf8")]));
   cipher.final();
   return { iv, authTag: cipher.getAuthTag() };
+}
+
+function authorizationDefaultSeedMac(key: Buffer, vaultId: Buffer, value: "interactive" | "machine"): Buffer {
+  return crypto.createHmac("sha256", key)
+    .update(AUTHORIZATION_DEFAULT_SEED_DOMAIN)
+    .update(vaultId)
+    .update(value)
+    .digest();
 }
 
 function verifyClassKeyCheck(db: Database.Database, key: Buffer, vaultId: Buffer, keyClass: KeyClass): void {
@@ -1081,10 +1144,13 @@ export function unlockVault(passphrase: string): void {
     throw new Error("This vault is machine-only and does not use a passphrase.");
   }
   let dek: Buffer;
+  const wrappingKey = deriveKey(parsed.salt, passphrase);
   try {
-    dek = unwrapDek(parsed, deriveKey(parsed.salt, passphrase));
+    dek = unwrapDek(parsed, wrappingKey);
   } catch {
     throw new Error("Vault passphrase is incorrect.");
+  } finally {
+    wrappingKey.fill(0);
   }
   assertKeyUnlocksVault(dek, parsed.vaultId, parsed.state === "migration-pending");
   completeVaultOpen(parsed, dek, passphrase);
@@ -1135,7 +1201,13 @@ export function initializeVault(passphrase: string): void {
     _initializingVault = true;
     try {
       db = getDb();
-      createDualKeyVault(db, created.bundle, created.machineKey, created.interactiveKey);
+      createDualKeyVault(
+        db,
+        created.bundle,
+        created.machineKey,
+        created.interactiveKey,
+        passphrase ? "interactive" : "machine",
+      );
     } finally {
       _initializingVault = false;
     }
@@ -1168,8 +1240,9 @@ export function authorizeAndUnlockVaultPassphrase(passphrase: string): boolean {
   const parsed = readParsedKeyFile();
   if (parsed.mode === "machine") return passphrase === "";
   if (!passphrase) return false;
+  const wrappingKey = deriveKey(parsed.salt, passphrase);
   try {
-    const dek = unwrapDek(parsed, deriveKey(parsed.salt, passphrase));
+    const dek = unwrapDek(parsed, wrappingKey);
     assertKeyUnlocksVault(dek, parsed.vaultId, parsed.state === "migration-pending");
     completeVaultOpen(parsed, dek, passphrase);
     cacheLoadedKey(dek, getKeyPath());
@@ -1177,6 +1250,8 @@ export function authorizeAndUnlockVaultPassphrase(passphrase: string): boolean {
     return true;
   } catch {
     return false;
+  } finally {
+    wrappingKey.fill(0);
   }
 }
 
@@ -1267,17 +1342,22 @@ export function recoverInterruptedCustodyTransition(): boolean {
   const expected = Buffer.from(custodyJournalMac(payload, machineKey), "base64");
   const actual = Buffer.from(mac ?? "", "base64");
   if (actual.length !== expected.length || !crypto.timingSafeEqual(actual, expected)) {
+    machineKey.fill(0);
     throw new Error("Keyclasp custody transaction failed authentication.");
   }
-  const databaseGeneration = readDatabaseBundleGeneration();
-  if (databaseGeneration === previous.generation) writeActiveKeyBundle(previous, getKeyPath(), false);
-  else if (databaseGeneration === next.generation) writeActiveKeyBundle(next, getKeyPath(), false);
-  else throw new Error("Keyclasp custody transaction does not match the database commit point.");
-  fs.unlinkSync(journalPath);
-  const directory = fs.openSync(getVaultDir(), "r");
-  try { fs.fsyncSync(directory); } finally { fs.closeSync(directory); }
-  clearKey();
-  return true;
+  try {
+    const databaseGeneration = readDatabaseBundleGeneration();
+    if (databaseGeneration === previous.generation) writeActiveKeyBundle(previous, getKeyPath(), false);
+    else if (databaseGeneration === next.generation) writeActiveKeyBundle(next, getKeyPath(), false);
+    else throw new Error("Keyclasp custody transaction does not match the database commit point.");
+    fs.unlinkSync(journalPath);
+    const directory = fs.openSync(getVaultDir(), "r");
+    try { fs.fsyncSync(directory); } finally { fs.closeSync(directory); }
+    clearKey();
+    return true;
+  } finally {
+    machineKey.fill(0);
+  }
 }
 
 export function hasInterruptedCustodyTransition(): boolean {
@@ -1287,8 +1367,9 @@ export function hasInterruptedCustodyTransition(): boolean {
 function commitKeyBundleTransition(
   previous: KeyBundleDescriptor,
   next: KeyBundleDescriptor,
-  machineKey: Buffer,
+  previousMachineKey: Buffer,
   interactiveKey: Buffer,
+  nextMachineKey: Buffer = previousMachineKey,
 ): void {
   const previousEncoded = serializeKeyBundle(previous);
   const nextEncoded = serializeKeyBundle(next);
@@ -1299,20 +1380,24 @@ function commitKeyBundleTransition(
     previousGeneration: previous.generation,
     nextGeneration: next.generation,
   };
-  writeCustodyJournal(payload, machineKey);
+  writeCustodyJournal(payload, previousMachineKey);
   if (_custodyFaultForTests === "after-journal") throw new Error("Injected custody crash after journal publication.");
   writeActiveKeyBundle(next, getKeyPath(), false);
   if (_custodyFaultForTests === "after-bundle") throw new Error("Injected custody crash after bundle publication.");
   closeDb();
   const database = new Database(getVaultPath(), { fileMustExist: true });
   try {
+    configureWritableVaultDatabase(database);
     database.pragma("synchronous = FULL");
     const update = database.transaction(() => {
+      const machineCheck = createClassKeyCheck(nextMachineKey, next.vaultId, "machine");
       const interactiveCheck = createClassKeyCheck(interactiveKey, next.vaultId, "interactive");
       database.prepare(`
-        UPDATE vault_metadata SET bundle_generation = ?, bundle_hash = ?, interactive_key_check_iv = ?,
-          interactive_key_check_tag = ?, interactive_key_present = 1 WHERE singleton = 1
-      `).run(next.generation, keyBundleHash(next), interactiveCheck.iv, interactiveCheck.authTag);
+        UPDATE vault_metadata SET bundle_generation = ?, bundle_hash = ?, machine_key_check_iv = ?,
+          machine_key_check_tag = ?, interactive_key_check_iv = ?, interactive_key_check_tag = ?,
+          interactive_key_present = 1 WHERE singleton = 1
+      `).run(next.generation, keyBundleHash(next), machineCheck.iv, machineCheck.authTag,
+        interactiveCheck.iv, interactiveCheck.authTag);
     });
     update.immediate();
   } catch (error) {
@@ -1326,9 +1411,11 @@ function commitKeyBundleTransition(
   fs.unlinkSync(custodyJournalPath());
   const directory = fs.openSync(getVaultDir(), "r");
   try { fs.fsyncSync(directory); } finally { fs.closeSync(directory); }
+  const cachedMachineKey = Buffer.from(nextMachineKey);
+  const cachedInteractiveKey = Buffer.from(interactiveKey);
   clearKey();
-  cacheLoadedKey(machineKey, getKeyPath());
-  _interactiveKey = interactiveKey;
+  cacheLoadedKey(cachedMachineKey, getKeyPath());
+  _interactiveKey = cachedInteractiveKey;
   rememberKeyValidation();
 }
 
@@ -1494,14 +1581,17 @@ export function migrateLegacyVaultToDualKey(
   let previousKey: Buffer;
   if (parsed.mode === "passphrase") {
     if (!options.currentPassphrase) throw new Error(KEY_LOCKED_ERROR);
-    try { previousKey = unwrapDek(parsed, deriveKey(parsed.salt, options.currentPassphrase)); }
+    const wrappingKey = deriveKey(parsed.salt, options.currentPassphrase);
+    try { previousKey = unwrapDek(parsed, wrappingKey); }
     catch { throw new Error("Vault passphrase is incorrect."); }
+    finally { wrappingKey.fill(0); }
   } else {
     previousKey = unwrapWithAnyStableIdentity(parsed);
   }
   assertKeyUnlocksVault(previousKey, parsed.vaultId);
   closeDb();
   const database = new Database(getVaultPath(), { fileMustExist: true });
+  configureWritableVaultDatabase(database);
   database.pragma("busy_timeout = 5000");
   const rows = database.prepare(`SELECT project, environment, name, record_id, record_kind, encrypted_value, iv, auth_tag FROM secrets ORDER BY project, environment, name`)
     .all() as CurrentSecretRow[];
@@ -1561,13 +1651,23 @@ export function migrateLegacyVaultToDualKey(
       if (!columns.includes("interactive_key_check_iv")) database.exec("ALTER TABLE vault_metadata ADD COLUMN interactive_key_check_iv BLOB");
       if (!columns.includes("interactive_key_check_tag")) database.exec("ALTER TABLE vault_metadata ADD COLUMN interactive_key_check_tag BLOB");
       if (!columns.includes("interactive_key_present")) database.exec("ALTER TABLE vault_metadata ADD COLUMN interactive_key_present INTEGER");
+      if (!columns.includes("custody_sanitization_required")) {
+        database.exec("ALTER TABLE vault_metadata ADD COLUMN custody_sanitization_required INTEGER NOT NULL DEFAULT 1");
+      }
+      if (!columns.includes("custody_sanitization_bundle_generation")) {
+        database.exec("ALTER TABLE vault_metadata ADD COLUMN custody_sanitization_bundle_generation INTEGER");
+      }
+      if (!columns.includes("custody_sanitization_version")) {
+        database.exec("ALTER TABLE vault_metadata ADD COLUMN custody_sanitization_version INTEGER NOT NULL DEFAULT 0");
+      }
       const machineCheck = createClassKeyCheck(machineKey, parsed.vaultId!, "machine");
       const interactiveCheck = interactiveKey ? createClassKeyCheck(interactiveKey, parsed.vaultId!, "interactive") : { iv: null, authTag: null };
       database.prepare(`UPDATE vault_metadata SET format_version = ?, bundle_generation = ?, bundle_hash = ?,
-        machine_key_check_iv = ?, machine_key_check_tag = ?, interactive_key_check_iv = ?, interactive_key_check_tag = ?, interactive_key_present = ?
+        machine_key_check_iv = ?, machine_key_check_tag = ?, interactive_key_check_iv = ?, interactive_key_check_tag = ?, interactive_key_present = ?,
+        custody_sanitization_required = 1, custody_sanitization_bundle_generation = ?, custody_sanitization_version = 0
         WHERE singleton = 1`).run(
         VAULT_FORMAT_VERSION, bundle.generation, keyBundleHash(bundle), machineCheck.iv, machineCheck.authTag,
-        interactiveCheck.iv, interactiveCheck.authTag, interactiveKey ? 1 : 0,
+        interactiveCheck.iv, interactiveCheck.authTag, interactiveKey ? 1 : 0, bundle.generation,
       );
       database.pragma(`user_version = ${VAULT_FORMAT_VERSION}`);
     });
@@ -1824,6 +1924,7 @@ function createDualKeyVault(
   bundle: KeyBundleDescriptor,
   machineKey: Buffer,
   interactiveKey?: Buffer,
+  authorizationDefaultSeed: "interactive" | "machine" = interactiveKey ? "interactive" : "machine",
 ): void {
   const create = db.transaction(() => {
     db.exec(createCurrentSecretsTableSql("secrets", true));
@@ -1842,15 +1943,22 @@ function createDualKeyVault(
         machine_key_check_tag BLOB NOT NULL CHECK(length(machine_key_check_tag) = 16),
         interactive_key_check_iv BLOB CHECK(interactive_key_check_iv IS NULL OR length(interactive_key_check_iv) = 12),
         interactive_key_check_tag BLOB CHECK(interactive_key_check_tag IS NULL OR length(interactive_key_check_tag) = 16),
-        interactive_key_present INTEGER NOT NULL CHECK(interactive_key_present IN (0, 1))
+        interactive_key_present INTEGER NOT NULL CHECK(interactive_key_present IN (0, 1)),
+        authorization_default_seed TEXT NOT NULL CHECK(authorization_default_seed IN ('interactive', 'machine')),
+        authorization_default_seed_mac BLOB NOT NULL CHECK(length(authorization_default_seed_mac) = 32),
+        custody_sanitization_required INTEGER NOT NULL CHECK(custody_sanitization_required IN (0, 1)),
+        custody_sanitization_bundle_generation INTEGER,
+        custody_sanitization_version INTEGER NOT NULL
       )
     `);
     db.prepare(`
       INSERT INTO vault_metadata (
         singleton, format_version, vault_id, bundle_generation, bundle_hash,
         machine_key_check_iv, machine_key_check_tag,
-        interactive_key_check_iv, interactive_key_check_tag, interactive_key_present
-      ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        interactive_key_check_iv, interactive_key_check_tag, interactive_key_present,
+        authorization_default_seed, authorization_default_seed_mac,
+        custody_sanitization_required, custody_sanitization_bundle_generation, custody_sanitization_version
+      ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, ?)
     `).run(
       VAULT_FORMAT_VERSION,
       bundle.vaultId,
@@ -1861,10 +1969,52 @@ function createDualKeyVault(
       interactiveCheck.iv,
       interactiveCheck.authTag,
       interactiveKey ? 1 : 0,
+      authorizationDefaultSeed,
+      authorizationDefaultSeedMac(
+        authorizationDefaultSeed === "interactive" ? interactiveKey! : machineKey,
+        bundle.vaultId,
+        authorizationDefaultSeed,
+      ),
+      CUSTODY_SANITIZATION_VERSION,
     );
     db.pragma(`user_version = ${VAULT_FORMAT_VERSION}`);
   });
   create.immediate();
+}
+
+export function readAuthorizationDefaultSeed(): "interactive" | "machine" | null {
+  const database = getDb();
+  const columns = (database.pragma("table_info(vault_metadata)") as { name: string }[]).map((column) => column.name);
+  if (!columns.includes("authorization_default_seed")) return null;
+  if (!columns.includes("authorization_default_seed_mac")) {
+    throw new Error("Keyclasp authorization-default seed authentication is missing. Restore a managed backup.");
+  }
+  const row = database.prepare("SELECT vault_id, authorization_default_seed, authorization_default_seed_mac FROM vault_metadata WHERE singleton = 1").get() as
+    | { vault_id: Buffer; authorization_default_seed: string; authorization_default_seed_mac: Buffer }
+    | undefined;
+  if (!row || (row.authorization_default_seed !== "interactive" && row.authorization_default_seed !== "machine")) {
+    throw new Error("Keyclasp authorization-default seed is corrupt. Restore a managed backup.");
+  }
+  const key = row.authorization_default_seed === "interactive"
+    ? (() => {
+        if (!_interactiveKey) throw new Error(KEY_LOCKED_ERROR);
+        return _interactiveKey;
+      })()
+    : getKey();
+  const expected = authorizationDefaultSeedMac(key, row.vault_id, row.authorization_default_seed);
+  if (!Buffer.isBuffer(row.authorization_default_seed_mac) || row.authorization_default_seed_mac.length !== expected.length ||
+      !crypto.timingSafeEqual(row.authorization_default_seed_mac, expected)) {
+    throw new Error("Keyclasp authorization-default seed failed authentication. Restore a managed backup.");
+  }
+  return row.authorization_default_seed;
+}
+
+export function authorizationDefaultSeedRequiresUnlock(): boolean {
+  const database = getDb();
+  const columns = (database.pragma("table_info(vault_metadata)") as { name: string }[]).map((column) => column.name);
+  if (!columns.includes("authorization_default_seed")) return false;
+  const value = database.prepare("SELECT authorization_default_seed FROM vault_metadata WHERE singleton = 1").pluck().get();
+  return value === "interactive";
 }
 
 function validateBundleAgainstDatabase(db: Database.Database, bundle: KeyBundleDescriptor): void {
@@ -1945,6 +2095,7 @@ export function getDb(): Database.Database {
   }
   _dbFileIdentity = identityAfterOpen;
   _db.pragma("busy_timeout = 5000");
+  configureWritableVaultDatabase(_db);
   try {
     _db.pragma("journal_mode = WAL");
   } catch {
@@ -2119,8 +2270,11 @@ export function transitionRecordCustody(
     project: string,
     environment: string,
     secret?: string,
+    defaultCustody?: "interactive" | "machine" | "legacy-machine",
   ) => "locked" | "unlocked",
-): number {
+  defaultCustody: "interactive" | "machine" | "legacy-machine" = "legacy-machine",
+): { changed: number; tightened: number; machineRemaining: number } {
+  configureWritableVaultDatabase(database);
   const bundle = readActiveKeyBundle();
   validateBundleAgainstDatabase(database, bundle);
   const machineKey = getKey();
@@ -2128,7 +2282,7 @@ export function transitionRecordCustody(
     .all() as CurrentSecretRow[];
   const transitions = rows.map((row) => ({
     row,
-    target: evaluate(nextRules, row.project, row.environment, row.name) === "locked" ? "interactive" as const : "machine" as const,
+    target: evaluate(nextRules, row.project, row.environment, row.name, defaultCustody) === "locked" ? "interactive" as const : "machine" as const,
   })).filter(({ row, target }) => row.key_class !== target);
   if (transitions.some(({ target }) => target === "interactive") && !bundle.interactive) {
     throw new Error("Interactive custody is not enrolled. Run: keyclasp passphrase set");
@@ -2143,19 +2297,229 @@ export function transitionRecordCustody(
   for (const { row, target } of transitions) {
     const sourceKey = row.key_class === "interactive" ? interactiveKey! : machineKey;
     const targetKey = target === "interactive" ? interactiveKey! : machineKey;
-    const value = decryptRecord(row, sourceKey, bundle.vaultId);
-    const encrypted = encryptRecord(value, targetKey, {
-      vaultId: bundle.vaultId,
-      recordId: row.record_id!,
-      project: row.project,
-      environment: row.environment,
-      name: row.name,
-      recordKind: row.record_kind,
-      keyClass: target,
-    });
-    update.run(target, encrypted.encrypted, encrypted.iv, encrypted.authTag, row.project, row.environment, row.name);
+    const value = decryptRecordBuffer(row, sourceKey, bundle.vaultId);
+    try {
+      const encrypted = encryptRecordBuffer(value, targetKey, {
+        vaultId: bundle.vaultId,
+        recordId: row.record_id!,
+        project: row.project,
+        environment: row.environment,
+        name: row.name,
+        recordKind: row.record_kind,
+        keyClass: target,
+      });
+      update.run(target, encrypted.encrypted, encrypted.iv, encrypted.authTag, row.project, row.environment, row.name);
+    } finally {
+      value.fill(0);
+    }
   }
-  return transitions.length;
+  const tightened = transitions.filter(({ row, target }) => row.key_class === "machine" && target === "interactive").length;
+  const machineRemaining = rows.reduce((count, row) => {
+    const transition = transitions.find((item) => item.row === row);
+    return count + ((transition?.target ?? row.key_class) === "machine" ? 1 : 0);
+  }, 0);
+  if (tightened > 0) {
+    const columns = (database.pragma("table_info(vault_metadata)") as { name: string }[]).map((column) => column.name);
+    if (!columns.includes("custody_sanitization_required")) {
+      database.exec("ALTER TABLE vault_metadata ADD COLUMN custody_sanitization_required INTEGER NOT NULL DEFAULT 0");
+    }
+    if (!columns.includes("custody_sanitization_bundle_generation")) {
+      database.exec("ALTER TABLE vault_metadata ADD COLUMN custody_sanitization_bundle_generation INTEGER");
+    }
+    if (!columns.includes("custody_sanitization_version")) {
+      database.exec("ALTER TABLE vault_metadata ADD COLUMN custody_sanitization_version INTEGER NOT NULL DEFAULT 0");
+    }
+    database.prepare(`UPDATE vault_metadata SET custody_sanitization_required = 1,
+      custody_sanitization_bundle_generation = ? WHERE singleton = 1`).run(bundle.generation);
+  }
+  return { changed: transitions.length, tightened, machineRemaining };
+}
+
+export function listRecordCustody(): Array<{ project: string; environment: string; name: string; keyClass: KeyClass }> {
+  const database = getDb();
+  if (!secretsTableColumns(database).includes("key_class")) return [];
+  return (database.prepare("SELECT project, environment, name, key_class FROM secrets ORDER BY project, environment, name").all() as Array<{
+    project: string;
+    environment: string;
+    name: string;
+    key_class: KeyClass;
+  }>).map((row) => ({ project: row.project, environment: row.environment, name: row.name, keyClass: row.key_class }));
+}
+
+interface PendingCustodySanitization {
+  required: boolean;
+  bundleGeneration: number | null;
+}
+
+function readPendingCustodySanitization(databasePath = getVaultPath()): PendingCustodySanitization {
+  if (!fs.existsSync(databasePath)) return { required: false, bundleGeneration: null };
+  const database = new Database(databasePath, { readonly: true, fileMustExist: true });
+  try {
+    const columns = (database.pragma("table_info(vault_metadata)") as { name: string }[]).map((column) => column.name);
+    const hasSanitizationState = columns.includes("custody_sanitization_required") &&
+      columns.includes("custody_sanitization_bundle_generation") && columns.includes("custody_sanitization_version");
+    const row = database.prepare(`SELECT bundle_generation${hasSanitizationState ? `, custody_sanitization_required,
+      custody_sanitization_bundle_generation, custody_sanitization_version` : ""} FROM vault_metadata WHERE singleton = 1`).get() as {
+      bundle_generation: number;
+      custody_sanitization_required?: number;
+      custody_sanitization_bundle_generation?: number | null;
+      custody_sanitization_version?: number;
+    } | undefined;
+    if (!row || !Number.isSafeInteger(row.bundle_generation) || row.bundle_generation < 1) {
+      throw new Error("Keyclasp custody-sanitization state is corrupt. Restore a managed backup.");
+    }
+    if (!hasSanitizationState || row.custody_sanitization_version! < CUSTODY_SANITIZATION_VERSION) {
+      return { required: true, bundleGeneration: row.bundle_generation };
+    }
+    if (row.custody_sanitization_version !== CUSTODY_SANITIZATION_VERSION ||
+        ![0, 1].includes(row.custody_sanitization_required!) ||
+        (row.custody_sanitization_required === 1 &&
+          (!Number.isSafeInteger(row.custody_sanitization_bundle_generation) || row.custody_sanitization_bundle_generation! < 1))) {
+      throw new Error("Keyclasp custody-sanitization state is corrupt. Restore a managed backup.");
+    }
+    return {
+      required: row.custody_sanitization_required === 1,
+      bundleGeneration: row.custody_sanitization_bundle_generation ?? null,
+    };
+  } finally {
+    database.close();
+  }
+}
+
+export function hasPendingCustodySanitization(): boolean {
+  return readPendingCustodySanitization().required;
+}
+
+export function custodySanitizationRequiresUnlock(): boolean {
+  return hasPendingCustodySanitization() && summarizeKeyClasses().interactive > 0;
+}
+
+function clearPendingCustodySanitization(): void {
+  const database = new Database(getVaultPath(), { fileMustExist: true });
+  try {
+    configureWritableVaultDatabase(database);
+    database.pragma("synchronous = FULL");
+    database.pragma("journal_mode = DELETE");
+    const columns = (database.pragma("table_info(vault_metadata)") as { name: string }[]).map((column) => column.name);
+    if (!columns.includes("custody_sanitization_required")) {
+      database.exec("ALTER TABLE vault_metadata ADD COLUMN custody_sanitization_required INTEGER NOT NULL DEFAULT 1");
+    }
+    if (!columns.includes("custody_sanitization_bundle_generation")) {
+      database.exec("ALTER TABLE vault_metadata ADD COLUMN custody_sanitization_bundle_generation INTEGER");
+    }
+    if (!columns.includes("custody_sanitization_version")) {
+      database.exec("ALTER TABLE vault_metadata ADD COLUMN custody_sanitization_version INTEGER NOT NULL DEFAULT 0");
+    }
+    database.prepare(`UPDATE vault_metadata SET custody_sanitization_required = 0,
+      custody_sanitization_bundle_generation = NULL, custody_sanitization_version = ? WHERE singleton = 1`)
+      .run(CUSTODY_SANITIZATION_VERSION);
+  } finally {
+    database.close();
+  }
+}
+
+function retireMachineDataKey(interactivePassphrase: string): void {
+  const previous = readActiveKeyBundle();
+  if (!previous.interactive || !_interactiveKey) {
+    throw new Error("Pending machine-key retirement requires the interactive passphrase.");
+  }
+  const previousMachineKey = getKey();
+  const rotated = rotateMachine(previous, {
+    interactivePassphrase,
+    machineIdentity: deriveStableMachineIdentity(),
+    machineKey: previousMachineKey,
+    interactiveKey: _interactiveKey,
+  });
+  try {
+    commitKeyBundleTransition(previous, rotated.bundle, previousMachineKey, _interactiveKey, rotated.machineKey);
+  } finally {
+    rotated.machineKey.fill(0);
+  }
+}
+
+export function completePendingCustodySanitization(
+  interactivePassphrase?: string,
+): { completed: boolean; machineKeyRetired: boolean } {
+  const pending = readPendingCustodySanitization();
+  if (!pending.required) return { completed: false, machineKeyRetired: false };
+  const inventory = summarizeKeyClasses();
+  const bundle = readActiveKeyBundle();
+  const needsRetirement = inventory.machine === 0 && bundle.generation === pending.bundleGeneration;
+  if (inventory.interactive > 0 && !_interactiveKey) {
+    clearKey();
+    throw new Error("Keyclasp custody sanitization is pending. Enter the interactive passphrase to authenticate interactive records.");
+  }
+  if (needsRetirement && (!interactivePassphrase || !_interactiveKey)) {
+    clearKey();
+    throw new Error("Keyclasp custody sanitization is pending. Enter the interactive passphrase to retire the obsolete machine key.");
+  }
+  if (needsRetirement) {
+    let verifiedPassphraseKey: Buffer | undefined;
+    try {
+      verifiedPassphraseKey = unwrapInteractive(bundle, interactivePassphrase!);
+      if (!verifiedPassphraseKey.equals(_interactiveKey!)) throw new Error();
+    } catch {
+      clearKey();
+      throw new Error("Keyclasp custody sanitization could not verify the interactive passphrase.");
+    } finally {
+      verifiedPassphraseKey?.fill(0);
+    }
+  }
+
+  const machineKey = Buffer.from(getKey());
+  const interactiveKey = _interactiveKey ? Buffer.from(_interactiveKey) : undefined;
+  try {
+    closeDb();
+    sanitizeClosedVaultSqlite(getVaultDir(), (databasePath) => {
+      validateManagedVaultContents(databasePath, getKeyPath(), {
+        ...(inventory.machine > 0 ? { machineKey } : {}),
+        ...(interactiveKey ? { interactiveKey } : {}),
+      });
+    }, (stage) => {
+      if (_sanitizationFaultForTests === stage) throw new Error(`Injected custody sanitization interruption ${stage}.`);
+    });
+
+    let machineKeyRetired = false;
+    if (needsRetirement) {
+      retireMachineDataKey(interactivePassphrase!);
+      machineKeyRetired = true;
+      if (_sanitizationFaultForTests === "after-machine-retirement") {
+        throw new Error("Injected custody sanitization interruption after-machine-retirement.");
+      }
+    }
+
+    const activeInventory = summarizeKeyClasses();
+    const activeKeys = getManagedBackupKeys(activeInventory.machine > 0 ? ["machine", "interactive"] : ["interactive"]);
+    const validationKeys = {
+      ...(activeKeys.machineKey ? { machineKey: Buffer.from(activeKeys.machineKey) } : {}),
+      ...(activeKeys.interactiveKey ? { interactiveKey: Buffer.from(activeKeys.interactiveKey) } : {}),
+    };
+    try {
+      closeDb();
+      validateManagedVaultContents(getVaultPath(), getKeyPath(), validationKeys);
+      clearPendingCustodySanitization();
+      if (_sanitizationFaultForTests === "after-clear") {
+        throw new Error("Injected custody sanitization interruption after-clear.");
+      }
+      validateManagedVaultContents(getVaultPath(), getKeyPath(), validationKeys);
+    } finally {
+      validationKeys.machineKey?.fill(0);
+      validationKeys.interactiveKey?.fill(0);
+    }
+    return { completed: true, machineKeyRetired };
+  } catch (error) {
+    clearKey();
+    throw error;
+  } finally {
+    machineKey.fill(0);
+    interactiveKey?.fill(0);
+  }
+}
+
+export function setCustodySanitizationFaultForTests(
+  fault: VaultSanitizationStage | "after-machine-retirement" | "after-clear" | null,
+): void {
+  _sanitizationFaultForTests = fault;
 }
 
 export function readSecretKeyClass(project: string, environment: string, name: string): KeyClass | null {
@@ -2512,6 +2876,8 @@ export function closeDb(): void {
 }
 
 export function clearKey(): void {
+  _key?.fill(0);
+  if (_interactiveKey && _interactiveKey !== _key) _interactiveKey.fill(0);
   _key = null;
   _interactiveKey = null;
   _keyCachePath = null;
@@ -2519,6 +2885,20 @@ export function clearKey(): void {
   _keyValidationStamp = null;
   _vaultHomeCache = null;
   _keyPathCache = null;
+}
+
+export function readOwnedKeyBuffersForTests(): { machine: Buffer | null; interactive: Buffer | null } {
+  return { machine: _key, interactive: _interactiveKey };
+}
+
+export function machineKeyAuthenticatesActiveVaultForTests(key: Buffer): boolean {
+  try {
+    const bundle = readActiveKeyBundle();
+    verifyClassKeyCheck(getDb(), key, bundle.vaultId, "machine");
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function setMachineIdentityForTests(identity: { stable?: Buffer; legacy?: Buffer } | null): void {

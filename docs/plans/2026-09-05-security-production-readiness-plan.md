@@ -179,17 +179,41 @@ Run the focused recovery, lifecycle-lock, platform-authorization, permissions, m
 
 #### Acceptance criteria
 
-- The retained 500-record forensic probe, run after a normal completed lock and after recovery from every cleanup boundary, finds zero complete transitioned plaintexts decryptable with the current machine key in closed `vault.db`, WAL, or SHM. Current rows are interactive and resolve only after interactive unlock.
-- A partial lock that leaves machine records proves those records still work while no transitioned record is recoverable from current files with the retained machine key. An all-interactive transition also proves the old machine key no longer authenticates the active bundle/key check.
-- No command reports a custody tightening complete while `sanitization-required` exists. Normal commands fail closed or resume under the exclusive lock.
-- Fresh `keyclasp init` cannot create a machine default from an empty response; `init --machine-only` is explicit. A passphrase vault stores new records as interactive unless a more-specific authorized unlock rule applies.
-- Existing vaults preserve unattended compatibility during format migration, display `legacy machine default`, and become production-eligible only after an explicit default decision. Default mutation previews and tests cover zero, partial, and whole-vault transitions.
-- Tests observe best-effort zeroing of owned key buffers on success and error paths while documentation states the untestable memory limits without claiming secure JavaScript-string erasure.
-- `docs/architecture/system-context.md` and all user-facing custody/backup text describe the same boundary.
+- [x] The retained 500-record forensic probe, run after a normal completed lock and after recovery from every cleanup boundary, finds zero complete transitioned plaintexts decryptable with the current machine key in closed `vault.db`, WAL, or SHM. Current rows are interactive and resolve only after interactive unlock.
+- [x] A partial lock that leaves machine records proves those records still work while no transitioned record is recoverable from current files with the retained machine key. An all-interactive transition also proves the old machine key no longer authenticates the active bundle/key check.
+- [x] No command reports a custody tightening complete while `sanitization-required` exists. Normal commands fail closed or resume under the exclusive lock.
+- [x] Fresh `keyclasp init` cannot create a machine default from an empty response; `init --machine-only` is explicit. A passphrase vault stores new records as interactive unless a more-specific authorized unlock rule applies.
+- [x] Existing vaults preserve unattended compatibility during format migration, display `legacy machine default`, and become production-eligible only after an explicit default decision. Default mutation previews and tests cover zero, partial, and whole-vault transitions.
+- [x] Tests observe best-effort zeroing of owned key buffers on success and error paths while documentation states the untestable memory limits without claiming secure JavaScript-string erasure.
+- [x] `docs/architecture/system-context.md` and all user-facing custody/backup text describe the same boundary.
 
 #### Regression check
 
 Run dual-key custody, key-bundle, key invariant, policy, migration, backup/restore, permissions, and CLI integration suites; then the complete source suite. Run `custody-probe.mjs` only as preserved historical reproduction and a new regression derived from it as the pass/fail gate.
+
+#### KC-W02 implementation record — 2026-09-05
+
+**Outcome:** Slice 2 is accepted from source on the working tree based on `c0d96fc9f4fc79db4da44d64d8c9e48421d24b9f`. This does not qualify or activate a release. The overall plan remains in progress because Slices 3 and 4 are not complete.
+
+**Implemented boundaries:**
+
+- Policy v3 authenticates a vault-wide `interactive`, `machine`, or migrated `legacy-machine` default while retaining the existing rule precedence. Fresh CLI initialization requires a passphrase unless `--machine-only` is explicit. Authorized `lock --default` and `unlock --default` preview affected custody counts before mutation.
+- Every writable vault connection enables and verifies SQLite secure deletion. Tightening commits a durable sanitation phase with record custody and the policy anchor; completion closes the live database, checkpoints and truncates WAL, switches to delete journaling, compacts, removes named sidecars, syncs, runs full integrity validation, and authenticates all current records before clearing the phase.
+- A versioned sanitation gate covers pre-KC-W02 dual-key vaults and legacy migrations even when the triggering command changes no record class. Machine-only inventories retain unattended operation. Mixed or all-interactive inventories require the interactive key for complete validation, and an all-interactive legacy migration carries its passphrase through sanitation and machine-key retirement in the first invocation.
+- A whole-vault transition rotates the machine data key and advances the authenticated bundle/database generation only after cleanup. Partial transitions retain the machine key and prove remaining machine records still resolve. Keyclasp-owned machine, interactive, wrapping, and temporary plaintext buffers are overwritten on a best-effort basis on tested success and error paths.
+- Startup gives an authenticated managed-restore journal priority over database-backed sanitation or older custody recovery. A corrupt-live/nested-custody fresh-process regression proves restore recovery is consumed before damaged live state is parsed.
+- Documentation and the installed agent skill state the memory, same-user, backup-freshness, external-copy, retention, and provider-rotation boundaries without claiming revocation or protected memory.
+
+**Verification and review:**
+
+- `npm run build --silent` passed, and `git diff --check` passed.
+- Eleven focused custody, key-bundle, key-invariant, policy, migration, CLI, format, lifecycle, and vault files passed 231 tests with 4 host/platform skips. After strengthening the acceptance fixtures without changing implementation, the 500-record custody file passed 12 tests and the policy file passed 46 tests.
+- The complete serialized source suite ran 32 files: 529 tests passed and 5 host/platform cases skipped. Its only failure is the preserved pre-existing clean-helper byte-equality gate in `tests/biometric.test.ts`; the checked-in app still differs from a clean build. That release-blocking Slice 3/4 evidence was not weakened or excluded.
+- The preserved historical `custody-probe.mjs` reported `secureDelete=1`, 500 interactive current records, an unavailable interactive key in the fresh process, and zero transitioned values recoverable without the passphrase or a pre-lock snapshot. The new gate additionally covers a normal completed lock, every cleanup interruption through post-clear validation, partial custody, pre-versioned vaults, legacy migration, key retirement, and fresh-process DB/WAL/SHM inspection.
+- Independent concurrency review found the managed-restore startup-order defect; the ordering fix and fresh-process regression passed. Independent security review found the pre-versioned sanitation gap, machine-only upgrade prompt regression, and first-invocation passphrase-carry gap; all were fixed with regressions. Final security re-review reported no remaining material blocker, and concurrency review reported no other premature-success, mixed-generation, record-loss, or deadlock path.
+- Architecture verification found exactly one Mermaid `C4Context` diagram in `docs/architecture/system-context.md` and exactly one Mermaid `C4Container` diagram in `docs/architecture/software-vault-lifecycle.md`; both match the accepted source and recovery ordering.
+
+**Intentionally unexecuted or blocked gates:** no real vault or credential access, physical authentication, global install, immutable-artifact build, external assurance, deployment, publication, operator migration, or Git mutation occurred. The Linux passphrase-enrollment black-box case remains platform-gated on this macOS host. The existing macOS helper clean-build mismatch remains a separate release blocker for Slices 3 and 4.
 
 ### Slice 3: Repair streaming output containment and harden macOS authorization
 

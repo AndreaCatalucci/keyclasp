@@ -40,7 +40,7 @@ function rawDb(): Database.Database {
 }
 
 function replaceWithLegacyRow(value = "legacy-value"): void {
-  const key = getKey();
+  const key = Buffer.from(getKey());
   writeLegacyV3KeyFileForTests(key, "test-passphrase");
   closeDb();
   const db = rawDb();

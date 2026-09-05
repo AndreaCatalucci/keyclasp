@@ -130,7 +130,7 @@ describe("vault lifecycle serialization", () => {
   it("allows a second ordinary CLI command while a named child holds a shared lock", async () => {
     const cliPath = path.join(process.cwd(), "dist", "cli.js");
     const environment = { ...process.env, KEYCLASP_HOME: process.env.KEYCLASP_HOME };
-    expect(spawnSync(process.execPath, [cliPath, "init"], { encoding: "utf8", input: "\n", env: environment }).status).toBe(0);
+    expect(spawnSync(process.execPath, [cliPath, "init", "--machine-only"], { encoding: "utf8", env: environment }).status).toBe(0);
     expect(spawnSync(process.execPath, [cliPath, "set", "API_KEY", "--project", "app", "--environment", "prod"], {
       encoding: "utf8",
       input: "value\n",

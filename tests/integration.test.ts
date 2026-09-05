@@ -6,6 +6,7 @@ import path from "node:path";
 import Database from "better-sqlite3";
 import { initializeVault, getKey, closeDb, clearKey, encrypt, resolveSecret, storeSecret, unlockVault, writeLegacyV3KeyFileForTests } from "../src/vault.js";
 import { createManagedBackup } from "../src/recovery.js";
+import { setAuthorizationRule } from "../src/policy.js";
 
 const cliPath = path.join(process.cwd(), "dist", "cli.js");
 let vaultHome: string;
@@ -106,8 +107,94 @@ describe("CLI end-to-end flow", () => {
     }
   });
 
+  it("requires a non-empty passphrase unless machine custody is explicit", () => {
+    const rejected = run(["init"], { input: "\n" });
+    expect(rejected.status).toBe(1);
+    expect(rejected.stderr).toMatch(/non-empty passphrase.*--machine-only/i);
+    expect(fs.existsSync(path.join(vaultHome, ".keyclasp.key"))).toBe(false);
+
+    const initialized = run(["init", "--machine-only"]);
+    expect(initialized.status).toBe(0);
+    expect(run(["status"]).stdout).toContain("Default:    machine custody");
+  });
+
+  it("makes passphrase initialization interactive by default", () => {
+    expect(run(["init"], { input: "new-default-passphrase\n" }).status).toBe(0);
+    const status = run(["status"]);
+    expect(status.status).toBe(0);
+    expect(status.stdout).toContain("Default:    interactive custody");
+    expect(status.stdout).toContain("future locked");
+    const unattendedSet = run(["set", "API_KEY"], { input: "value\n" });
+    expect(unattendedSet.status).toBe(1);
+    expect(unattendedSet.stderr).toMatch(/vault is locked/i);
+  });
+
+  it("migrates a pre-default vault as legacy machine without reclassifying records", () => {
+    const previous = process.env.KEYCLASP_HOME;
+    process.env.KEYCLASP_HOME = vaultHome;
+    initializeVault("legacy-passphrase");
+    storeSecret("default", "default", "LEGACY_JOB", "legacy-value", "machine");
+    closeDb();
+    clearKey();
+    const database = new Database(path.join(vaultHome, "vault.db"));
+    database.exec("ALTER TABLE vault_metadata DROP COLUMN authorization_default_seed");
+    database.close();
+    if (previous === undefined) delete process.env.KEYCLASP_HOME;
+    else process.env.KEYCLASP_HOME = previous;
+
+    const status = run(["status"]);
+    expect(status.status, status.stderr).toBe(0);
+    expect(status.stdout).toContain("legacy machine default (explicit choice required)");
+    expect(runSecretCheck("LEGACY_JOB", "legacy-value").status).toBe(0);
+    const policy = JSON.parse(fs.readFileSync(path.join(vaultHome, "strict-policy.v1.json"), "utf8"));
+    expect(policy).toMatchObject({ version: 3, defaultCustody: "legacy-machine" });
+  });
+
+  it("completes all-interactive legacy migration, sanitization, and machine-key retirement in one command", () => {
+    const previous = process.env.KEYCLASP_HOME;
+    process.env.KEYCLASP_HOME = vaultHome;
+    initializeVault("legacy-passphrase");
+    const legacyKey = Buffer.from(getKey());
+    writeLegacyV3KeyFileForTests(legacyKey, "legacy-passphrase");
+    closeDb();
+    const database = new Database(path.join(vaultHome, "vault.db"));
+    database.exec("DROP TABLE secrets; DROP TABLE vault_metadata");
+    database.exec(`CREATE TABLE secrets (
+      project TEXT NOT NULL, environment TEXT NOT NULL, name TEXT NOT NULL,
+      encrypted_value BLOB NOT NULL, iv BLOB NOT NULL, auth_tag BLOB NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (project, environment, name)
+    )`);
+    const encrypted = encrypt("legacy-locked-value", legacyKey);
+    database.prepare(`INSERT INTO secrets (project, environment, name, encrypted_value, iv, auth_tag)
+      VALUES (?, ?, ?, ?, ?, ?)`).run("app", "prod", "LOCKED", encrypted.encrypted, encrypted.iv, encrypted.authTag);
+    database.close();
+    legacyKey.fill(0);
+    clearKey();
+    unlockVault("legacy-passphrase");
+    setAuthorizationRule({ project: "app", environment: "prod", secret: "LOCKED" }, true);
+    closeDb();
+    clearKey();
+    if (previous === undefined) delete process.env.KEYCLASP_HOME;
+    else process.env.KEYCLASP_HOME = previous;
+
+    const status = run(["status"], { input: "legacy-passphrase\n" });
+    expect(status.status, status.stderr).toBe(0);
+    const migrated = new Database(path.join(vaultHome, "vault.db"), { readonly: true });
+    const metadata = migrated.prepare(`SELECT custody_sanitization_required, custody_sanitization_version,
+      bundle_generation FROM vault_metadata WHERE singleton = 1`).get() as {
+      custody_sanitization_required: number;
+      custody_sanitization_version: number;
+      bundle_generation: number;
+    };
+    const inventory = migrated.prepare("SELECT key_class, COUNT(*) AS count FROM secrets GROUP BY key_class").all();
+    migrated.close();
+    expect(metadata).toMatchObject({ custody_sanitization_required: 0, custody_sanitization_version: 1, bundle_generation: 2 });
+    expect(inventory).toEqual([{ key_class: "interactive", count: 1 }]);
+  }, 30_000);
+
   it("initializes, stores, lists, injects, and deletes a secret", () => {
-    expect(run(["init"], { input: "\n" }).status).toBe(0);
+    expect(run(["init", "--machine-only"]).status).toBe(0);
 
     const set = run(["set", "API_KEY"], { input: "sk-test-value-123\n" });
     expect(set.status).toBe(0);
@@ -125,11 +212,43 @@ describe("CLI end-to-end flow", () => {
     expect(runMissingSecret("API_KEY").status).toBe(1);
   });
 
+  it("upgrades a pre-versioned machine-only vault without blocking status or named runs", () => {
+    expect(run(["init", "--machine-only"]).status).toBe(0);
+    expect(run(["set", "API_KEY"], { input: "upgrade-value\n" }).status).toBe(0);
+    const database = new Database(path.join(vaultHome, "vault.db"));
+    database.exec(`
+      ALTER TABLE vault_metadata DROP COLUMN custody_sanitization_version;
+      ALTER TABLE vault_metadata DROP COLUMN custody_sanitization_bundle_generation;
+      ALTER TABLE vault_metadata DROP COLUMN custody_sanitization_required;
+    `);
+    database.close();
+
+    const status = run(["status"]);
+    expect(status.status, status.stderr).toBe(0);
+    const injected = runSecretCheck("API_KEY", "upgrade-value");
+    expect(injected.status, injected.stderr).toBe(0);
+    expect(injected.stdout.trim()).toBe("ok");
+  }, 30_000);
+
+  it.runIf(process.platform === "linux")("upgrades a pre-versioned machine-only vault before passphrase enrollment", () => {
+    expect(run(["init", "--machine-only"]).status).toBe(0);
+    const database = new Database(path.join(vaultHome, "vault.db"));
+    database.exec(`
+      ALTER TABLE vault_metadata DROP COLUMN custody_sanitization_version;
+      ALTER TABLE vault_metadata DROP COLUMN custody_sanitization_bundle_generation;
+      ALTER TABLE vault_metadata DROP COLUMN custody_sanitization_required;
+    `);
+    database.close();
+    const enrolled = runLinuxPty(["passphrase", "set"], "upgrade-passphrase\nupgrade-passphrase\n");
+    expect(enrolled.status, enrolled.stderr).toBe(0);
+    expect(enrolled.stdout).toContain("Interactive custody enrolled.");
+  }, 30_000);
+
   it.runIf(process.platform === "darwin")("exits after completing a secret prompt on a real TTY", () => {
     const script = [
       "set timeout 5",
       "spawn env KEYCLASP_HOME=$env(KEYCLASP_TEST_HOME) $env(KEYCLASP_NODE) $env(KEYCLASP_CLI) init",
-      'expect -exact "Enter vault passphrase (or empty for machine-only key): "',
+      'expect -exact "Enter new vault passphrase: "',
       'send -- "tty-passphrase\\r"',
       "expect eof",
       "set result [wait]",
@@ -150,15 +269,15 @@ describe("CLI end-to-end flow", () => {
   });
 
   it("passes the vault status check for a healthy vault", () => {
-    run(["init"], { input: "\n" });
+    run(["init", "--machine-only"]);
     run(["set", "STATUS_KEY"], { input: "value\n" });
     const status = run(["status"]);
     expect(status.status, status.stderr).toBe(0);
-    expect(status.stdout).toContain("Values:     not inspected by status");
+    expect(status.stdout).toContain("Values:     not displayed by status");
   });
 
   it.runIf(process.platform === "linux")("fails a machine-only get at the CLI authorization gate before decryption", () => {
-    expect(run(["init"], { input: "\n" }).status).toBe(0);
+    expect(run(["init", "--machine-only"]).status).toBe(0);
     expect(run(["set", "LOCKED_GET"], { input: "secret-value\n" }).status).toBe(0);
     const db = new Database(path.join(vaultHome, "vault.db"));
     db.prepare("UPDATE secrets SET encrypted_value = ? WHERE name = ?").run(Buffer.from("corrupt"), "LOCKED_GET");
@@ -203,7 +322,7 @@ describe("CLI end-to-end flow", () => {
   });
 
   it("keeps one authenticated record identity across concurrent first writes", async () => {
-    expect(run(["init"], { input: "\n" }).status).toBe(0);
+    expect(run(["init", "--machine-only"]).status).toBe(0);
     const [first, second] = await Promise.all([
       runAsync(["set", "RACE_KEY", "--project", "app", "--environment", "prod"], { KEYCLASP_HOME: vaultHome }, "first-value\n"),
       runAsync(["set", "RACE_KEY", "--project", "app", "--environment", "prod"], { KEYCLASP_HOME: vaultHome }, "second-value\n"),
@@ -225,8 +344,8 @@ describe("CLI end-to-end flow", () => {
 
   it("serializes concurrent initialization so exactly one process creates the vault", async () => {
     const [first, second] = await Promise.all([
-      runAsync(["init"], { KEYCLASP_HOME: vaultHome }, "\n"),
-      runAsync(["init"], { KEYCLASP_HOME: vaultHome }, "\n"),
+      runAsync(["init", "--machine-only"], { KEYCLASP_HOME: vaultHome }, ""),
+      runAsync(["init", "--machine-only"], { KEYCLASP_HOME: vaultHome }, ""),
     ]);
     expect([first.status, second.status].sort()).toEqual([0, 1]);
     expect(`${first.stderr}${second.stderr}`).toMatch(/already initialized|already in progress/i);
@@ -240,7 +359,7 @@ describe("CLI end-to-end flow", () => {
     fs.chmodSync(lockPath, 0o600);
     owner.exec("BEGIN EXCLUSIVE");
     try {
-      const blocked = await runAsync(["init"], { KEYCLASP_HOME: vaultHome }, "\n");
+      const blocked = await runAsync(["init", "--machine-only"], { KEYCLASP_HOME: vaultHome }, "");
       expect(blocked.status).toBe(1);
       expect(blocked.stderr).toMatch(/initialization is already in progress/i);
       expect(fs.existsSync(path.join(vaultHome, ".keyclasp.key"))).toBe(false);
@@ -248,7 +367,7 @@ describe("CLI end-to-end flow", () => {
       owner.close();
     }
 
-    expect(run(["init"], { input: "\n" }).status).toBe(0);
+    expect(run(["init", "--machine-only"]).status).toBe(0);
     expect(run(["status"]).status).toBe(0);
   });
 });
@@ -261,6 +380,7 @@ describe("CLI dual-key vault keeps machine-class records unattended across proce
     closeDb();
     clearKey();
     unlockVault("wrap-passphrase");
+    setAuthorizationRule({ project: "default", environment: "default" }, false);
     storeSecret("default", "default", "LOCKED_RUN_KEY", "seeded-value");
     storeSecret("default", "default", "INTERACTIVE_RUN_KEY", "interactive-value", "interactive");
     closeDb();
@@ -321,7 +441,7 @@ describe("CLI dual-key vault keeps machine-class records unattended across proce
 
 describe("CLI run: secret injection stays out of the agent's view", () => {
   beforeEach(() => {
-    run(["init"], { input: "\n" });
+    run(["init", "--machine-only"]);
     run(["set", "INJECTED_SECRET"], { input: "sk-super-secret-value\n" });
   });
 
@@ -385,7 +505,7 @@ describe("CLI run: secret injection stays out of the agent's view", () => {
 
 describe("CLI projects and environments scoping", () => {
   beforeEach(() => {
-    run(["init"], { input: "\n" });
+    run(["init", "--machine-only"]);
   });
 
   it("keeps unscoped usage working exactly as before, under default/default", () => {
@@ -586,7 +706,7 @@ describe("CLI projects and environments scoping", () => {
 
 describe("CLI bulk delete", () => {
   beforeEach(() => {
-    run(["init"], { input: "\n" });
+    run(["init", "--machine-only"]);
     run(["set", "BULK_ONE", "--project", "bulkapp", "--environment", "prod"], { input: "1\n" });
     run(["set", "BULK_TWO", "--project", "bulkapp", "--environment", "prod"], { input: "2\n" });
   });
@@ -620,7 +740,7 @@ describe("CLI bulk delete", () => {
 
 describe("CLI rename", () => {
   beforeEach(() => {
-    run(["init"], { input: "\n" });
+    run(["init", "--machine-only"]);
   });
 
   it("renames a whole project, moving every environment", () => {
@@ -689,7 +809,7 @@ describe("legacy vault migration race safety", () => {
       closeDb();
       clearKey();
       initializeVault("");
-      const key = getKey();
+      const key = Buffer.from(getKey());
       writeLegacyV3KeyFileForTests(key, "");
       closeDb();
 

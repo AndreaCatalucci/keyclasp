@@ -6,10 +6,12 @@ import path from "node:path";
 import {
   clearKey,
   closeDb,
+  completePendingCustodySanitization,
   enrollInteractivePassphrase,
   encrypt,
   getKey,
   getVaultDescriptor,
+  hasPendingCustodySanitization,
   initializeVault,
   isInteractiveKeyUnlocked,
   readKeyAccessCountsForTests,
@@ -66,7 +68,7 @@ describe("dual-key software custody", () => {
 
   function replaceWithLegacyV3(passphrase: string): void {
     initializeVault("");
-    const key = getKey();
+    const key = Buffer.from(getKey());
     writeLegacyV3KeyFileForTests(key, passphrase);
     closeDb();
     const database = new Database(path.join(home, "vault.db"));
@@ -293,6 +295,15 @@ describe("dual-key software custody", () => {
     )).toThrow(/enrollment/i);
     expect(fs.readFileSync(path.join(home, ".keyclasp.key"))).toEqual(keyBefore);
     expect(fs.readFileSync(path.join(home, "vault.db"))).toEqual(databaseBefore);
+  });
+
+  it("marks a migrated machine-only vault for one-time sanitization without requiring a passphrase", () => {
+    replaceWithLegacyV3("");
+    migrateLegacyVaultToDualKey(() => "unlocked");
+    expect(hasPendingCustodySanitization()).toBe(true);
+    expect(completePendingCustodySanitization()).toEqual({ completed: true, machineKeyRetired: false });
+    expect(hasPendingCustodySanitization()).toBe(false);
+    expect(resolveSecret("app", "prod", "MACHINE")).toBe("machine-value");
   });
 
   it.each(["after-backup", "after-journal", "after-bundle", "after-database"] as const)(

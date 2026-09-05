@@ -22,7 +22,7 @@ describe("lock CLI contract", () => {
   beforeEach(() => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), "keyclasp-strict-cli-"));
     home = path.join(root, ".keyclasp");
-    const initialized = run(["init"], "\n");
+    const initialized = run(["init", "--machine-only"]);
     expect(initialized.status, initialized.stderr).toBe(0);
   });
 
@@ -47,7 +47,7 @@ describe("lock CLI contract", () => {
   it("reports effective software mode and authorization state", () => {
     const result = run(["status", "--project", "app", "--environment", "prod"]);
     expect(result.status).toBe(0);
-    expect(result.stdout).toContain("Mode:       software-machine");
+    expect(result.stdout).toContain("Mode:       software-machine-only");
     expect(result.stdout).toContain("Authorization: unlocked (0 locked, 0 unlocked; future unlocked)");
   });
 
@@ -118,7 +118,7 @@ describe("lock CLI contract", () => {
     });
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("Usage: keyclasp lock [--project NAME] [--environment NAME] [SECRET]");
-    expect(fs.existsSync(path.join(home, "strict-policy.v1.json"))).toBe(false);
+    expect(fs.existsSync(path.join(home, "strict-policy.v1.json"))).toBe(true);
   });
 
   it("rejects a secret-specific rule unless both scope flags are explicit", () => {

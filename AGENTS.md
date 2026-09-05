@@ -39,7 +39,8 @@ npx tsc --watch  # Dev mode
 
 ```bash
 npm i -g keyclasp  # Install
-keyclasp init         # Empty passphrase for machine-only (agents/CI)
+keyclasp init            # Non-empty passphrase; interactive custody by default
+keyclasp init --machine-only # Explicit unattended machine custody (agents/CI)
 keyclasp set API_KEY - # Store a secret securely
 keyclasp run --env API_KEY -- npm test # Inject only the named secret
 ```
@@ -48,9 +49,9 @@ keyclasp run --env API_KEY -- npm test # Inject only the named secret
 
 - **Process-boundary integration.** Coding agents work with secret names only; trusted commands receive real secrets only at runtime via `keyclasp run`.
 - **Modes share contracts, not security implementations.** Passphrase and machine modes use `src/software/`; optional hardware mode uses `src/hardware/` plus `native/keyclasp-core/`. The CLI depends on command-level interfaces from `src/runtime.ts`. Each implementation owns its key custody and decryption. Shared requests contain scope and command metadata, and shared results contain status; neither carries a vault key or secret plaintext. Mode implementations remain independent and never import one another.
-- **Run authorization follows effective lock rules and platform.** Named `--env` runs use normal vault-mode behavior when every selected secret is effectively unlocked. If any selected secret is locked, macOS requires Touch ID before normal vault unlock; Linux requires one non-empty vault-passphrase entry that both authorizes and unlocks; Linux machine-only fails closed. Omitting `--env`, running `get`, changing lock rules, and managing recovery always require the same platform operator authorization. Rules resolve exact secret, exact project/environment, project-only or environment-only, then unlocked; locked wins at equal specificity. Explicit selection limits disclosure; it does not authenticate against another process running as the same user.
+- **Run authorization follows effective lock rules and platform.** Named `--env` runs use normal vault-mode behavior when every selected secret is effectively unlocked. If any selected secret is locked, macOS requires Touch ID before normal vault unlock; Linux requires one non-empty vault-passphrase entry that both authorizes and unlocks; Linux machine-only fails closed. Omitting `--env`, running `get`, changing lock rules/defaults, and managing recovery always require the same platform operator authorization. Rules resolve exact secret, exact project/environment, project-only or environment-only, then the authenticated vault default; locked wins at equal specificity. Fresh passphrase vaults default to interactive custody. Existing vaults retain a labelled legacy machine default until an explicit authorized `lock --default` or `unlock --default` decision. Explicit selection limits disclosure; it does not authenticate against another process running as the same user.
 - **Small surface, justified.** Every command in the CLI is deliberate. Additional commands (`use`/`projects`/`environments`/`rename`, `--bulk` delete) exist because retroactively scoping secrets by project/environment required them, not by default. Each is weighed against the attack surface it adds.
 - **Projects and environments are namespacing, not isolation.** Secrets live in one vault.db, keyed by `(project, environment, name)`, not per-project databases. Same secret name in two scopes is independent. Agents should always pass `--project`/`--environment` explicitly on every operation rather than relying on the persisted `keyclasp use` context, so parallel agent runs never race on shared mutable state.
 - **Local-only.** No dashboard, backend, or network service. The vault lives at `~/.keyclasp/`, owner-only permissions.
-- **Passphrase wraps the data key.** A random AES key is GCM-wrapped with PBKDF2(passphrase). Empty init selects a weaker machine-only wrap. The app does not read legacy XOR or Keyblind key files.
+- **Passphrase wraps the data key.** A random AES key is GCM-wrapped with PBKDF2(passphrase). Empty input is rejected; `init --machine-only` is the explicit weaker machine-only choice. The app does not read legacy XOR or Keyblind key files.
 - **Zero network, zero telemetry.** Fully local, no cloud, no accounts.

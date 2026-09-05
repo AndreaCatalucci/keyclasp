@@ -12,6 +12,8 @@ No. It is wrapped with a value derived from local machine identity. That value i
 
 It is a separate random data key wrapped only by a non-empty passphrase. Possession of the machine key and its metadata cannot decrypt an interactive record. macOS requires Touch ID plus the passphrase for interactive use. Linux uses the passphrase as authorization and key unlock.
 
+Fresh passphrase vaults use interactive custody for unmatched new records. `init --machine-only` is the explicit unattended alternative. Upgraded vaults keep a labelled legacy machine default until the operator runs `lock --default` or `unlock --default`.
+
 ## Can an agent use a dual-key vault?
 
 Yes, for an explicitly selected record whose effective rule is unlocked and whose custody is machine. The agent must stop for locked selections, `get`, broad runs, passphrase prompts, custody changes, and backup or restore. Explicit selection limits disclosure but does not authenticate another process running as the same user.
@@ -23,6 +25,14 @@ Only when every record is interactive. A mixed or machine-only backup requires i
 ## What happens if I lose the passphrase?
 
 There is no recovery email, bypass, or passphrase removal. Recover the underlying credentials from their issuers or restore a tested eligible backup. Keep the database, key bundle, policy, and manifest together through `keyclasp backup`.
+
+## Does locking revoke old backups or copied credentials?
+
+No. Completed locking sanitizes the current database free space and SQLite sidecars; when no machine records remain it also retires the live machine key. It cannot revoke external snapshots, copied backups, values retained by a child, logs, swap, or crash captures. Backup MACs prove authenticity, not newest-state freshness. Apply a retention policy to saved copies and rotate the credential with its provider when revocation matters.
+
+## Does Keyclasp erase secrets from memory?
+
+Keyclasp overwrites the key buffers it owns before replacing or clearing them and minimizes temporary decrypted buffers during custody changes. JavaScript strings, process environments, OS caches, swap, and crash collectors can retain copies outside that control; Keyclasp does not claim protected memory.
 
 ## Does `keyclasp run` make a child safe?
 

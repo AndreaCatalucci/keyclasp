@@ -17,7 +17,7 @@ npm install -g keyclasp@beta
 keyclasp init
 ```
 
-Press Enter at `init` for a machine-only vault, or enter a passphrase to create the custody keys.
+`keyclasp init` requires a non-empty passphrase and makes unmatched new records interactive. Use `keyclasp init --machine-only` only when unattended machine custody is an explicit requirement.
 
 ## Store and use a secret
 
@@ -46,9 +46,11 @@ Each software vault holds two independent AES-256-GCM data keys:
 
 On macOS, interactive operations require Touch ID in a dialog. On Linux, one passphrase entry authorizes the operation and unlocks the interactive key.
 
-A machine-only vault can run an explicitly selected, unlocked secret without a prompt, but cannot perform `get`, broad runs, policy changes, backup, or restore until interactive custody is enrolled.
+A machine-only vault is an explicit unattended-storage choice. It can run an explicitly selected, unlocked secret without a prompt, but cannot perform `get`, broad runs, policy changes, backup, or restore until interactive custody is enrolled.
 
-The  `lock`, `unlock`, and `inherit` move secrets from machine to the interactive key encryption, and always require interactive authorization.
+Fresh passphrase vaults default unmatched records to interactive custody. Existing upgraded vaults retain their prior unattended behavior as a visible `legacy machine default` until the operator makes an authorized `lock --default` or `unlock --default` choice. More-specific rules continue to take precedence.
+
+`lock`, `unlock`, and `inherit` change rules and record custody under exclusive lifecycle control. A machine-to-interactive change does not complete until SQLite free pages and sidecars have been sanitized and the closed vault has been verified. If no machine records remain, Keyclasp also rotates and retires the old machine data key.
 
 ## Move records between custody classes
 
@@ -57,10 +59,12 @@ keyclasp passphrase set
 keyclasp lock --project myapp --environment prod SECRET_API_KEY
 keyclasp unlock --project myapp --environment prod SECRET_API_KEY
 keyclasp inherit --project myapp --environment prod SECRET_API_KEY
+keyclasp lock --default
+keyclasp unlock --default
 keyclasp passphrase rotate
 ```
 
-Rules can target one project, one environment, an exact project/environment, or one exact secret. Resolution prefers exact secret, exact project/environment, project-only or environment-only, then unlocked. Locked wins when project-only and environment-only rules have equal specificity. `inherit` removes the exact override and applies the next matching rule.
+Rules can target one project, one environment, an exact project/environment, or one exact secret. Resolution prefers exact secret, exact project/environment, project-only or environment-only, then the vault-wide default. Locked wins when project-only and environment-only rules have equal specificity. `inherit` removes the exact override and applies the next matching rule.
 
 ## Backup and restore
 
@@ -70,6 +74,8 @@ keyclasp backup restore /secure/path/keyclasp-backup
 ```
 
 Managed backups bind the database, dual-key bundle, policy, custody inventory, and manifest. A mixed backup containing machine records restores only on the source machine. A backup containing only interactive records can move to another supported machine with its passphrase; restore creates a fresh target-machine key without reclassifying records. Restore never drops or downgrades a record whose key is unavailable.
+
+Backup authentication proves that a saved set is genuine and internally consistent; it does not prove that it is the newest state. Locking, changing a passphrase, sanitizing the live vault, or retiring a machine key cannot erase external snapshots, copied backups, child-process copies, logs, swap, or crash captures. Keep an explicit retention policy for every copy and rotate the provider credential when revocation matters.
 
 ## Coding-agent contract
 
@@ -87,14 +93,14 @@ There is a packaged agent skill in [`skills/keyclasp-agent`](skills/keyclasp-age
 
 | Command | Purpose |
 |---|---|
-| `init` | Create a machine-only or dual-key software vault |
+| `init [--machine-only]` | Create an interactive-default vault, or explicitly choose machine-only custody |
 | `set`, `list`, `delete` | Manage scoped secret records |
 | `run --env SOURCE[:TARGET] -- <command>` | Inject selected secrets into one child |
 | `get` | Print one value after operator authorization |
-| `lock`, `unlock`, `inherit` | Change authenticated rules and record custody |
+| `lock`, `unlock`, `inherit`; `lock\|unlock --default` | Change authenticated rules, fallback, and record custody |
 | `passphrase set\|rotate` | Enroll or rotate interactive custody; removal is unavailable |
 | `backup create\|restore` | Create or restore one authenticated vault set |
-| `status` | Read custody and policy metadata without loading a data key |
+| `status` | Report custody and policy metadata after any required startup recovery |
 | `doctor` | Report the disabled, status-only hardware boundary |
 
 See the [command reference](docs/commands.md), [getting started guide](docs/getting-started.md), [security model](docs/security.md), and [FAQ](docs/faq.md).
@@ -107,6 +113,7 @@ See the [command reference](docs/commands.md), [getting started guide](docs/gett
 - `get` prints plaintext into terminal output. Agents must never invoke it.
 - `--allow-unsafe` disables command preflight and output scanning for that invocation; it never bypasses authorization.
 - Project, environment, secret names, and policy metadata are not encrypted.
+- Keyclasp overwrites its owned key buffers on a best-effort basis, but JavaScript strings, child environments, OS caches, swap, crash collectors, filesystem snapshots, and prior copies cannot be reliably erased in place.
 - Keyclasp has not received a professional third-party security audit.
 
 ## Development

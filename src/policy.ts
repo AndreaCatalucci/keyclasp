@@ -2,14 +2,16 @@ import crypto from "node:crypto";
 import Database from "better-sqlite3";
 import fs from "node:fs";
 import path from "node:path";
-import { getVaultDescriptor, getVaultLocation, validateScopeName } from "./vault.js";
+import { getVaultDescriptor, getVaultLocation, readAuthorizationDefaultSeed, validateScopeName } from "./vault.js";
 import { enforceOwnerOnlyPath } from "./owner-only-path.js";
 import { displayOperatorField, type OperatorAuthorizer } from "./runtime.js";
+import { configureWritableVaultDatabase } from "./vault-files.js";
 
-const POLICY_VERSION = 2;
+const POLICY_VERSION = 3;
 const POLICY_TRANSACTION_VERSION = 1;
 const LEGACY_POLICY_DOMAIN = "keyclasp:strict-policy:v1";
-const POLICY_DOMAIN = "keyclasp:authorization-policy:v2";
+const POLICY_V2_DOMAIN = "keyclasp:authorization-policy:v2";
+const POLICY_DOMAIN = "keyclasp:authorization-policy:v3";
 const POLICY_FILE = "strict-policy.v1.json";
 const POLICY_ANCHOR_FILE = ".strict-policy.key";
 const POLICY_AUDIT_FILE = "strict-policy-audit.jsonl";
@@ -27,6 +29,7 @@ let _policyMutationFaultForTests: PolicyMutationFault | null = null;
 
 export type AuthorizationState = "locked" | "unlocked";
 export type AuthorizationMutation = "lock" | "unlock" | "inherit";
+export type AuthorizationDefault = "interactive" | "machine" | "legacy-machine";
 
 export interface AuthorizationSelector {
   project?: string;
@@ -70,14 +73,22 @@ export interface AuthorizationRule extends AuthorizationSelector {
   locked: boolean;
 }
 
-interface PolicyPayload {
+interface Version2PolicyPayload {
   version: 2;
   vaultId: string;
   generation: number;
   rules: AuthorizationRule[];
 }
 
-type AnyPolicyPayload = LegacyPolicyPayload | PolicyPayload;
+interface PolicyPayload {
+  version: 3;
+  vaultId: string;
+  generation: number;
+  defaultCustody: AuthorizationDefault;
+  rules: AuthorizationRule[];
+}
+
+type AnyPolicyPayload = LegacyPolicyPayload | Version2PolicyPayload | PolicyPayload;
 
 type PolicyDocument = AnyPolicyPayload & {
   mac: string;
@@ -92,6 +103,7 @@ interface PolicyAnchor {
 
 interface LoadedPolicy {
   generation: number;
+  defaultCustody: AuthorizationDefault;
   rules: AuthorizationRule[];
   key: Buffer;
   documentHash: string;
@@ -122,10 +134,17 @@ function canonicalPayload(payload: AnyPolicyPayload): string {
         compareCanonicalStrings(a.project, b.project) || compareCanonicalStrings(a.environment, b.environment)),
     });
   }
+  if (payload.version === 2) return JSON.stringify({
+    version: payload.version,
+    vaultId: payload.vaultId,
+    generation: payload.generation,
+    rules: [...payload.rules].sort((a, b) => compareCanonicalStrings(ruleIdentity(a), ruleIdentity(b))),
+  });
   return JSON.stringify({
     version: payload.version,
     vaultId: payload.vaultId,
     generation: payload.generation,
+    defaultCustody: payload.defaultCustody,
     rules: [...payload.rules].sort((a, b) => compareCanonicalStrings(ruleIdentity(a), ruleIdentity(b))),
   });
 }
@@ -136,7 +155,7 @@ function compareCanonicalStrings(left: string, right: string): number {
 
 function macPayload(payload: AnyPolicyPayload, key: Buffer): string {
   return crypto.createHmac("sha256", key)
-    .update(payload.version === 1 ? LEGACY_POLICY_DOMAIN : POLICY_DOMAIN)
+    .update(payload.version === 1 ? LEGACY_POLICY_DOMAIN : payload.version === 2 ? POLICY_V2_DOMAIN : POLICY_DOMAIN)
     .update("\0")
     .update(canonicalPayload(payload))
     .digest("base64");
@@ -171,8 +190,9 @@ function loadPolicyFrom(paths: { document: string; anchor: string }, expectedVau
   const document = readJson<PolicyDocument>(paths.document, "authorization policy");
   const anchor = readJson<PolicyAnchor>(paths.anchor, "authorization-policy anchor");
   const key = Buffer.from(anchor.key ?? "", "base64");
-  const committedDocumentHash = documentHash(document);
-  if ((document.version !== 1 && document.version !== POLICY_VERSION) || anchor.version !== 1 ||
+  try {
+    const committedDocumentHash = documentHash(document);
+  if ((document.version !== 1 && document.version !== 2 && document.version !== POLICY_VERSION) || anchor.version !== 1 ||
       key.length !== 32 || document.vaultId !== expectedVaultId.toString("base64") ||
       document.generation !== anchor.generation || committedDocumentHash !== anchor.documentHash ||
       document.mac !== macPayload(document, key)) {
@@ -194,6 +214,10 @@ function loadPolicyFrom(paths: { document: string; anchor: string }, expectedVau
         if (!Array.isArray(document.rules)) throw new Error("Keyclasp authorization policy is corrupt.");
         return document.rules;
       })();
+  const defaultCustody: AuthorizationDefault = document.version === 3 ? document.defaultCustody : "legacy-machine";
+  if (!(["interactive", "machine", "legacy-machine"] as const).includes(defaultCustody)) {
+    throw new Error("Keyclasp authorization policy has an invalid default custody state.");
+  }
   for (const rule of candidates) {
     validateAuthorizationSelector(rule);
     if (typeof rule.locked !== "boolean") throw new Error("Keyclasp authorization policy is corrupt.");
@@ -207,7 +231,11 @@ function loadPolicyFrom(paths: { document: string; anchor: string }, expectedVau
       locked: rule.locked,
     });
   }
-  return { generation: document.generation, rules, key, documentHash: committedDocumentHash };
+    return { generation: document.generation, defaultCustody, rules, key, documentHash: committedDocumentHash };
+  } catch (error) {
+    key.fill(0);
+    throw error;
+  }
 }
 
 function validateAuthorizationSelector(selector: AuthorizationSelector): void {
@@ -309,6 +337,7 @@ function writePolicyDatabaseAnchor(
 ): void {
   const db = new Database(databasePath, { fileMustExist: true });
   try {
+    configureWritableVaultDatabase(db);
     db.pragma("synchronous = FULL");
     const update = db.transaction(() => {
       const columns = (db.pragma("table_info(vault_metadata)") as { name: string }[]).map((column) => column.name);
@@ -352,6 +381,7 @@ function recoverInterruptedPolicy(
       }
       return current;
     }
+    current?.key.fill(0);
   } catch {
     // Restore the last committed pair below.
   }
@@ -393,9 +423,15 @@ function matchingSpecificity(rule: AuthorizationRule, project: string, environme
   return 1;
 }
 
-export function evaluateAuthorizationRules(rules: readonly AuthorizationRule[], project: string, environment: string, secret?: string): AuthorizationState {
+export function evaluateAuthorizationRules(
+  rules: readonly AuthorizationRule[],
+  project: string,
+  environment: string,
+  secret?: string,
+  defaultCustody: AuthorizationDefault = "legacy-machine",
+): AuthorizationState {
   let bestSpecificity = 0;
-  let locked = false;
+  let locked = defaultCustody === "interactive";
   for (const rule of rules) {
     const specificity = matchingSpecificity(rule, project, environment, secret);
     if (specificity === null || specificity < bestSpecificity) continue;
@@ -413,7 +449,27 @@ export function readAuthorizationState(project: string, environment: string, sec
   validateScopeName(project, "project");
   validateScopeName(environment, "environment");
   if (secret !== undefined) validateAuthorizationSelector({ project, environment, secret });
-  return evaluateAuthorizationRules(loadPolicy()?.rules ?? [], project, environment, secret);
+  const loaded = loadPolicy();
+  try {
+    return evaluateAuthorizationRules(
+      loaded?.rules ?? [],
+      project,
+      environment,
+      secret,
+      loaded?.defaultCustody ?? readAuthorizationDefaultSeed() ?? "legacy-machine",
+    );
+  } finally {
+    loaded?.key.fill(0);
+  }
+}
+
+export function readAuthorizationDefault(): AuthorizationDefault {
+  const loaded = loadPolicy();
+  try {
+    return loaded?.defaultCustody ?? readAuthorizationDefaultSeed() ?? "legacy-machine";
+  } finally {
+    loaded?.key.fill(0);
+  }
 }
 
 export function summarizeAuthorizationState(
@@ -423,63 +479,49 @@ export function summarizeAuthorizationState(
 ): { state: AuthorizationState | "mixed"; scopeDefault: AuthorizationState; locked: number; unlocked: number } {
   validateScopeName(project, "project");
   validateScopeName(environment, "environment");
-  const rules = loadPolicy()?.rules ?? [];
-  const scopeDefault = evaluateAuthorizationRules(rules, project, environment);
-  let locked = 0;
-  for (const name of secretNames) {
-    if (evaluateAuthorizationRules(rules, project, environment, name) === "locked") locked += 1;
+  const loaded = loadPolicy();
+  const rules = loaded?.rules ?? [];
+  const defaultCustody = loaded?.defaultCustody ?? readAuthorizationDefaultSeed() ?? "legacy-machine";
+  try {
+    const scopeDefault = evaluateAuthorizationRules(rules, project, environment, undefined, defaultCustody);
+    let locked = 0;
+    for (const name of secretNames) {
+      if (evaluateAuthorizationRules(rules, project, environment, name, defaultCustody) === "locked") locked += 1;
+    }
+    const unlocked = secretNames.length - locked;
+    const state = locked > 0 && unlocked > 0 ? "mixed" : locked > 0 ? "locked" : unlocked > 0 ? "unlocked" : scopeDefault;
+    return { state, scopeDefault, locked, unlocked };
+  } finally {
+    loaded?.key.fill(0);
   }
-  const unlocked = secretNames.length - locked;
-  const state = locked > 0 && unlocked > 0 ? "mixed" : locked > 0 ? "locked" : unlocked > 0 ? "unlocked" : scopeDefault;
-  return { state, scopeDefault, locked, unlocked };
 }
 
 export function validateLiveAuthorizationPolicy(): void {
-  loadPolicy();
+  loadPolicy()?.key.fill(0);
 }
 
-export function mutateAuthorizationRule(
-  selector: AuthorizationSelector,
-  action: AuthorizationMutation,
-  databaseMutation?: (
-    db: Database.Database,
-    nextRules: readonly AuthorizationRule[],
-    nextGeneration: number,
-  ) => void,
-): AuthorizationState | "inherited" {
-  validateAuthorizationSelector(selector);
-  if (action !== "lock" && action !== "unlock" && action !== "inherit") {
-    throw new Error("Invalid authorization-policy mutation.");
-  }
+type PolicyDatabaseMutation = (
+  db: Database.Database,
+  nextRules: readonly AuthorizationRule[],
+  nextGeneration: number,
+  defaultCustody: AuthorizationDefault,
+) => void;
+
+function commitPolicyDocument(
+  loaded: LoadedPolicy | null,
+  defaultCustody: AuthorizationDefault,
+  rules: readonly AuthorizationRule[],
+  databaseMutation?: PolicyDatabaseMutation,
+): void {
   const descriptor = getVaultDescriptor();
-  const loaded = loadPolicy();
   const key = loaded?.key ?? crypto.randomBytes(32);
-  const rules = loaded ? [...loaded.rules] : [];
-  const identity = ruleIdentity(selector);
-  const existingIndex = rules.findIndex((item) => ruleIdentity(item) === identity);
-  const existing = existingIndex === -1 ? undefined : rules[existingIndex];
-  const result = action === "lock" ? "locked" : action === "unlock" ? "unlocked" : "inherited";
-  if (action === "inherit") {
-    if (!existing) return result;
-    rules.splice(existingIndex, 1);
-  } else {
-    const locked = action === "lock";
-    if (existing?.locked === locked) return result;
-    const nextRule: AuthorizationRule = {
-      ...(selector.project === undefined ? {} : { project: selector.project }),
-      ...(selector.environment === undefined ? {} : { environment: selector.environment }),
-      ...(selector.secret === undefined ? {} : { secret: selector.secret }),
-      locked,
-    };
-    if (existing) rules.splice(existingIndex, 1, nextRule);
-    else rules.push(nextRule);
-  }
   const nextGeneration = (loaded?.generation ?? 0) + 1;
   const payload: PolicyPayload = {
     version: POLICY_VERSION,
     vaultId: descriptor.vaultId.toString("base64"),
     generation: nextGeneration,
-    rules,
+    defaultCustody,
+    rules: [...rules],
   };
   const document: PolicyDocument = { ...payload, mac: macPayload(payload, key) };
   const anchor: PolicyAnchor = {
@@ -510,7 +552,7 @@ export function mutateAuthorizationRule(
     writePolicyDatabaseAnchor(
       { generation: payload.generation, documentHash: anchor.documentHash },
       path.join(getVaultLocation(), "vault.db"),
-      databaseMutation === undefined ? undefined : (db) => databaseMutation(db, rules, nextGeneration),
+      databaseMutation === undefined ? undefined : (db) => databaseMutation(db, rules, nextGeneration, defaultCustody),
     );
     committed = true;
     if (_policyMutationFaultForTests === "crash-after-commit") {
@@ -524,12 +566,54 @@ export function mutateAuthorizationRule(
   } catch (error) {
     if (committed) {
       if (_policyMutationFaultForTests === "crash-after-commit") throw error;
-      return result;
+      return;
     }
     if (_policyMutationFaultForTests?.startsWith("crash-")) throw error;
     recoverInterruptedPolicy(paths, descriptor.vaultId);
     throw error;
+  } finally {
+    key.fill(0);
   }
+}
+
+export function mutateAuthorizationRule(
+  selector: AuthorizationSelector,
+  action: AuthorizationMutation,
+  databaseMutation?: PolicyDatabaseMutation,
+): AuthorizationState | "inherited" {
+  validateAuthorizationSelector(selector);
+  if (action !== "lock" && action !== "unlock" && action !== "inherit") {
+    throw new Error("Invalid authorization-policy mutation.");
+  }
+  const loaded = loadPolicy();
+  const rules = loaded ? [...loaded.rules] : [];
+  const defaultCustody = loaded?.defaultCustody ?? readAuthorizationDefaultSeed() ?? "legacy-machine";
+  const identity = ruleIdentity(selector);
+  const existingIndex = rules.findIndex((item) => ruleIdentity(item) === identity);
+  const existing = existingIndex === -1 ? undefined : rules[existingIndex];
+  const result = action === "lock" ? "locked" : action === "unlock" ? "unlocked" : "inherited";
+  if (action === "inherit") {
+    if (!existing) {
+      loaded?.key.fill(0);
+      return result;
+    }
+    rules.splice(existingIndex, 1);
+  } else {
+    const locked = action === "lock";
+    if (existing?.locked === locked) {
+      loaded?.key.fill(0);
+      return result;
+    }
+    const nextRule: AuthorizationRule = {
+      ...(selector.project === undefined ? {} : { project: selector.project }),
+      ...(selector.environment === undefined ? {} : { environment: selector.environment }),
+      ...(selector.secret === undefined ? {} : { secret: selector.secret }),
+      locked,
+    };
+    if (existing) rules.splice(existingIndex, 1, nextRule);
+    else rules.push(nextRule);
+  }
+  commitPolicyDocument(loaded, defaultCustody, rules, databaseMutation);
   return result;
 }
 
@@ -537,12 +621,130 @@ export function setAuthorizationRule(selector: AuthorizationSelector, locked: bo
   return mutateAuthorizationRule(selector, locked ? "lock" : "unlock") as AuthorizationState;
 }
 
+export function initializeAuthorizationPolicy(defaultCustody: Exclude<AuthorizationDefault, "legacy-machine">): void {
+  const loaded = loadPolicy();
+  if (loaded !== null) {
+    loaded.key.fill(0);
+    throw new Error("Keyclasp authorization policy is already initialized.");
+  }
+  commitPolicyDocument(null, defaultCustody, []);
+}
+
+function storedPolicyVersion(): number | null {
+  const paths = policyPaths();
+  if (!fs.existsSync(paths.document)) return null;
+  const document = readJson<{ version?: unknown }>(paths.document, "authorization policy");
+  return typeof document.version === "number" ? document.version : null;
+}
+
+export function authorizationPolicyNeedsDefaultMigration(): boolean {
+  return storedPolicyVersion() !== POLICY_VERSION;
+}
+
+export function authorizationPolicyUsesDefaultSeed(): boolean {
+  return storedPolicyVersion() === null;
+}
+
+export function migrateAuthorizationPolicyDefault(): boolean {
+  if (!authorizationPolicyNeedsDefaultMigration()) return false;
+  const loaded = loadPolicy();
+  commitPolicyDocument(loaded, loaded?.defaultCustody ?? readAuthorizationDefaultSeed() ?? "legacy-machine", loaded?.rules ?? []);
+  return true;
+}
+
+export interface CustodyRecordSummary {
+  project: string;
+  environment: string;
+  name: string;
+  keyClass: "machine" | "interactive";
+}
+
+export interface AuthorizationDefaultPreview {
+  currentDefault: AuthorizationDefault;
+  nextDefault: Exclude<AuthorizationDefault, "legacy-machine">;
+  machineToInteractive: number;
+  interactiveToMachine: number;
+  unchangedMachine: number;
+  unchangedInteractive: number;
+}
+
+export function previewAuthorizationDefault(
+  action: "lock" | "unlock",
+  records: readonly CustodyRecordSummary[],
+): AuthorizationDefaultPreview {
+  const loaded = loadPolicy();
+  const rules = loaded?.rules ?? [];
+  const currentDefault = loaded?.defaultCustody ?? readAuthorizationDefaultSeed() ?? "legacy-machine";
+  const nextDefault = action === "lock" ? "interactive" : "machine";
+  const preview: AuthorizationDefaultPreview = {
+    currentDefault,
+    nextDefault,
+    machineToInteractive: 0,
+    interactiveToMachine: 0,
+    unchangedMachine: 0,
+    unchangedInteractive: 0,
+  };
+  try {
+    for (const record of records) {
+      const target = evaluateAuthorizationRules(rules, record.project, record.environment, record.name, nextDefault) === "locked"
+        ? "interactive"
+        : "machine";
+      if (record.keyClass === "machine" && target === "interactive") preview.machineToInteractive += 1;
+      else if (record.keyClass === "interactive" && target === "machine") preview.interactiveToMachine += 1;
+      else if (record.keyClass === "machine") preview.unchangedMachine += 1;
+      else preview.unchangedInteractive += 1;
+    }
+    return preview;
+  } finally {
+    loaded?.key.fill(0);
+  }
+}
+
+export function mutateAuthorizationDefault(
+  action: "lock" | "unlock",
+  databaseMutation?: PolicyDatabaseMutation,
+): Exclude<AuthorizationDefault, "legacy-machine"> {
+  const loaded = loadPolicy();
+  const nextDefault = action === "lock" ? "interactive" : "machine";
+  if (loaded?.defaultCustody === nextDefault) {
+    loaded.key.fill(0);
+    return nextDefault;
+  }
+  commitPolicyDocument(loaded, nextDefault, loaded?.rules ?? [], databaseMutation);
+  return nextDefault;
+}
+
+export async function mutateAuthorizationDefaultAuthorized(
+  action: "lock" | "unlock",
+  preview: AuthorizationDefaultPreview,
+  dependencies: {
+    authorize: OperatorAuthorizer;
+    ensureUnlocked: (authorizedPassphrase?: string) => Promise<string | undefined>;
+    validatePolicy?: typeof validateLiveAuthorizationPolicy;
+    mutate?: typeof mutateAuthorizationDefault;
+    databaseMutation?: PolicyDatabaseMutation;
+  },
+): Promise<{ defaultCustody: Exclude<AuthorizationDefault, "legacy-machine">; passphrase?: string }> {
+  (dependencies.validatePolicy ?? validateLiveAuthorizationPolicy)();
+  const verb = action === "lock" ? "Lock" : "Unlock";
+  const authorization = await dependencies.authorize(
+    `${verb} Keyclasp default custody: ${preview.machineToInteractive} machine to interactive, ` +
+    `${preview.interactiveToMachine} interactive to machine, ` +
+    `${preview.unchangedMachine + preview.unchangedInteractive} unchanged`,
+  );
+  const passphrase = action === "lock" || preview.interactiveToMachine > 0
+    ? await dependencies.ensureUnlocked(authorization.method === "passphrase" ? authorization.passphrase : undefined)
+    : undefined;
+  const defaultCustody = (dependencies.mutate ?? mutateAuthorizationDefault)(action, dependencies.databaseMutation);
+  return { defaultCustody, ...(passphrase === undefined ? {} : { passphrase }) };
+}
+
 export async function mutateAuthorizationRuleAuthorized(
   selector: AuthorizationSelector,
   action: AuthorizationMutation,
   dependencies: {
     authorize: OperatorAuthorizer;
-    ensureUnlocked: () => Promise<void>;
+    ensureUnlocked: (authorizedPassphrase?: string) => Promise<void>;
     validatePolicy?: typeof validateLiveAuthorizationPolicy;
     mutate?: typeof mutateAuthorizationRule;
     databaseMutation?: Parameters<typeof mutateAuthorizationRule>[2];
@@ -554,8 +756,8 @@ export async function mutateAuthorizationRuleAuthorized(
     .map((part) => part === undefined ? "*" : displayOperatorField(part))
     .join("/");
   const verb = action === "lock" ? "Lock" : action === "unlock" ? "Unlock" : "Inherit";
-  await dependencies.authorize(`${verb} Keyclasp authorization for ${target}`);
-  await dependencies.ensureUnlocked();
+  const authorization = await dependencies.authorize(`${verb} Keyclasp authorization for ${target}`);
+  await dependencies.ensureUnlocked(authorization.method === "passphrase" ? authorization.passphrase : undefined);
   return (dependencies.mutate ?? mutateAuthorizationRule)(selector, action, dependencies.databaseMutation);
 }
 
@@ -622,8 +824,12 @@ export function validateAuthorizationPolicyBackup(directory: string, vaultId: Bu
     document: path.join(directory, POLICY_FILE),
     anchor: path.join(directory, POLICY_ANCHOR_FILE),
   }, vaultId);
-  if (!loaded || loaded.generation !== expectedGeneration || loaded.documentHash !== expectedDocumentHash) {
-    throw new Error("Managed backup authorization policy does not match its database anchor.");
+  try {
+    if (!loaded || loaded.generation !== expectedGeneration || loaded.documentHash !== expectedDocumentHash) {
+      throw new Error("Managed backup authorization policy does not match its database anchor.");
+    }
+  } finally {
+    loaded?.key.fill(0);
   }
 }
 
@@ -635,7 +841,7 @@ export function recoverInterruptedAuthorizationPolicy(): boolean {
   const paths = policyPaths();
   if (!fs.existsSync(paths.pending)) return false;
   const descriptor = getVaultDescriptor();
-  recoverInterruptedPolicy(paths, descriptor.vaultId);
+  recoverInterruptedPolicy(paths, descriptor.vaultId)?.key.fill(0);
   return true;
 }
 
