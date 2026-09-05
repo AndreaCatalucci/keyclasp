@@ -66,10 +66,12 @@ keyclasp backup restore /secure/path/keyclasp-backup
 
 Both commands require operator authorization. A backup contains one consistent database snapshot, the complete key bundle, authorization policy, custody inventory, and a manifest authenticated by every data-key class used by records.
 
+- Backup creation requests only the classes present in its consistent inventory: machine-only does not prompt for an unused interactive key; mixed requests both; all-interactive requests only the interactive key. Linux machine-only management remains blocked by the platform authorization policy.
 - Mixed or machine-only backups require the source machine identity and restore only on that machine.
 - An all-interactive backup can restore on another supported machine with its passphrase. Restore creates a new target-machine key and keeps every record interactive.
-- Restore verifies the complete set before replacing live state. It never omits or reclassifies an unavailable machine record.
-- Durable journals make interrupted policy, migration, and restore work recoverable on the next exclusive command.
+- Emergency restore is dispatched before ordinary live-vault migration or journal recovery, so an authenticated backup can replace a damaged key, database, policy, or pending journal. No unsafe bypass is available: authorization and complete backup validation still precede live mutation.
+- Healthy restore copies the exact DB/WAL/SHM state, checkpoints and validates only that transaction-owned copy, then preserves the byte-identical raw live set as rollback material before publication. Proven damaged state is quarantined as owner-only evidence. Busy or changing live files stop without replacement.
+- Restore validates the published database, key classes, policy anchor, and every record before commit. Its per-operation journal makes publication, rollback, and cleanup restartable after repeated interruption.
 
 ## Projects, environments, rename, and bulk delete
 

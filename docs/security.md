@@ -45,9 +45,11 @@ Secret names, scopes, timestamps, custody classes, and policy metadata are plain
 
 One-key vault migration creates a consistent backup before mutation. A passphrase-wrapped legacy data key becomes the interactive key; effectively unlocked records move to a fresh machine key. A machine-wrapped legacy key remains the machine key; locked records require interactive enrollment before migration. Older binaries refuse the new format.
 
-Managed backups authenticate the database, complete key bundle, policy, manifest, and record-class inventory. Mixed or machine-only backups restore only with the source machine identity. All-interactive backups can restore on another supported machine with the passphrase; they receive a fresh target-machine key and remain interactive. Restore verifies all required authenticators before replacing live state and never drops an unavailable record.
+Managed backups authenticate the database, complete key bundle, policy, manifest, record-class inventory, and every encrypted record. Creation requests only the data-key classes required by the consistent snapshot and always follows operator authorization. Mixed or machine-only backups restore only with the source machine identity. All-interactive backups can restore on another supported machine with the passphrase; they receive a fresh target-machine key and remain interactive.
 
-Direct same-inode overwrite of an open SQLite database is unsupported. Managed restore serializes replacement through the lifecycle lock.
+Managed restore treats `vault.db`, WAL, and SHM as one live state. Healthy state is copied, then checkpointed and validated without mutating the raw live files; those exact raw bytes become rollback material. Damaged raw state and recognized pending journals are quarantined without using them as restore authority. The authenticated backup is reopened and fully validated before commit. Repeated interruption of publication, rollback, or cleanup resumes from authenticated pre/post file states.
+
+The lifecycle lock excludes cooperating Keyclasp processes, not arbitrary SQLite clients. Restore rejects observable busy or changing state, but an operator must stop every external client before starting it. Direct same-inode overwrite of an open SQLite database remains unsupported.
 
 ## Package boundary and dependencies
 

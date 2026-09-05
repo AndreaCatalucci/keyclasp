@@ -9,6 +9,36 @@ export interface OwnerOnlyPathOptions {
   access?: "owner-only" | "safe-parent";
 }
 
+export interface VerifiedOwnerOnlyPath {
+  device: number;
+  inode: number;
+  size: number;
+  mode: number;
+}
+
+/**
+ * Verify an existing path without repairing it. Recovery uses this before
+ * moving live files so an unsafe path is never made to look trustworthy by
+ * the restore operation itself.
+ */
+export function assertOwnerOnlyPath(filePath: string, options: OwnerOnlyPathOptions): VerifiedOwnerOnlyPath {
+  const expectedMode = options.kind === "directory" ? 0o700 : 0o600;
+  const before = fs.lstatSync(filePath);
+  assertSafeIdentity(before, options);
+  if (options.kind === "file" && before.nlink !== 1) {
+    throw new Error(`Unsafe ${options.label}: expected exactly one filesystem link.`);
+  }
+  if ((before.mode & 0o777) !== expectedMode) {
+    throw new Error(`Unsafe ${options.label}: expected owner-only mode ${expectedMode.toString(8)}.`);
+  }
+  if (process.platform === "darwin" && macOsAclEntries(filePath, options.label).length > 0) {
+    throw new Error(`Unsafe ${options.label}: access-control entries are not allowed.`);
+  }
+  const after = fs.lstatSync(filePath);
+  assertSameIdentity(before, after, options);
+  return { device: after.dev, inode: after.ino, size: after.size, mode: after.mode & 0o777 };
+}
+
 export function enforceOwnerOnlyPath(filePath: string, options: OwnerOnlyPathOptions): void {
   const access = options.access ?? "owner-only";
   const expectedMode = options.kind === "directory" ? 0o700 : 0o600;

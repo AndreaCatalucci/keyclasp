@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import Database from "better-sqlite3";
 import { initializeVault, getKey, closeDb, clearKey, encrypt, resolveSecret, storeSecret, unlockVault, writeLegacyV3KeyFileForTests } from "../src/vault.js";
+import { createManagedBackup } from "../src/recovery.js";
 
 const cliPath = path.join(process.cwd(), "dist", "cli.js");
 let vaultHome: string;
@@ -144,6 +145,36 @@ describe("CLI end-to-end flow", () => {
     expect(result.stderr).toMatch(/machine-only vaults fail closed/i);
     expect(result.stderr).not.toMatch(/decrypt|authentication tag/i);
     expect(result.stdout).not.toContain("secret-value");
+  });
+
+  it.runIf(process.platform === "linux")("dispatches authenticated emergency restore before parsing a damaged live key", () => {
+    const previous = process.env.KEYCLASP_HOME;
+    process.env.KEYCLASP_HOME = vaultHome;
+    closeDb();
+    clearKey();
+    initializeVault("emergency-passphrase");
+    unlockVault("emergency-passphrase");
+    storeSecret("app", "prod", "API_KEY", "restored-value", "interactive");
+    const backup = path.join(path.dirname(vaultHome), "emergency-backup");
+    createManagedBackup(backup);
+    closeDb();
+    clearKey();
+    fs.writeFileSync(path.join(vaultHome, ".keyclasp.key"), "corrupt", { mode: 0o600 });
+
+    const restored = run(["backup", "restore", backup], { input: "emergency-passphrase\n" });
+    expect(restored.status, restored.stderr).toBe(0);
+    expect(restored.stdout).toMatch(/backup restored/i);
+    clearKey();
+    unlockVault("emergency-passphrase");
+    expect(resolveSecret("app", "prod", "API_KEY")).toBe("restored-value");
+    closeDb();
+    clearKey();
+    fs.unlinkSync(path.join(vaultHome, ".keyclasp.key"));
+    const restoredWithoutLiveKey = run(["backup", "restore", backup], { input: "emergency-passphrase\n" });
+    expect(restoredWithoutLiveKey.status, restoredWithoutLiveKey.stderr).toBe(0);
+    expect(restoredWithoutLiveKey.stdout).toMatch(/backup restored/i);
+    if (previous === undefined) delete process.env.KEYCLASP_HOME;
+    else process.env.KEYCLASP_HOME = previous;
   });
 
   it("keeps one authenticated record identity across concurrent first writes", async () => {

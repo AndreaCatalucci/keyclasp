@@ -1,0 +1,83 @@
+{
+  "date": "2026-09-05",
+  "source_commit": "d94189b30fb5e52ee5f4eb6435e96fe865c13142",
+  "host": {
+    "platform": "darwin",
+    "architecture": "arm64",
+    "node": "v26.8.1",
+    "openssl": "3.6.4"
+  },
+  "tests": {
+    "passed": 474,
+    "skipped": 2,
+    "failed": 1,
+    "failure": "tests/biometric.test.ts:65: clean helper build differs from reviewed binary",
+    "qualification_linker_version": "27037.0",
+    "current_linker_version": "27037.1"
+  },
+  "dependency_audit": {
+    "vulnerabilities": {
+      "info": 0,
+      "low": 0,
+      "moderate": 0,
+      "high": 0,
+      "critical": 0,
+      "total": 0
+    },
+    "dependencies": {
+      "prod": 3,
+      "dev": 93,
+      "optional": 47,
+      "peer": 0,
+      "peerOptional": 0,
+      "total": 95
+    }
+  },
+  "custody_probe": {
+    "secureDelete": 0,
+    "currentClasses": {
+      "machine": 0,
+      "interactive": 500
+    },
+    "interactiveKeyUnlocked": false,
+    "recoveredWithoutPassphraseOrPreLockSnapshot": 50
+  },
+  "runtime_probe": {
+    "rawSecretEscaped": true,
+    "exitCode": 0,
+    "defaultCustody": "machine",
+    "freshProcessReadWithoutPassphrase": true,
+    "cliRestoreRejectedCorruptKey": true,
+    "sameBackupRestoresThroughLibrary": true,
+    "machineBackupFailsAfterAuthorization": true
+  },
+  "recovery_probe": {
+    "writerExitedBeforeClose": true,
+    "walPresentBeforeRestore": true,
+    "restoreReportedSuccess": true,
+    "walPresentAfterRestore": true,
+    "restoreReplayedWrongLiveValue": true,
+    "initialRestoreInterrupted": true,
+    "rollbackInterrupted": true,
+    "secondRecoveryRejected": true,
+    "rollbackJournalStillPresent": true
+  },
+  "source_sha256": {
+    "src/vault.ts": "97b97cc121bbe449e92b93d69d619fc232e4046af5f0aab04667b9c50b61bbe7",
+    "src/run.ts": "12aab8b1f6e80a24cb13f15195e3c1a620e6af5f1244618475b1d303cbdff935",
+    "src/cli.ts": "d45b9ce6ec9f4eeee16c96103881d5dbe9c278f10c33e6450562d0a66cb9297e",
+    "src/recovery.ts": "e1a871d43540c59de66102cf33ec19df91ba9930fa5bff28bdd4b9337a2ce57f",
+    "src/policy.ts": "5ca91a8fd783edb8cca6f3905c8b95d51bee8724824848ac99064b75fc7cb5ef",
+    "src/lifecycle-lock.ts": "7cc0ab61577a0e0ad18aa0fa1061b38b1cc9584e20bb660056620a593e46ff42",
+    "src/owner-only-path.ts": "b99e40b30c35740fdbf190979ec33e66e50fe2bd421c9428d724f171d81abd2b",
+    "src/biometric.ts": "21c5e47246262ef8359562403a16cb25cb778e7bea4c78aa415a4f95c70a9bc2",
+    "src/software/key-bundle.ts": "d1a5bafd35ca7d773c5457150b6ea15b10943c32dd18107ba8a15ed634dbb8aa",
+    "src/software/runtime.ts": "ff3af3f2acdbe601f18a92bfab97fd269eb15c0a93aa6bc6688ea70be60ddd7a",
+    "package.json": "6b2f4ee5baed766cc0f7acd6242c3b9f96e8b331f11a2ae91a31eb9de8ab12c5",
+    "package-lock.json": "14a8ae1f9227d8a634752797e1a6d37cae8d08ce24b8d51241f92efb5b057f5f",
+    ".github/workflows/software-beta.yml": "7cc781fbf4f26f4ffaeada6f15462e934f489bc0fabd9b9d66a60cac3f0a7f79"
+  },
+  "physical_authentication_exercised": false,
+  "production_vault_accessed": false,
+  "application_source_modified": false
+}

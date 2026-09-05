@@ -147,8 +147,9 @@ function documentHash(document: PolicyDocument): string {
 }
 
 function readJson<T>(filePath: string, label: string): T {
+  const encoded = fs.readFileSync(filePath, "utf8");
   try {
-    return JSON.parse(fs.readFileSync(filePath, "utf8")) as T;
+    return JSON.parse(encoded) as T;
   } catch {
     throw new Error(`Keyclasp ${label} is corrupt. Restore a managed backup before using the vault.`);
   }
