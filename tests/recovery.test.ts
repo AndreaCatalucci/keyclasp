@@ -81,19 +81,21 @@ describe("managed backup and restore", () => {
     expect(readAuthorizationState("app", "prod", "FUTURE_SECRET")).toBe("locked");
   });
 
-  it.runIf(process.platform === "linux")("ignores proc descriptors hidden by Linux ptrace policy", () => {
+  it.runIf(process.platform === "linux")("ignores proc process directories hidden by Linux ptrace policy", () => {
     initializeVault("");
-    const realReadlink = fs.readlinkSync.bind(fs);
-    const readlink = vi.spyOn(fs, "readlinkSync").mockImplementation(((target: fs.PathLike, options?: any) => {
-      if (String(target).startsWith("/proc/")) {
+    const realReaddir = fs.readdirSync.bind(fs);
+    const pid = String(process.pid);
+    const readdir = vi.spyOn(fs, "readdirSync").mockImplementation(((target: fs.PathLike, options?: any) => {
+      if (String(target) === "/proc") return [pid];
+      if (String(target) === `/proc/${pid}/fd`) {
         throw Object.assign(new Error("permission denied"), { code: "EACCES" });
       }
-      return realReadlink(target, options);
-    }) as typeof fs.readlinkSync);
+      return realReaddir(target, options);
+    }) as typeof fs.readdirSync);
     try {
       expect(() => assertNoExternalVaultClients(home)).not.toThrow();
     } finally {
-      readlink.mockRestore();
+      readdir.mockRestore();
     }
   });
 

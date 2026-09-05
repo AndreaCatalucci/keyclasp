@@ -41,6 +41,10 @@ export type VaultFileOperation = RenameOperation | UnlinkOperation;
 export type VaultFileFaultPoint = "before-mutation" | "after-mutation" | "after-completion";
 
 export class VaultWriterExclusionError extends Error {}
+
+function isUnobservableProcEntry(error: unknown): boolean {
+  return ["ENOENT", "EACCES", "EPERM"].includes((error as NodeJS.ErrnoException).code ?? "");
+}
 export class DamagedLiveDatabaseError extends Error {}
 
 function hashFile(filePath: string): string {
@@ -147,12 +151,12 @@ export function assertNoExternalVaultClients(vaultDir: string, relativeNames: re
         const processStat = fs.statSync(`/proc/${pid}`);
         if (process.getuid && processStat.uid !== process.getuid()) continue;
       } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+        if (isUnobservableProcEntry(error)) continue;
         throw new VaultWriterExclusionError("Keyclasp could not inspect a same-user process for open vault files.");
       }
       let descriptors: string[];
       try { descriptors = fs.readdirSync(fdDirectory); } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+        if (isUnobservableProcEntry(error)) continue;
         throw new VaultWriterExclusionError("Keyclasp could not inspect a same-user process for open vault files.");
       }
       for (const descriptor of descriptors) {
@@ -166,11 +170,10 @@ export function assertNoExternalVaultClients(vaultDir: string, relativeNames: re
           }
         } catch (error) {
           if (error instanceof VaultWriterExclusionError) throw error;
-          const code = (error as NodeJS.ErrnoException).code;
           // Linux may deny fd-link inspection across otherwise same-UID
           // processes (for example under ptrace restrictions). Such holders
           // are outside this documented observable-process guard.
-          if (code !== "ENOENT" && code !== "EACCES" && code !== "EPERM") {
+          if (!isUnobservableProcEntry(error)) {
             throw new VaultWriterExclusionError("Keyclasp could not inspect a same-user process descriptor for open vault files.");
           }
         }
