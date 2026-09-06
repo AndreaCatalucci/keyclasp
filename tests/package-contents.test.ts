@@ -17,7 +17,7 @@ describe("npm package contents", () => {
       fs.readFileSync(path.join(process.cwd(), "package.json"), "utf8"),
     );
 
-    expect(packageJson.version).toBe("0.2.0-beta.1");
+    expect(packageJson.version).toBe("0.2.0-beta.2");
     expect(packageJson.engines).toEqual({ node: "24.x || 26.x" });
     expect(packageJson.os).toEqual(["darwin", "linux"]);
     expect(packageJson.cpu).toEqual(["arm64", "x64"]);
@@ -32,7 +32,7 @@ describe("npm package contents", () => {
     );
     const lockfileBytes = fs.readFileSync(path.join(process.cwd(), "package-lock.json"));
     const lockfile = JSON.parse(lockfileBytes.toString("utf8"));
-    expect(bundledManifest.package).toBe("keyclasp@0.2.0-beta.1");
+    expect(bundledManifest.package).toBe("keyclasp@0.2.0-beta.2");
     expect(bundledManifest.lockfileSha256).toBe(
       crypto.createHash("sha256").update(lockfileBytes).digest("hex"),
     );

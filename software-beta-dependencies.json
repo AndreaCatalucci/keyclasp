@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "package": "keyclasp@0.2.0-beta.1",
-  "lockfileSha256": "14a8ae1f9227d8a634752797e1a6d37cae8d08ce24b8d51241f92efb5b057f5f",
+  "package": "keyclasp@0.2.0-beta.2",
+  "lockfileSha256": "2e2cc94b3b57f64c1e02cf1ccc2a5a84a873e2afd5daa90d3b662f473c8a8450",
   "dependencies": [
     {
       "location": "node_modules/better-sqlite3",
