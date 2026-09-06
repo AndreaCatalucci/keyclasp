@@ -134,7 +134,7 @@ try {
 
   const packageRoot = path.join(install, "node_modules", "keyclasp");
   const packageJson = JSON.parse(fs.readFileSync(path.join(packageRoot, "package.json"), "utf8"));
-  if (packageJson.version !== "0.2.0-beta.1") fail(`Installed version is ${String(packageJson.version)}.`);
+  if (packageJson.version !== "0.2.0-beta.2") fail(`Installed version is ${String(packageJson.version)}.`);
   if (JSON.stringify(packageJson.os) !== JSON.stringify(["darwin", "linux"])) fail("Installed OS allowlist is not frozen.");
   if (JSON.stringify(packageJson.cpu) !== JSON.stringify(["arm64", "x64"])) fail("Installed CPU allowlist is not frozen.");
   if (packageJson.engines?.node !== "24.x || 26.x") fail("Installed Node matrix is not frozen.");
@@ -195,7 +195,7 @@ try {
   const environment = { ...process.env, KEYCLASP_HOME: vaultHome };
   const version = run(process.execPath, [cli, "version"], { env: environment, cwd: root });
   requireSuccess(version, "installed version");
-  if (version.stdout.trim() !== "0.2.0-beta.1") fail(`Unexpected installed version output: ${version.stdout.trim()}`);
+  if (version.stdout.trim() !== "0.2.0-beta.2") fail(`Unexpected installed version output: ${version.stdout.trim()}`);
 
   const initialized = run(process.execPath, [cli, "init", "--machine-only"], { env: environment });
   requireSuccess(initialized, "explicit machine-only initialization");

@@ -1,6 +1,6 @@
 {
   "name": "keyclasp",
-  "version": "0.2.0-beta.1",
+  "version": "0.2.0-beta.2",
   "description": "Local encrypted credential vault for coding agents — secrets never touch agent context, only the process boundary",
   "engines": {
     "node": "24.x || 26.x"
