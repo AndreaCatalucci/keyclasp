@@ -2,7 +2,7 @@
 
 Scope: the software-vault operator authorization and trusted-child output-containment boundary on macOS and Linux. Hardware mode remains separate and status-only.
 
-Verification basis: the KC-W03 working tree based on revision `c0d96fc9f4fc79db4da44d64d8c9e48421d24b9f`, inspected through `src/cli.ts`, `src/runtime.ts`, `src/software/runtime.ts`, `src/run.ts`, `src/biometric.ts`, `src/owner-only-path.ts`, `native/macos-biometric/main.m`, `native/macos-biometric/build-config.json`, `scripts/build-macos-biometric-helper.mjs`, `keyclasp-macos-helper-candidate.json`, and focused runtime, biometric, package, and workflow-contract tests. This is source and local synthetic evidence, not an immutable release candidate or physical authorization receipt.
+Verification basis: KC-Q01 blocker-remediation implementation `e6e2de43b7d6a4168ab7a16278487fe20eb3b100`, inspected through `src/cli.ts`, `src/runtime.ts`, `src/software/runtime.ts`, `src/run.ts`, `src/biometric.ts`, `src/owner-only-path.ts`, `native/macos-biometric/main.m`, `native/macos-biometric/build-config.json`, `scripts/build-macos-biometric-helper.mjs`, `keyclasp-macos-helper-candidate.json`, the complete source suite, and all eight Linux diagnostic-package cells. Linux supervision now treats zombie-only process groups as terminated while continuing to wait for any live member. Physical authorization was not executed, and this source basis is not a qualification or physical receipt.
 
 ```mermaid
 flowchart LR

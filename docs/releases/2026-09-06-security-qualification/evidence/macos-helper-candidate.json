@@ -1,0 +1,90 @@
+{
+  "schemaVersion": 2,
+  "status": "local-source-candidate",
+  "qualified": false,
+  "sourceRevision": "31aac732317e40597eeee02695b019a2045228ad",
+  "bundle": "Keyclasp.app",
+  "bundleIdentifier": "dev.keyclasp.biometric",
+  "architecture": "arm64",
+  "designatedRequirement": "cdhash H\"f04f8ea49fc470e21ad29b85abcd5f7850382650\"",
+  "signature": {
+    "kind": "ad-hoc",
+    "hardenedRuntime": true,
+    "entitlements": []
+  },
+  "buildInputs": {
+    "sdk": "macosx",
+    "deploymentTarget": "13.0",
+    "compiler": "/usr/bin/clang",
+    "compileFlags": [
+      "-O2",
+      "-fobjc-arc",
+      "-fstack-protector-strong",
+      "-fno-omit-frame-pointer",
+      "-Wall",
+      "-Wextra",
+      "-Werror"
+    ],
+    "frameworks": [
+      "Foundation",
+      "AppKit",
+      "LocalAuthentication"
+    ],
+    "signing": {
+      "identity": "-",
+      "timestamp": "none",
+      "hardenedRuntime": true,
+      "entitlements": []
+    }
+  },
+  "toolchain": {
+    "developerDirectory": "/Library/Developer/CommandLineTools",
+    "xcodeVersion": null,
+    "xcodeUnavailable": "Full Xcode is unavailable; the active developer directory provides Command Line Tools only.",
+    "clangPath": "/usr/bin/clang",
+    "clangVersion": "Apple clang version 21.0.0 (clang-2100.3.33.1)",
+    "linkerPath": "/usr/bin/ld",
+    "linkerProject": "ld-27037.1",
+    "sdkPath": "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
+    "sdkVersion": "27.0",
+    "sdkBuildVersion": "26A5419a",
+    "codesignPath": "/usr/bin/codesign",
+    "codesignProject": "codesign-135.0.6"
+  },
+  "reproducibility": {
+    "comparedBeforeSigning": true,
+    "byteIdentical": true,
+    "unsignedExecutableSha256": "c9aaafcc933ec880c2afc313fa64cba7f5f30471b89b604ad49d3648e40a7ddd"
+  },
+  "sourceFiles": [
+    {
+      "path": "native/macos-biometric/Info.plist",
+      "sha256": "c63b4af98be112a4e2d7fa06fcb460e74baf9cb9628700f74a8f7d68d8fe12c7"
+    },
+    {
+      "path": "native/macos-biometric/build-config.json",
+      "sha256": "dc68b3f042ffa0251f7f22ea6b4d59d1b315dd866815385f5ddecf2252453925"
+    },
+    {
+      "path": "native/macos-biometric/main.m",
+      "sha256": "c100fc70dab484db1107e363ac7e8647f654cdcedb8be78dc2b92e95ed21f207"
+    }
+  ],
+  "bundleFiles": [
+    {
+      "path": "native/Keyclasp.app/Contents/_CodeSignature/CodeResources",
+      "sha256": "6686de10a28a2fe11b36cbb86dcbacc827cfc4ea116b4dabf1845e5aee629e9b",
+      "mode": 384
+    },
+    {
+      "path": "native/Keyclasp.app/Contents/Info.plist",
+      "sha256": "c63b4af98be112a4e2d7fa06fcb460e74baf9cb9628700f74a8f7d68d8fe12c7",
+      "mode": 420
+    },
+    {
+      "path": "native/Keyclasp.app/Contents/MacOS/keyclasp-biometric",
+      "sha256": "f0e8ecfea105db34fce8e812e2cda05763c644f55403d501de4be927b1337a65",
+      "mode": 493
+    }
+  ]
+}
