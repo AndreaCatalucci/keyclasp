@@ -10,7 +10,7 @@ This matrix is frozen for `0.2.0-beta.1`.
 | Windows | Any | Unsupported; install and stateful use fail closed | Not qualified |
 | Other platforms | Any | Unsupported; stateful use fails closed | Not qualified |
 
-Node 24 is the current LTS line. Node 26 is the current release line at beta qualification. Node 25 is end-of-life and excluded. The package engine range is exact: `24.x || 26.x`.
+Node 24 is the current LTS line. Node 26 is the current release line at beta qualification. Node 25 is end-of-life and excluded. The package engine range is exact: `24.x || 26.x`; both the install hook and stateful CLI reject other Node releases before vault creation.
 
 The package carries one N-API `better-sqlite3` prebuild for each supported OS-and-architecture pair and enforces their SHA-256 values. The same reviewed binaries cover Node 24 and 26. The Linux qualification is for glibc; Alpine and other musl environments fail closed outside the beta matrix. An explicit source build from the bundled reviewed sources requires a supported compiler toolchain and is recorded separately. Physical authorization qualification remains limited to the host architectures named in the release receipt.
 

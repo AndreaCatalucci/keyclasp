@@ -860,7 +860,7 @@ async function main(): Promise<void> {
         console.log(`  Authorization: ${authorization.state} (${authorization.locked} locked, ${authorization.unlocked} unlocked; future ${authorization.scopeDefault})`);
         console.log(`  Default:    ${authorizationDefault === "legacy-machine" ? "legacy machine default (explicit choice required)" : `${authorizationDefault} custody`}`);
         console.log(`  Secrets:    ${scopedCount} in scope`);
-        console.log("  Values:     not displayed by status");
+        console.log("  Values:     not inspected by status");
         break;
       }
 

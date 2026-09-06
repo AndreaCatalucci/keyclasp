@@ -2,7 +2,7 @@
   "schemaVersion": 2,
   "status": "local-source-candidate",
   "qualified": false,
-  "sourceRevision": "c0d96fc9f4fc79db4da44d64d8c9e48421d24b9f",
+  "sourceRevision": "31aac732317e40597eeee02695b019a2045228ad",
   "bundle": "Keyclasp.app",
   "bundleIdentifier": "dev.keyclasp.biometric",
   "architecture": "arm64",

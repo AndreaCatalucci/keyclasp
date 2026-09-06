@@ -8,3 +8,4 @@ dist
 .next
 .worktrees
 native/keyclasp-core/target
+/docs/releases/2026-09-06-security-qualification/candidate/*.tgz
