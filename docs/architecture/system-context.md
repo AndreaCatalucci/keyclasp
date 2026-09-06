@@ -2,7 +2,7 @@
 
 Scope: the current Keyclasp software-vault boundary for interactive and unattended custody, trusted child execution, and managed backups. Native hardware custody remains unavailable.
 
-Verification basis: KC-W02 working tree based on `c0d96fc9f4fc79db4da44d64d8c9e48421d24b9f`; inspected `src/cli.ts`, `src/policy.ts`, `src/vault.ts`, `src/software/key-bundle.ts`, `src/vault-files.ts`, `src/recovery.ts`, `src/software/runtime.ts`, the custody/default/backup regressions, and current user and agent guidance. The source verification result is recorded in the canonical production-readiness plan.
+Verification basis: KC-Q01 blocker-remediation implementation `e6e2de43b7d6a4168ab7a16278487fe20eb3b100`; inspected `src/cli.ts`, `src/platform.ts`, `scripts/install-native-binding.mjs`, `src/policy.ts`, `src/vault.ts`, `src/software/key-bundle.ts`, `src/vault-files.ts`, `src/recovery.ts`, `src/software/runtime.ts`, the complete source suite, and the diagnostic package matrix. The view matches the current combined implementation, including install-time and runtime rejection outside Node 24 and 26. This source basis is not a replacement qualification receipt.
 
 ```mermaid
 C4Context

@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import fs from "node:fs";
 import os from "node:os";
 import { StringDecoder } from "node:string_decoder";
 import path from "node:path";
@@ -422,8 +423,11 @@ async function executePreparedRun(
 function reportSpawnError(outcome: RunOutcome, writeStderr: (chunk: string) => void): void {
   if (outcome.kind !== "error" || !outcome.error) return;
   const code = (outcome.error as NodeJS.ErrnoException).code;
-  const suffix = typeof code === "string" ? ` (${code})` : "";
-  writeStderr(`Failed to start child command${suffix}.\n`);
+  if (typeof code === "string") {
+    writeStderr(`Failed to start child command (${code}).\n`);
+  } else {
+    writeStderr(`Child command supervision failed: ${outcome.error.message}\n`);
+  }
 }
 
 function shellCommandString(commandArgs: string[]): string | null {
@@ -451,7 +455,13 @@ function spawnRaw(commandArgs: string[], env: NodeJS.ProcessEnv): Promise<RunOut
     });
     child.on("close", async (code, signal) => {
       const relayedSignal = relay.signal;
-      await relay.waitForTermination();
+      try {
+        await relay.waitForTermination();
+      } catch (error) {
+        relay.cleanup();
+        resolve({ kind: "error", exitCode: 1, error: error as Error });
+        return;
+      }
       relay.cleanup();
       resolve({ kind: "exit", exitCode: exitCodeForClose(code, relayedSignal ?? signal) });
     });
@@ -543,19 +553,21 @@ function spawnGuarded(
         if (finalStderr.leaked) handleLeak();
       }
 
-      let terminationFailure = false;
+      let terminationError: Error | null = null;
       try {
         await Promise.all([relay.waitForTermination(), leakTermination ?? Promise.resolve()]);
-      } catch {
-        terminationFailure = true;
+      } catch (error) {
+        terminationError = error as Error;
       }
       relay.cleanup();
 
       if (leakDetected) {
-        if (terminationFailure) {
+        if (terminationError) {
           writeStderr("ERROR: could not confirm that every supervised descendant terminated.\n");
         }
         resolveOnce({ kind: "leak", exitCode: 2 });
+      } else if (terminationError) {
+        resolveOnce({ kind: "error", exitCode: 1, error: terminationError });
       } else {
         resolveOnce({ kind: "exit", exitCode: exitCodeForClose(code, relayedSignal ?? signal) });
       }
@@ -586,26 +598,66 @@ async function terminateChildGroup(
 ): Promise<void> {
   signalChildTree(child, signal);
   if (process.platform === "win32" || child.pid === undefined) return;
-  const group = -child.pid;
+  const groupId = child.pid;
   const forceAt = Date.now() + graceMilliseconds;
+  const failAt = forceAt + 2_000;
   let forced = false;
   while (true) {
-    try {
-      process.kill(group, 0);
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code === "ESRCH") return;
-      if (code === "EPERM") {
-        throw new Error("The supervised process group still exists but cannot be signalled by this user.");
-      }
-      throw error;
-    }
+    if (!processGroupHasLiveMembers(groupId)) return;
     if (!forced && Date.now() >= forceAt) {
       forced = true;
       signalChildTree(child, "SIGKILL");
     }
+    if (forced && Date.now() >= failAt) {
+      throw new Error("Could not confirm that every supervised descendant terminated after SIGKILL.");
+    }
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
+}
+
+function processGroupHasLiveMembers(groupId: number): boolean {
+  try {
+    process.kill(-groupId, 0);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ESRCH") return false;
+    if (code === "EPERM") {
+      throw new Error("The supervised process group still exists but cannot be signalled by this user.");
+    }
+    throw error;
+  }
+
+  if (process.platform !== "linux") return true;
+  const procState = inspectLinuxProcessGroup(groupId);
+  return procState ?? true;
+}
+
+function inspectLinuxProcessGroup(groupId: number): boolean | null {
+  let foundMember = false;
+  let inspectionIncomplete = false;
+  try {
+    for (const entry of fs.readdirSync("/proc", { withFileTypes: true })) {
+      if (!entry.isDirectory() || !/^\d+$/.test(entry.name)) continue;
+      let stat: string;
+      try {
+        stat = fs.readFileSync(`/proc/${entry.name}/stat`, "utf8");
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") inspectionIncomplete = true;
+        continue;
+      }
+      const commandEnd = stat.lastIndexOf(")");
+      if (commandEnd === -1) continue;
+      const fields = stat.slice(commandEnd + 1).trim().split(/\s+/);
+      const state = fields[0];
+      const processGroup = Number(fields[2]);
+      if (processGroup !== groupId) continue;
+      foundMember = true;
+      if (state !== "Z" && state !== "X") return true;
+    }
+  } catch {
+    return null;
+  }
+  return foundMember && !inspectionIncomplete ? false : null;
 }
 
 function installTerminationRelay(child: ReturnType<typeof spawn>): {

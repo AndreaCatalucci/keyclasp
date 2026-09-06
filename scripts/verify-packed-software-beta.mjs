@@ -22,6 +22,30 @@ function requireSuccess(result, label) {
   if (result.status !== 0) fail(`${label} failed (${String(result.status)}): ${result.stderr}`);
 }
 
+function shellQuote(value) {
+  return `'${value.replaceAll("'", `'\\''`)}'`;
+}
+
+function processIsRunning(pid) {
+  try {
+    process.kill(pid, 0);
+  } catch (error) {
+    if (error?.code === "ESRCH") return false;
+    throw error;
+  }
+  if (process.platform !== "linux") return true;
+  try {
+    const stat = fs.readFileSync(`/proc/${pid}/stat`, "utf8");
+    const commandEnd = stat.lastIndexOf(")");
+    if (commandEnd === -1) return true;
+    const state = stat.slice(commandEnd + 1).trim().split(/\s+/, 1)[0];
+    return state !== "Z" && state !== "X";
+  } catch (error) {
+    if (error?.code === "ENOENT") return false;
+    return true;
+  }
+}
+
 function collectInstalledLocations(packageRoot, nodeModules = path.join(packageRoot, "node_modules"), prefix = "node_modules", output = []) {
   if (!fs.existsSync(nodeModules)) return output;
   for (const entry of fs.readdirSync(nodeModules, { withFileTypes: true })) {
@@ -118,11 +142,14 @@ try {
     fail("Installed package does not bundle exactly the reviewed better-sqlite3 production tree.");
   }
   const dependencyManifest = JSON.parse(fs.readFileSync(path.join(packageRoot, "software-beta-dependencies.json"), "utf8"));
-  const biometricManifest = JSON.parse(fs.readFileSync(path.join(packageRoot, "software-beta-macos-biometric.json"), "utf8"));
+  const biometricManifest = JSON.parse(fs.readFileSync(path.join(packageRoot, "keyclasp-macos-helper-candidate.json"), "utf8"));
   if (biometricManifest.bundle !== "Keyclasp.app" ||
       biometricManifest.bundleIdentifier !== "dev.keyclasp.biometric" ||
       biometricManifest.architecture !== "arm64" ||
-      biometricManifest.signature !== "ad-hoc") {
+      biometricManifest.signature?.kind !== "ad-hoc" ||
+      biometricManifest.signature?.hardenedRuntime !== true ||
+      biometricManifest.signature?.entitlements?.length !== 0 ||
+      biometricManifest.sourceRevision !== "31aac732317e40597eeee02695b019a2045228ad") {
     fail("The installed Touch ID helper manifest does not match the reviewed Keyclasp identity.");
   }
   for (const descriptor of biometricManifest.bundleFiles) {
@@ -170,13 +197,28 @@ try {
   requireSuccess(version, "installed version");
   if (version.stdout.trim() !== "0.2.0-beta.1") fail(`Unexpected installed version output: ${version.stdout.trim()}`);
 
-  const initialized = run(process.execPath, [cli, "init"], { env: environment, input: "\n" });
-  requireSuccess(initialized, "fresh machine-only initialization");
+  const initialized = run(process.execPath, [cli, "init", "--machine-only"], { env: environment });
+  requireSuccess(initialized, "explicit machine-only initialization");
   const stored = run(process.execPath, [cli, "set", "AGENT_TOKEN", "--project", "agent.project", "--environment", "beta"], {
     env: environment,
     input: "agent-workflow-secret\n",
   });
   requireSuccess(stored, "fresh secret storage");
+  const overlapStored = run(process.execPath, [cli, "set", "OVERLAP_TOKEN", "--project", "agent.project", "--environment", "beta"], {
+    env: environment,
+    input: "abcd123a\n",
+  });
+  requireSuccess(overlapStored, "self-overlapping output canary storage");
+  for (const stream of ["stdout", "stderr"]) {
+    const leak = run(process.execPath, [
+      cli, "run", "--project", "agent.project", "--environment", "beta", "--env", "OVERLAP_TOKEN", "--",
+      process.execPath, "-e", `process.${stream}.write(process.env.OVERLAP_TOKEN)`,
+    ], { env: environment });
+    const transcript = `${leak.stdout}\n${leak.stderr}`;
+    if (leak.status !== 2 || transcript.includes("abcd123a") || !transcript.includes("[KEYCLASP_REDACTED]")) {
+      fail(`The ${stream} self-overlap canary was not contained with exit code 2.`);
+    }
+  }
 
   const metacharacters = "literal ; $() ' 🌨";
   const named = run(process.execPath, [
@@ -228,6 +270,7 @@ try {
   ], { env: environment });
   if (signalled.status !== 143) fail(`Guarded child SIGTERM returned ${String(signalled.status)} instead of 143.`);
 
+  const deferredFailures = [];
   async function verifyWrapperSignalRelay(label, extraRunArgs = []) {
     const readyPath = path.join(root, `${label}-ready`);
     const terminatedPath = path.join(root, `${label}-terminated`);
@@ -261,19 +304,26 @@ try {
     }
     if (!fs.existsSync(readyPath)) {
       wrapper.kill("SIGKILL");
-      fail(`${label} child did not become ready: ${stderr}`);
+      deferredFailures.push(`${label} child did not become ready: ${stderr}`);
+      return;
     }
     wrapper.kill("SIGTERM");
-    const result = await wrapperResult;
+    const result = await Promise.race([
+      wrapperResult,
+      new Promise((resolve) => setTimeout(() => resolve({ status: null, signal: null, timeout: true }), 10_000)),
+    ]);
+    if (result.timeout) {
+      wrapper.kill("SIGKILL");
+      deferredFailures.push(`${label} did not finish child-process-group supervision within 10 seconds: ${JSON.stringify({ stdout, stderr })}`);
+      return;
+    }
     if (result.status !== 143 || result.signal !== null || !fs.existsSync(terminatedPath)) {
-      fail(`${label} did not relay SIGTERM and await its child process group: ${JSON.stringify({ result, stdout, stderr })}`);
+      deferredFailures.push(`${label} did not relay SIGTERM and await its child process group: ${JSON.stringify({ result, stdout, stderr })}`);
+      return;
     }
     const childPid = Number(fs.readFileSync(readyPath, "utf8"));
-    try {
-      process.kill(childPid, 0);
-      fail(`${label} left child ${childPid} running after wrapper exit.`);
-    } catch (error) {
-      if (error?.code !== "ESRCH") throw error;
+    if (processIsRunning(childPid)) {
+      deferredFailures.push(`${label} left child ${childPid} running after wrapper exit.`);
     }
   }
   await verifyWrapperSignalRelay("guarded-wrapper-signal");
@@ -296,12 +346,158 @@ try {
   const policy = await import(pathToFileURL(path.join(dist, "policy.js")));
   const recovery = await import(pathToFileURL(path.join(dist, "recovery.js")));
 
+  const custodyHome = path.join(root, "custody remanence vault");
+  process.env.KEYCLASP_HOME = custodyHome;
+  vault.closeDb();
+  vault.clearKey();
+  vault.setMachineIdentityForTests({ stable: Buffer.alloc(32, 41) });
+  vault.initializeVault("custody-passphrase");
+  for (let index = 0; index < 500; index += 1) {
+    vault.storeSecret("custody", "prod", `API_KEY_${index}`, `synthetic-value-${index}-${"a".repeat(60)}`, "machine");
+  }
+  if (vault.getDb().pragma("secure_delete", { simple: true }) !== 1) fail("F1 secure_delete is not enabled.");
+  policy.mutateAuthorizationRule({ project: "custody", environment: "prod" }, "lock", (db, rules) => {
+    vault.transitionRecordCustody(db, rules, policy.evaluateAuthorizationRules);
+  });
+  vault.closeDb();
+  vault.clearKey();
+  const custodyProbe = spawnSync(process.execPath, ["--input-type=module", "-e", `
+    import fs from "node:fs";
+    import crypto from "node:crypto";
+    import * as vault from ${JSON.stringify(pathToFileURL(path.join(dist, "vault.js")).href)};
+    vault.setMachineIdentityForTests({ stable: Buffer.alloc(32, 41) });
+    const raw = Buffer.concat(["vault.db", "vault.db-wal", "vault.db-shm"].filter((name) => fs.existsSync(process.env.KEYCLASP_HOME + "/" + name)).map((name) => fs.readFileSync(process.env.KEYCLASP_HOME + "/" + name)));
+    const key = vault.getKey();
+    const vaultId = vault.getVaultDescriptor().vaultId;
+    const current = vault.getDb().prepare("SELECT * FROM secrets").all();
+    let recovered = 0;
+    for (const row of current) {
+      const marker = Buffer.concat([row.record_id, Buffer.from("secretmachine")]);
+      let offset = raw.indexOf(marker);
+      while (offset >= 0) {
+        const start = offset + marker.length;
+        const length = row.encrypted_value.length;
+        try {
+          const decipher = crypto.createDecipheriv("aes-256-gcm", key, raw.subarray(start + length, start + length + 12), { authTagLength: 16 });
+          decipher.setAAD(vault.buildRecordAssociatedData({ vaultId, recordId: row.record_id, project: row.project, environment: row.environment, name: row.name, keyClass: "machine" }));
+          decipher.setAuthTag(raw.subarray(start + length + 12, start + length + 28));
+          const plaintext = Buffer.concat([decipher.update(raw.subarray(start, start + length)), decipher.final()]).toString();
+          if (plaintext === "synthetic-value-" + row.name.slice(8) + "-" + "a".repeat(60)) recovered += 1;
+          break;
+        } catch {}
+        offset = raw.indexOf(marker, offset + 1);
+      }
+    }
+    const classes = vault.summarizeKeyClasses();
+    process.stdout.write(JSON.stringify({ recovered, classes }));
+    vault.closeDb();
+    vault.clearKey();
+  `], { env: { PATH: process.env.PATH, KEYCLASP_HOME: custodyHome }, encoding: "utf8", timeout: 60_000 });
+  requireSuccess(custodyProbe, "F1 fresh-process custody-remanence probe");
+  const custodyResult = JSON.parse(custodyProbe.stdout);
+  if (custodyResult.recovered !== 0 || custodyResult.classes.machine !== 0 || custodyResult.classes.interactive !== 500) {
+    fail(`F1 custody-remanence regression failed: ${custodyProbe.stdout}`);
+  }
+  vault.closeDb();
+  vault.clearKey();
+  vault.setMachineIdentityForTests(null);
+
+  const walHome = path.join(root, "WAL restore vault");
+  const walBackup = path.join(root, "WAL restore backup");
+  process.env.KEYCLASP_HOME = walHome;
+  vault.setMachineIdentityForTests({ stable: Buffer.alloc(32, 3) });
+  vault.initializeVault("");
+  vault.storeSecret("restore", "prod", "TOKEN", "backup-value");
+  recovery.createManagedBackup(walBackup);
+  vault.closeDb();
+  vault.clearKey();
+  const abruptWriter = spawnSync(process.execPath, ["--input-type=module", "-e", [
+    `import * as vault from ${JSON.stringify(pathToFileURL(path.join(dist, "vault.js")).href)};`,
+    "vault.setMachineIdentityForTests({ stable: Buffer.alloc(32, 3) });",
+    "vault.storeSecret('restore', 'prod', 'TOKEN', 'live-value');",
+    "process.exit(23);",
+  ].join("\n")], { env: { ...process.env, KEYCLASP_HOME: walHome }, encoding: "utf8", timeout: 30_000 });
+  if (abruptWriter.status !== 23 || !fs.existsSync(path.join(walHome, "vault.db-wal"))) fail("F3 could not create the abrupt-writer WAL fixture.");
+  recovery.restoreManagedBackup(walBackup);
+  if (vault.resolveSecret("restore", "prod", "TOKEN") !== "backup-value") fail("F3 restore replayed stale live WAL state.");
+  vault.closeDb();
+  vault.clearKey();
+
+  const restartHome = path.join(root, "restartable rollback vault");
+  const restartBackup = path.join(root, "restartable rollback backup");
+  process.env.KEYCLASP_HOME = restartHome;
+  vault.initializeVault("");
+  vault.storeSecret("restore", "prod", "TOKEN", "backup-value");
+  recovery.createManagedBackup(restartBackup);
+  vault.storeSecret("restore", "prod", "TOKEN", "live-value");
+  recovery.setRestoreFaultForTests("crash-after-all-published");
+  let restoreInterrupted = false;
+  try {
+    recovery.restoreManagedBackup(restartBackup);
+  } catch (error) {
+    restoreInterrupted = /complete staged publication/.test(String(error?.message));
+  } finally {
+    recovery.setRestoreFaultForTests(null);
+  }
+  if (!restoreInterrupted || !recovery.recoverInterruptedManagedRestore() || vault.resolveSecret("restore", "prod", "TOKEN") !== "live-value") {
+    fail("F4 interrupted rollback did not converge to the authenticated live state.");
+  }
+  vault.closeDb();
+  vault.clearKey();
+
+  const machineBackupHome = path.join(root, "machine-only authorized backup vault");
+  process.env.KEYCLASP_HOME = machineBackupHome;
+  vault.initializeVault("");
+  vault.storeSecret("backup", "prod", "TOKEN", "machine-value");
+  let interactiveUnlockRequested = false;
+  await recovery.createManagedBackupAuthorized(path.join(root, "machine-only authorized backup"), {
+    authorize: async () => undefined,
+    ensureUnlocked: async () => {
+      interactiveUnlockRequested = true;
+      throw new Error("Interactive custody should not be requested for a machine-only backup.");
+    },
+  });
+  if (interactiveUnlockRequested) fail("F6 machine-only backup requested an interactive unlock.");
+  vault.closeDb();
+  vault.clearKey();
+  vault.setMachineIdentityForTests(null);
+
+  if (process.platform === "linux") {
+    const emergencyHome = path.join(root, "emergency restore vault");
+    const emergencyBackup = path.join(root, "emergency restore backup");
+    process.env.KEYCLASP_HOME = emergencyHome;
+    vault.initializeVault("emergency-passphrase");
+    vault.unlockVault("emergency-passphrase");
+    vault.storeSecret("emergency", "prod", "TOKEN", "restored-value", "interactive");
+    recovery.createManagedBackup(emergencyBackup);
+    vault.closeDb();
+    vault.clearKey();
+    fs.writeFileSync(path.join(emergencyHome, ".keyclasp.key"), "corrupt", { mode: 0o600 });
+    const emergencyCommand = [process.execPath, cli, "backup", "restore", emergencyBackup].map(shellQuote).join(" ");
+    const emergencyRestore = spawnSync("/usr/bin/script", [
+      "--quiet", "--return", "--flush", "--echo", "never", "--command", emergencyCommand, "/dev/null",
+    ], {
+      cwd: root,
+      encoding: "utf8",
+      env: { ...process.env, KEYCLASP_HOME: emergencyHome },
+      input: "emergency-passphrase\n",
+      stdio: ["pipe", "pipe", "pipe"],
+      timeout: 30_000,
+    });
+    requireSuccess(emergencyRestore, "F5 CLI emergency restore with a corrupt live key");
+    if (!/backup restored/i.test(emergencyRestore.stdout)) fail("F5 CLI emergency restore did not report success.");
+    vault.unlockVault("emergency-passphrase");
+    if (vault.resolveSecret("emergency", "prod", "TOKEN") !== "restored-value") fail("F5 CLI emergency restore changed the restored value.");
+    vault.closeDb();
+    vault.clearKey();
+  }
+
   const legacyHome = path.join(root, "legacy one-key vault");
   process.env.KEYCLASP_HOME = legacyHome;
   vault.closeDb();
   vault.clearKey();
   vault.initializeVault("");
-  const legacyKey = vault.getKey();
+  const legacyKey = Buffer.from(vault.getKey());
   vault.writeLegacyV3KeyFileForTests(legacyKey, "");
   vault.closeDb();
   const legacyDb = new Database(path.join(legacyHome, "vault.db"));
@@ -311,6 +507,9 @@ try {
     .run("migration", "beta", "LEGACY_TOKEN", encrypted.encrypted, encrypted.iv, encrypted.authTag);
   legacyDb.close();
   vault.clearKey();
+  for (const legacyAbsentPath of ["strict-policy.v1.json", ".strict-policy.key", "strict-policy-audit.jsonl", ".strict-policy.pending"]) {
+    fs.rmSync(path.join(legacyHome, legacyAbsentPath), { force: true });
+  }
   const migrated = run(process.execPath, [
     reinstalledCli, "run", "--project", "migration", "--environment", "beta", "--env", "LEGACY_TOKEN", "--",
     process.execPath, "-e", "process.exit(process.env.LEGACY_TOKEN === 'migrated-value' ? 0 : 9)",
@@ -393,6 +592,7 @@ try {
 
   vault.closeDb();
   vault.clearKey();
+  if (deferredFailures.length > 0) fail(deferredFailures.join("\n"));
   console.log(JSON.stringify({
     result: "PASS",
     platform: process.platform,
@@ -401,7 +601,7 @@ try {
     nativeInstallMode,
     sha256,
     version: packageJson.version,
-    checks: ["install", "fresh-init", "named-run", process.platform === "linux" ? "machine-only-authorization-fail-closed" : "physical-authorization-covered-separately", "uninstall-reinstall", "unusual-paths", "metacharacters", "signals", "native-addon", "one-key-migration", "lock-unlock-inherit", "mixed-backup-restore", "portable-restore", "interrupted-write-recovery"],
+    checks: ["install", "fresh-init", "named-run", "F1-custody-remanence", "F2-output-containment", "F3-WAL-restore", "F4-restartable-rollback", ...(process.platform === "linux" ? ["F5-CLI-emergency-restore"] : []), "F6-machine-only-backup", process.platform === "linux" ? "machine-only-authorization-fail-closed" : "physical-authorization-covered-separately", "uninstall-reinstall", "unusual-paths", "metacharacters", "signals", "native-addon", "one-key-migration", "lock-unlock-inherit", "mixed-backup-restore", "portable-restore", "interrupted-write-recovery"],
   }));
 } finally {
   delete process.env.KEYCLASP_HOME;

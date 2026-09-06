@@ -122,6 +122,18 @@ function assertQualificationToolchain(toolchain) {
   }
 }
 
+function assertRecordedSourceRevision(metadata) {
+  if (!/^[a-f0-9]{40}$/.test(metadata.sourceRevision ?? "")) {
+    throw new Error("The helper candidate metadata does not name a complete source revision.");
+  }
+  const ancestor = execute("/usr/bin/git", [
+    "-C", repository, "merge-base", "--is-ancestor", metadata.sourceRevision, "HEAD",
+  ]);
+  if (ancestor.status !== 0 || ancestor.error) {
+    throw new Error("The helper candidate source revision is not an ancestor of the current source.");
+  }
+}
+
 function buildUnsignedBundle(root, sdkPath) {
   const bundle = path.join(root, "Keyclasp.app");
   const contents = path.join(bundle, "Contents");
@@ -232,10 +244,14 @@ try {
   if (sourceCheck) {
     console.log("Compiled and hardened the Touch ID helper from explicit source inputs; exact candidate comparison remains release-only.");
   } else if (check) {
+    const recordedMetadata = JSON.parse(fs.readFileSync(metadataPath, "utf8"));
+    assertRecordedSourceRevision(recordedMetadata);
+    metadata.sourceRevision = recordedMetadata.sourceRevision;
+    const checkedMetadataText = `${JSON.stringify(metadata, null, 2)}\n`;
     if (JSON.stringify(describeTree(first.bundle, "native/Keyclasp.app")) !== JSON.stringify(describeTree(outputPath, "native/Keyclasp.app"))) {
       throw new Error("The candidate Keyclasp.app differs from two clean builds using the declared qualification toolchain.");
     }
-    if (fs.readFileSync(metadataPath, "utf8") !== metadataText) {
+    if (fs.readFileSync(metadataPath, "utf8") !== checkedMetadataText) {
       throw new Error("keyclasp-macos-helper-candidate.json does not match the declared helper build inputs and output.");
     }
     console.log(`Verified two clean unsigned builds and the packaged candidate metadata for ${outputPath}`);

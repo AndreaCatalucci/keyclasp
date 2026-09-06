@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "package": "keyclasp@0.2.0-beta.1",
+  "lockfileSha256": "14a8ae1f9227d8a634752797e1a6d37cae8d08ce24b8d51241f92efb5b057f5f",
+  "dependencies": [
+    {
+      "location": "node_modules/better-sqlite3",
+      "name": "better-sqlite3",
+      "version": "13.0.3",
+      "integrity": "sha512-RbOBxmLBG8uvFUc15X9+9SFemKcQ0WBuISBVkpuiaUB2qblC8UWlHEjdWVoZ8AdhSwmoEgsiXKfopX0CQxaACQ==",
+      "optional": false
+    },
+    {
+      "location": "node_modules/node-addon-api",
+      "name": "node-addon-api",
+      "version": "8.9.2",
+      "integrity": "sha512-VijLXbi3UACN69I0JVXJsX4tjACjNoQDgv2gTF6sx2wWEi8tkSg2eX8p5gSIFi8z2+DL3oHmY6OyKce38SDolg==",
+      "optional": false
+    }
+  ]
+}

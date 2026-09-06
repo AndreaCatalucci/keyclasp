@@ -273,7 +273,7 @@ describe("CLI end-to-end flow", () => {
     run(["set", "STATUS_KEY"], { input: "value\n" });
     const status = run(["status"]);
     expect(status.status, status.stderr).toBe(0);
-    expect(status.stdout).toContain("Values:     not displayed by status");
+    expect(status.stdout).toContain("Values:     not inspected by status");
   });
 
   it.runIf(process.platform === "linux")("fails a machine-only get at the CLI authorization gate before decryption", () => {

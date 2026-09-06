@@ -1,0 +1,1032 @@
+{
+  "schemaVersion": 1,
+  "package": "keyclasp@0.2.0-beta.1",
+  "files": [
+    {
+      "path": "LICENSE",
+      "mode": 384,
+      "size": 1115,
+      "sha256": "50a6d101037484b57d85fd5812be864b34c1df65ba9b1c06de85a7b2c354220b"
+    },
+    {
+      "path": "NOTICE",
+      "mode": 384,
+      "size": 377,
+      "sha256": "a9b30a6295cebbaa3b05929379c9e2ccd679ae895aeda9a5ba79ef53044161b2"
+    },
+    {
+      "path": "README.md",
+      "mode": 384,
+      "size": 8608,
+      "sha256": "7f4e5a266fdf4dc449558e7ceeaa0d6a2704e8bb2dfbc00839004d96cd227256"
+    },
+    {
+      "path": "dist/biometric.d.ts",
+      "mode": 384,
+      "size": 2013,
+      "sha256": "6895b7a25ede7196f5f7ce0d2ed6b62a1c6b23ccca1bf513a0d191f42446b759"
+    },
+    {
+      "path": "dist/biometric.d.ts.map",
+      "mode": 384,
+      "size": 1875,
+      "sha256": "cb64a21b7867f422c154a80293ccd308da44d3b55cbcd1b9a6bbf6f544ed2175"
+    },
+    {
+      "path": "dist/biometric.js",
+      "mode": 384,
+      "size": 17412,
+      "sha256": "6917042a09a21b04dccf6ad0d156eeed74235111952e29084ef67a61d4513b24"
+    },
+    {
+      "path": "dist/biometric.js.map",
+      "mode": 384,
+      "size": 15787,
+      "sha256": "a2c169b2fbc9917f473538c029c0f4550cbf1619d9e0427fb925f0386f2defe4"
+    },
+    {
+      "path": "dist/cli.d.ts",
+      "mode": 384,
+      "size": 64,
+      "sha256": "6f77e82bfb5dd3b1015dd92c63e427d505f9bbbdaa041cad6c704f41c553a536"
+    },
+    {
+      "path": "dist/cli.d.ts.map",
+      "mode": 384,
+      "size": 100,
+      "sha256": "07e1bab322fbea936a00ec149ad924a0d46aa4c8de79147e59c11d25bd0ca9e6"
+    },
+    {
+      "path": "dist/cli.js",
+      "mode": 493,
+      "size": 46793,
+      "sha256": "121ebdaaed92954dea978c10eb1fc95d177aa7f8a193cab26f199ae725ec321a"
+    },
+    {
+      "path": "dist/cli.js.map",
+      "mode": 384,
+      "size": 34538,
+      "sha256": "2ccc04810a5e372d53657dbbe23977dcc4965a37a5079e983c6fa74bdfab9362"
+    },
+    {
+      "path": "dist/context.d.ts",
+      "mode": 384,
+      "size": 910,
+      "sha256": "7346d449e094560689cd64efe5c6c8125572da87e814568a474fb118c67b8b63"
+    },
+    {
+      "path": "dist/context.d.ts.map",
+      "mode": 384,
+      "size": 877,
+      "sha256": "2d16865c713ec6a5be1c4495f01d800173390c1538e6dd6a73038153161e257c"
+    },
+    {
+      "path": "dist/context.js",
+      "mode": 384,
+      "size": 4525,
+      "sha256": "5cd64c9c072a42caf5b0d9e6a02027ac58cf546abb3f6addd0cac13ce2b514ba"
+    },
+    {
+      "path": "dist/context.js.map",
+      "mode": 384,
+      "size": 3964,
+      "sha256": "a20fc2f147a2cdd6dc5db1f5cd17910861b234846ef068cd32cc0f3640e62289"
+    },
+    {
+      "path": "dist/hardware/status.d.ts",
+      "mode": 384,
+      "size": 1787,
+      "sha256": "4c2e1c2267c9b2e6e7689e7213858a7043b0925524e63308ef35d9cb153214b4"
+    },
+    {
+      "path": "dist/hardware/status.d.ts.map",
+      "mode": 384,
+      "size": 1535,
+      "sha256": "a59904388baf307039a615adb873bd9ecaa956704f43341e84a072d060b7b87a"
+    },
+    {
+      "path": "dist/hardware/status.js",
+      "mode": 384,
+      "size": 6911,
+      "sha256": "2eb4f162e599a52ae2e1f4421bf60e11a17c7069e7336f544ee86b98704454d0"
+    },
+    {
+      "path": "dist/hardware/status.js.map",
+      "mode": 384,
+      "size": 5632,
+      "sha256": "5f84b2ce70c81c2aaee7ebd514c82ee31491ac9fd658f6fe6ba5cb42dc58777c"
+    },
+    {
+      "path": "dist/index.d.ts",
+      "mode": 384,
+      "size": 464,
+      "sha256": "9ad165a846aa2c79243e0b64c0589094e28194e6e44c7c348a113584c64fb9fd"
+    },
+    {
+      "path": "dist/index.d.ts.map",
+      "mode": 384,
+      "size": 437,
+      "sha256": "b3e81623a6a64e96d57473ca5e94be6f630e06f192875af6a068e0ef02b6736d"
+    },
+    {
+      "path": "dist/index.js",
+      "mode": 384,
+      "size": 549,
+      "sha256": "d804eb97f747c24d8a45cf78b9f36be63d642fe8dbcdca02a824acae7d73362a"
+    },
+    {
+      "path": "dist/index.js.map",
+      "mode": 384,
+      "size": 360,
+      "sha256": "ec04df9e12d8a0946410d566d3eb896e267a3b58521bc82493ea70807cf44f60"
+    },
+    {
+      "path": "dist/lifecycle-lock.d.ts",
+      "mode": 384,
+      "size": 394,
+      "sha256": "ee0cd8ef65e34eb426cc2e8672aae86f697a7730d8eefb33a15af93201ff88b0"
+    },
+    {
+      "path": "dist/lifecycle-lock.d.ts.map",
+      "mode": 384,
+      "size": 397,
+      "sha256": "9b2ce09375c115a2d44005073e30611a17e6cd73e5392683e0fc4dc89427a09c"
+    },
+    {
+      "path": "dist/lifecycle-lock.js",
+      "mode": 384,
+      "size": 2258,
+      "sha256": "cea372a0b637fa24319fb645255d5f4f18ace6fae5df280f69b4ee83ceedec7b"
+    },
+    {
+      "path": "dist/lifecycle-lock.js.map",
+      "mode": 384,
+      "size": 1817,
+      "sha256": "9b04685f28ec7c2af0b7426923731fb72981f9fb4e3bc268f6a912a8a8baaef0"
+    },
+    {
+      "path": "dist/owner-only-path.d.ts",
+      "mode": 384,
+      "size": 854,
+      "sha256": "65ecc716791801a1c05f2de24df41b8c07ac2432c116dbe66642438b6de22d77"
+    },
+    {
+      "path": "dist/owner-only-path.d.ts.map",
+      "mode": 384,
+      "size": 668,
+      "sha256": "ebe7a7c99443bbf885eb43f451c85da8da6be16e1866bb5c315a43326e9cae75"
+    },
+    {
+      "path": "dist/owner-only-path.js",
+      "mode": 384,
+      "size": 5417,
+      "sha256": "c8a64ddb14de1dd227dc262e00596aad7769ed3459f467933d21242ab9cc6601"
+    },
+    {
+      "path": "dist/owner-only-path.js.map",
+      "mode": 384,
+      "size": 5297,
+      "sha256": "6a43a8b72cf91879ca11de8baf4b5a808704a15c96d6d7357b14d1ef19f04308"
+    },
+    {
+      "path": "dist/platform.d.ts",
+      "mode": 384,
+      "size": 883,
+      "sha256": "4dacc5e6ea953ba2135611c416c3d6a27a8324aedd629fff18f62444c5ed0e73"
+    },
+    {
+      "path": "dist/platform.d.ts.map",
+      "mode": 384,
+      "size": 509,
+      "sha256": "3b92b85ea94b60cf77b7664981e4bbfb7cbb826dbd97282fedc3a5d6614f710e"
+    },
+    {
+      "path": "dist/platform.js",
+      "mode": 384,
+      "size": 1594,
+      "sha256": "81b731872809ef463aeaa877eca2db482b552b03bc246104f50b6f7ab6f88cd7"
+    },
+    {
+      "path": "dist/platform.js.map",
+      "mode": 384,
+      "size": 1131,
+      "sha256": "eeb6f5086d8aff322fd943357a74a0eb1a43796df9484e8d56c51c6be90d6ba0"
+    },
+    {
+      "path": "dist/policy.d.ts",
+      "mode": 384,
+      "size": 5216,
+      "sha256": "a4d27e443948193e137e6bd7a3cc2a05044058bbee86a9f74537aa0cc2a1c54b"
+    },
+    {
+      "path": "dist/policy.d.ts.map",
+      "mode": 384,
+      "size": 3973,
+      "sha256": "26350f8270084bf5c5e3f96259c8661fc9039e0f4ed58d373092df100539bfd6"
+    },
+    {
+      "path": "dist/policy.js",
+      "mode": 384,
+      "size": 31558,
+      "sha256": "af1b4c806ed0701db7074a52ba9972165986e8db7dde31612b51fbb10f6a13e8"
+    },
+    {
+      "path": "dist/policy.js.map",
+      "mode": 384,
+      "size": 29532,
+      "sha256": "c2f80db2c03cda41621afc67f7dc2e1d400beb1c2b73da689ac568ec5037c1f0"
+    },
+    {
+      "path": "dist/recovery.d.ts",
+      "mode": 384,
+      "size": 3129,
+      "sha256": "75b8cd7d8a74b44bcb7e45060e914bd85ace251ca8c005fc069f315489de7617"
+    },
+    {
+      "path": "dist/recovery.d.ts.map",
+      "mode": 384,
+      "size": 2489,
+      "sha256": "80585801599fc38189753e0ffdaa962952911f118d9531be30647f3002e91cde"
+    },
+    {
+      "path": "dist/recovery.js",
+      "mode": 384,
+      "size": 63057,
+      "sha256": "1c0d15f6e4a251b9199a7aed432526c632e1154f088637f30de82db352bcb4e4"
+    },
+    {
+      "path": "dist/recovery.js.map",
+      "mode": 384,
+      "size": 56242,
+      "sha256": "5c88713694ad173892811dd8a669bcdf2bad62d30af1b754cd6448efea47bb30"
+    },
+    {
+      "path": "dist/run.d.ts",
+      "mode": 384,
+      "size": 2322,
+      "sha256": "1596ca1bdb49d2541f3c8f597dd5a136be2138458975ece88036afff290c8d99"
+    },
+    {
+      "path": "dist/run.d.ts.map",
+      "mode": 384,
+      "size": 2222,
+      "sha256": "5a9b92de296842a5f4193cc0697d3eef3a4c78eab096eb8b526a3c0e576f09fc"
+    },
+    {
+      "path": "dist/run.js",
+      "mode": 384,
+      "size": 20648,
+      "sha256": "dc3438c049edf31e942464b4a89eeb157667417eb8e082e4338d24057f30036a"
+    },
+    {
+      "path": "dist/run.js.map",
+      "mode": 384,
+      "size": 20592,
+      "sha256": "aa9408d7cdf9c13ff03b658b525627dc2fad5eb7f70d6ad6f4ea34108b81cd88"
+    },
+    {
+      "path": "dist/runtime.d.ts",
+      "mode": 384,
+      "size": 1215,
+      "sha256": "c0dae176293108eee93363ad715d4f80e52bbcd3ac0bef61f1d0f0f71fd2050a"
+    },
+    {
+      "path": "dist/runtime.d.ts.map",
+      "mode": 384,
+      "size": 999,
+      "sha256": "98b4a9b2ecd8a3934fa17ff053f8ee064a4449420aded58bb5162dc049e2892e"
+    },
+    {
+      "path": "dist/runtime.js",
+      "mode": 384,
+      "size": 791,
+      "sha256": "e2f09bc075729a83b5bdf3eae6401dcdbd16409602c95b01ac690d76c299efb2"
+    },
+    {
+      "path": "dist/runtime.js.map",
+      "mode": 384,
+      "size": 846,
+      "sha256": "70b6a0f76b358d0d05c1053dccc886998006c34b0dd74dcfbb1c9719e9badd50"
+    },
+    {
+      "path": "dist/software/key-bundle.d.ts",
+      "mode": 384,
+      "size": 2764,
+      "sha256": "30ad925de74db11f4be6954f2ca08fc502a43895059f494ca98bb1a9eb8f5555"
+    },
+    {
+      "path": "dist/software/key-bundle.d.ts.map",
+      "mode": 384,
+      "size": 2468,
+      "sha256": "c9cab4002421228c46b9f422653f8702aad1fb1013ac649bbe9363b220b1cbf9"
+    },
+    {
+      "path": "dist/software/key-bundle.js",
+      "mode": 384,
+      "size": 16699,
+      "sha256": "3d86dca91eeab4ad5aade73088dc580bb620f5e42818e36d37f897177587bcaf"
+    },
+    {
+      "path": "dist/software/key-bundle.js.map",
+      "mode": 384,
+      "size": 16412,
+      "sha256": "e56be77544c1f92b4b660dfb01d1e62531eb0cf8819b18cfe8ad3a8976829ced"
+    },
+    {
+      "path": "dist/software/runtime.d.ts",
+      "mode": 384,
+      "size": 1193,
+      "sha256": "3679fd8a3a0e14f01f4085f99c09ad596fcee77e9c455d3a2caeb9b2058253f1"
+    },
+    {
+      "path": "dist/software/runtime.d.ts.map",
+      "mode": 384,
+      "size": 1185,
+      "sha256": "0d888b4aa8d81f4ce045d58379d9732a7e869f2d3f31f237e726c4f9e4f555d4"
+    },
+    {
+      "path": "dist/software/runtime.js",
+      "mode": 384,
+      "size": 3043,
+      "sha256": "a8d2a516ee17132470f56bdac47b920eaa5699ef85a0d1187084ab4e0c0940bd"
+    },
+    {
+      "path": "dist/software/runtime.js.map",
+      "mode": 384,
+      "size": 2825,
+      "sha256": "4a14e5b52a5991e17c77edca9620d728e7998504c581fa7d40dcf0ccfd4088cb"
+    },
+    {
+      "path": "dist/vault-files.d.ts",
+      "mode": 384,
+      "size": 3503,
+      "sha256": "98f333b2b9e13253a07f5ff74f458abd22a6ff146c2ee6ad074a2fae1ea59e86"
+    },
+    {
+      "path": "dist/vault-files.d.ts.map",
+      "mode": 384,
+      "size": 2570,
+      "sha256": "0437b637a1600d79cb6d059fd9a1313451f55d486832e1ef1466413bc784123b"
+    },
+    {
+      "path": "dist/vault-files.js",
+      "mode": 384,
+      "size": 17056,
+      "sha256": "6e99c4b4b6c41af629e8f91f18f6451759014e6e931acaa136f1a676bd3d7523"
+    },
+    {
+      "path": "dist/vault-files.js.map",
+      "mode": 384,
+      "size": 14827,
+      "sha256": "60b82f52f3d237c6d8fbe5f3b0a753def0156d832bd9dd5d5956417e40efe11f"
+    },
+    {
+      "path": "dist/vault.d.ts",
+      "mode": 384,
+      "size": 9042,
+      "sha256": "49a221b52418df84f358252dc72f2b3774fd271de4148b2c9bd4985c3fc14054"
+    },
+    {
+      "path": "dist/vault.d.ts.map",
+      "mode": 384,
+      "size": 7127,
+      "sha256": "d8bb22e3900151f57c3d0d793aa273c992685e3a61f16b7b572fe0761fd2f17c"
+    },
+    {
+      "path": "dist/vault.js",
+      "mode": 384,
+      "size": 119440,
+      "sha256": "3e3ed7cb024fe42e8e700be68b2eabf29cae5dd239fbbf86b3a5c18af8bedf3b"
+    },
+    {
+      "path": "dist/vault.js.map",
+      "mode": 384,
+      "size": 104593,
+      "sha256": "da57731b431f5a50d302ec50ddacaaab09144e907e4efabe67c1ad1f6449ca59"
+    },
+    {
+      "path": "dist/version.d.ts",
+      "mode": 384,
+      "size": 826,
+      "sha256": "962298455698ddf89c5553e66e31168bbd4635601e7bb03b05639fb61051cf84"
+    },
+    {
+      "path": "dist/version.d.ts.map",
+      "mode": 384,
+      "size": 804,
+      "sha256": "8387e3106065f0040a8bd01d12a9ee9bb417f1aa9799d8be468607183602487b"
+    },
+    {
+      "path": "dist/version.js",
+      "mode": 384,
+      "size": 2962,
+      "sha256": "728c68dba72c0431c98030ef0eda6b15bee3951cb18bce6ed9a139c068137cf2"
+    },
+    {
+      "path": "dist/version.js.map",
+      "mode": 384,
+      "size": 3162,
+      "sha256": "33fb844279381b8f0b913fe17a8d1ce221c13a0b861761a1a85f675ce045dc35"
+    },
+    {
+      "path": "keyclasp-macos-helper-candidate.json",
+      "mode": 384,
+      "size": 2785,
+      "sha256": "2a8421b41c33688373d3550b0b20811e24311960ae4aaa5bd6c662830e03991b"
+    },
+    {
+      "path": "native/Keyclasp.app/Contents/Info.plist",
+      "mode": 420,
+      "size": 654,
+      "sha256": "c63b4af98be112a4e2d7fa06fcb460e74baf9cb9628700f74a8f7d68d8fe12c7"
+    },
+    {
+      "path": "native/Keyclasp.app/Contents/MacOS/keyclasp-biometric",
+      "mode": 493,
+      "size": 53296,
+      "sha256": "f0e8ecfea105db34fce8e812e2cda05763c644f55403d501de4be927b1337a65"
+    },
+    {
+      "path": "native/Keyclasp.app/Contents/_CodeSignature/CodeResources",
+      "mode": 384,
+      "size": 2200,
+      "sha256": "6686de10a28a2fe11b36cbb86dcbacc827cfc4ea116b4dabf1845e5aee629e9b"
+    },
+    {
+      "path": "node_modules/better-sqlite3/LICENSE",
+      "mode": 384,
+      "size": 1078,
+      "sha256": "09856b52897c91ab67e7456ef43067019f31dfd3b87fda72e655736b1ebdee55"
+    },
+    {
+      "path": "node_modules/better-sqlite3/README.md",
+      "mode": 384,
+      "size": 5634,
+      "sha256": "40271ed0a4e10c13cb6040666c460c5973699216e77f71cdf156b6d50807e8ca"
+    },
+    {
+      "path": "node_modules/better-sqlite3/binding.gyp",
+      "mode": 384,
+      "size": 2044,
+      "sha256": "a265a08fb92d0bbb93f596a53134e58ea89c74faec771725dec6940cea63be3f"
+    },
+    {
+      "path": "node_modules/better-sqlite3/deps/common.gypi",
+      "mode": 384,
+      "size": 1584,
+      "sha256": "e71a565cd7733e05efc3a2792b54e260126f03f490325aa2a201202acbbdb315"
+    },
+    {
+      "path": "node_modules/better-sqlite3/deps/copy.js",
+      "mode": 384,
+      "size": 897,
+      "sha256": "05a2bd41dbd96e33e2fc6cf4bcbc722b4bc8c529813b882f92113d7dbbbece67"
+    },
+    {
+      "path": "node_modules/better-sqlite3/deps/defines.gypi",
+      "mode": 384,
+      "size": 1160,
+      "sha256": "029426d3d6528d56ea75682a67a49e48747ccb7439faa75107601d4e2cafabc3"
+    },
+    {
+      "path": "node_modules/better-sqlite3/deps/download.sh",
+      "mode": 448,
+      "size": 3913,
+      "sha256": "ae2f2182466ac5f11dc9bbbeebeced4553166b07b132172bc1198e07c8d456a6"
+    },
+    {
+      "path": "node_modules/better-sqlite3/deps/patches/1208.patch",
+      "mode": 384,
+      "size": 597,
+      "sha256": "5d1f22d69fee3551b70a7b7b9b14be43fcfd04dbc8683233667abfa75905011a"
+    },
+    {
+      "path": "node_modules/better-sqlite3/deps/sqlite3/sqlite3.c",
+      "mode": 384,
+      "size": 9516284,
+      "sha256": "6a2805f8c1ef020a7086e62258519323cf98b219e9fe87a42065d916cfebaefc"
+    },
+    {
+      "path": "node_modules/better-sqlite3/deps/sqlite3/sqlite3.h",
+      "mode": 384,
+      "size": 690838,
+      "sha256": "919e7f2e8ed1d8f56ac17b412b8971c76aa5d1a879752cc6058f75e7d5910e1d"
+    },
+    {
+      "path": "node_modules/better-sqlite3/deps/sqlite3/sqlite3ext.h",
+      "mode": 384,
+      "size": 39175,
+      "sha256": "ac9645e5c9ff0cf176efdd6e75cb5e98f46295d38e02db5c4d208826a39ab4be"
+    },
+    {
+      "path": "node_modules/better-sqlite3/deps/sqlite3.gyp",
+      "mode": 448,
+      "size": 2542,
+      "sha256": "a009b8f80cf0a944eacaf71a84e590504f353fbd8f8b341138d0c3094e372d18"
+    },
+    {
+      "path": "node_modules/better-sqlite3/deps/test_extension.c",
+      "mode": 384,
+      "size": 587,
+      "sha256": "948af88dbf356835f5496c1a3d047fdbcc58f3717aa9bc94d0943d7de2b7cf5b"
+    },
+    {
+      "path": "node_modules/better-sqlite3/lib/binding.js",
+      "mode": 384,
+      "size": 2123,
+      "sha256": "4fe0f892facc02af7db0a1770150565d2e944e7da3c6493116d8e2a01a0f9b19"
+    },
+    {
+      "path": "node_modules/better-sqlite3/lib/darwin-arm64.js",
+      "mode": 384,
+      "size": 166,
+      "sha256": "830ec2bbc0d402f8be13e93d5549c7a9030a2d5eed40f527e4b4aee9f962ec3b"
+    },
+    {
+      "path": "node_modules/better-sqlite3/lib/darwin-x64.js",
+      "mode": 384,
+      "size": 164,
+      "sha256": "2d7671f3e5d0f19e78eb88d6cd2547ec7554acd3844942fa5a8fff61fd8f9c93"
+    },
+    {
+      "path": "node_modules/better-sqlite3/lib/database.js",
+      "mode": 384,
+      "size": 4729,
+      "sha256": "539315c97591561394d2a0f257632305c3af1e32915a123aa8cc9032056d8ae2"
+    },
+    {
+      "path": "node_modules/better-sqlite3/lib/index.js",
+      "mode": 384,
+      "size": 149,
+      "sha256": "0d56e190de8623278641b613433e89c4af2e5c90092c9c6e425f873d7fbc7ccf"
+    },
+    {
+      "path": "node_modules/better-sqlite3/lib/linux-arm64.js",
+      "mode": 384,
+      "size": 165,
+      "sha256": "e2ff6a1e844f0f95794ebe50cea071f235bd57182ac04985819b86498541797c"
+    },
+    {
+      "path": "node_modules/better-sqlite3/lib/linux-x64.js",
+      "mode": 384,
+      "size": 163,
+      "sha256": "96f9bbd76ab65da4f98a4833eb512746db6a99a2728db20feae2d70db0c2e273"
+    },
+    {
+      "path": "node_modules/better-sqlite3/lib/linuxmusl-arm64.js",
+      "mode": 384,
+      "size": 190,
+      "sha256": "2edb0f14e62d3efa76c8089e58207895abb46642d1e988755a5eef5059605de9"
+    },
+    {
+      "path": "node_modules/better-sqlite3/lib/linuxmusl-x64.js",
+      "mode": 384,
+      "size": 188,
+      "sha256": "d28b85927738844f589601e78e241d501c30231e9b9890f8f3605fca6d238f3d"
+    },
+    {
+      "path": "node_modules/better-sqlite3/lib/methods/aggregate.js",
+      "mode": 384,
+      "size": 1932,
+      "sha256": "e9f74eb919ec93fe089c95ddf25a98f1f631c80418fa34fb2346ca1bc29f1b82"
+    },
+    {
+      "path": "node_modules/better-sqlite3/lib/methods/backup.js",
+      "mode": 384,
+      "size": 2380,
+      "sha256": "ea29d34992bb02e006d0fdeda9675ac5d2bb227aaf57468decd997e9fc9c7dbf"
+    },
+    {
+      "path": "node_modules/better-sqlite3/lib/methods/explain.js",
+      "mode": 384,
+      "size": 292,
+      "sha256": "0bd8cc80ccc7338f1d93058beea0cde924d4e7e652da9f51267e7c0757361be7"
+    },
+    {
+      "path": "node_modules/better-sqlite3/lib/methods/function.js",
+      "mode": 384,
+      "size": 1396,
+      "sha256": "f431d49303b8bbdc044b1f1b455bdad21fc9b74b007de0acb22f08f25b4febd3"
+    },
+    {
+      "path": "node_modules/better-sqlite3/lib/methods/inspect.js",
+      "mode": 384,
+      "size": 174,
+      "sha256": "4975a78daee850adee62ba98719d0f223819a0ec135a07c0e302994bd8dbff61"
+    },
+    {
+      "path": "node_modules/better-sqlite3/lib/methods/pragma.js",
+      "mode": 384,
+      "size": 543,
+      "sha256": "d399bf1dbc85ef8a51f946c5a9505f2c37d0b1bed3f68863b1bf202d53d6524e"
+    },
+    {
+      "path": "node_modules/better-sqlite3/lib/methods/serialize.js",
+      "mode": 384,
+      "size": 625,
+      "sha256": "7a10ee5c2735384b7f0c361811bc6d017db29f62b203fd3c68a35f667e2c2605"
+    },
+    {
+      "path": "node_modules/better-sqlite3/lib/methods/table.js",
+      "mode": 384,
+      "size": 7243,
+      "sha256": "2356885ca1ef37d20f2daeed2b82b9dd6e61481e851194174a16d32efa3ae2f0"
+    },
+    {
+      "path": "node_modules/better-sqlite3/lib/methods/transaction.js",
+      "mode": 384,
+      "size": 2855,
+      "sha256": "40b71d6113f328f96cec8f6f888ffddd98b5926d38fb1e2746939c7daba93e2e"
+    },
+    {
+      "path": "node_modules/better-sqlite3/lib/methods/wrappers.js",
+      "mode": 384,
+      "size": 1152,
+      "sha256": "b289d339ff56b19ab40d109050080e1c844f2a5d01e62d8cb37a0152b0479a47"
+    },
+    {
+      "path": "node_modules/better-sqlite3/lib/sqlite-error.js",
+      "mode": 384,
+      "size": 512,
+      "sha256": "903c140bb3d9d4f6256124889f5a820a491299907885d5b9d5ff2c4eaa268a06"
+    },
+    {
+      "path": "node_modules/better-sqlite3/lib/util.js",
+      "mode": 384,
+      "size": 331,
+      "sha256": "92b2e39e2151b43a2252e10b6d6de876ecaf0008336a4fa1dfe1317b20f1916f"
+    },
+    {
+      "path": "node_modules/better-sqlite3/lib/win32-arm64.js",
+      "mode": 384,
+      "size": 165,
+      "sha256": "00c1d5355a4e47e485e0ea8408a28423a18204d6d7ea5c57e599ebe64a1aa309"
+    },
+    {
+      "path": "node_modules/better-sqlite3/lib/win32-x64.js",
+      "mode": 384,
+      "size": 163,
+      "sha256": "c25867a2e904a367743498377e6e156a653bd10bcc5f9be7cbdf8a28359012ef"
+    },
+    {
+      "path": "node_modules/better-sqlite3/package.json",
+      "mode": 384,
+      "size": 1838,
+      "sha256": "6c9ea355190dfce3646ad4d2a31c9506de36d884a6461b3655a2a0c4ba3d1695"
+    },
+    {
+      "path": "node_modules/better-sqlite3/prebuilds/darwin-arm64.node",
+      "mode": 384,
+      "size": 1980736,
+      "sha256": "98e0e8acd01c632fe5615243e1296af0372826f8783b18fc31c506f73c47459c"
+    },
+    {
+      "path": "node_modules/better-sqlite3/prebuilds/darwin-x64.node",
+      "mode": 384,
+      "size": 1982880,
+      "sha256": "e6db154afe9d250e242e2ea3d45d273718ab80a0751d08873637553031752d21"
+    },
+    {
+      "path": "node_modules/better-sqlite3/prebuilds/linux-arm64.node",
+      "mode": 384,
+      "size": 2066328,
+      "sha256": "8ba771f284dfd9430e3ef8e2ffc373ed7cc5a92fc7c4c0c7baf39dd672863485"
+    },
+    {
+      "path": "node_modules/better-sqlite3/prebuilds/linux-x64.node",
+      "mode": 384,
+      "size": 2226168,
+      "sha256": "6fd4292c6c5f352436cd85c9e1cb286978efa43c20ae350973f83414ced9991d"
+    },
+    {
+      "path": "node_modules/better-sqlite3/prebuilds/linuxmusl-arm64.node",
+      "mode": 384,
+      "size": 2312112,
+      "sha256": "09d5927246024b6d93c079ae1079554cbdd85790792342bf24636987dce7a786"
+    },
+    {
+      "path": "node_modules/better-sqlite3/prebuilds/linuxmusl-x64.node",
+      "mode": 384,
+      "size": 2435680,
+      "sha256": "d661495d2dd4a026ccda893dd8ea1e2c245c3a681bd28224064953c8a9cc0a72"
+    },
+    {
+      "path": "node_modules/better-sqlite3/prebuilds/win32-arm64.node",
+      "mode": 384,
+      "size": 1903104,
+      "sha256": "a47870d114b98baecaff0baa51cfb93d6280d43f064280adaadefafb6949f1bf"
+    },
+    {
+      "path": "node_modules/better-sqlite3/prebuilds/win32-x64.node",
+      "mode": 384,
+      "size": 1989632,
+      "sha256": "e21e5efd71fba66578e95b62554d9028064a80dafd7221bf8a8ef155de8d240a"
+    },
+    {
+      "path": "node_modules/better-sqlite3/src/addon.cpp",
+      "mode": 384,
+      "size": 1901,
+      "sha256": "fc99dd61b408752cc62326ac9a6cbbb8bceec14844c533efe458b7ca8d7a809f"
+    },
+    {
+      "path": "node_modules/better-sqlite3/src/better_sqlite3.cpp",
+      "mode": 384,
+      "size": 2219,
+      "sha256": "a4e60388817ad4ff15c89fe2b10a374d6dc15cbcd3aa863f117cd7196f6d86a9"
+    },
+    {
+      "path": "node_modules/better-sqlite3/src/objects/backup.cpp",
+      "mode": 384,
+      "size": 3944,
+      "sha256": "8de56301a1e57df8163e54e61df7f11510baa9957a006cbf7b067c8975187daf"
+    },
+    {
+      "path": "node_modules/better-sqlite3/src/objects/backup.hpp",
+      "mode": 384,
+      "size": 713,
+      "sha256": "8b33011a8faa70faa1e82edf52f3ed4305155f3cc45021b7d7488e7b2b19982a"
+    },
+    {
+      "path": "node_modules/better-sqlite3/src/objects/database.cpp",
+      "mode": 384,
+      "size": 14879,
+      "sha256": "5f928d0f56c1ba657787b5b072f9291f06314e8a48e5a4a7fccd24a12d12f9f4"
+    },
+    {
+      "path": "node_modules/better-sqlite3/src/objects/database.hpp",
+      "mode": 384,
+      "size": 3216,
+      "sha256": "792947a253115223f3e680e047fe72a4fd19066bad3d248eefde9684eaafb428"
+    },
+    {
+      "path": "node_modules/better-sqlite3/src/objects/statement-iterator.cpp",
+      "mode": 384,
+      "size": 3478,
+      "sha256": "b4e5c84745c60d6bb13f9971247ec8ea0c9c3d824a065e09caf15c33bce5f18e"
+    },
+    {
+      "path": "node_modules/better-sqlite3/src/objects/statement-iterator.hpp",
+      "mode": 384,
+      "size": 2118,
+      "sha256": "2deb643120e229b55170a7eb1e5332533c934405454e9d2cde0d5e3b10d557b4"
+    },
+    {
+      "path": "node_modules/better-sqlite3/src/objects/statement.cpp",
+      "mode": 384,
+      "size": 12666,
+      "sha256": "a1ec439e397d44697469440d037279c4660446632eedce223988797223678ddb"
+    },
+    {
+      "path": "node_modules/better-sqlite3/src/objects/statement.hpp",
+      "mode": 384,
+      "size": 1657,
+      "sha256": "00ad16165d0ac68d3cda04c895ca4ffc45ad9765345b32258b65e804382e8830"
+    },
+    {
+      "path": "node_modules/better-sqlite3/src/util/bind-map.cpp",
+      "mode": 384,
+      "size": 1555,
+      "sha256": "aa74d07763a1ade7f94155fa1aefac9e7c9b4cd8eb8cf6b7ab49272fad9214c5"
+    },
+    {
+      "path": "node_modules/better-sqlite3/src/util/binder.cpp",
+      "mode": 384,
+      "size": 6840,
+      "sha256": "cd1026e818cb7bf47c6eb1b3a43058c47050dff324b2fed01146a9edae325ee9"
+    },
+    {
+      "path": "node_modules/better-sqlite3/src/util/constants.cpp",
+      "mode": 384,
+      "size": 8740,
+      "sha256": "44e5208a07256e1f98f66766d8fe65a874607dfbea04852c1712386133df3636"
+    },
+    {
+      "path": "node_modules/better-sqlite3/src/util/custom-aggregate.cpp",
+      "mode": 384,
+      "size": 3706,
+      "sha256": "d5ede0b6ae49d8a20ebd8a19d41dc8d1402746328ce8e2b8098a0165da5294b7"
+    },
+    {
+      "path": "node_modules/better-sqlite3/src/util/custom-function.cpp",
+      "mode": 384,
+      "size": 1430,
+      "sha256": "c3ba9faf5d42c02792ba4964d0a72d4c87ac5e8c0cb1a97f6124e5a5e6ee5388"
+    },
+    {
+      "path": "node_modules/better-sqlite3/src/util/custom-table.cpp",
+      "mode": 384,
+      "size": 14304,
+      "sha256": "c7fd730eb22ea79cc434295d729a4bb9f994921b0e4b1fd0f4a624fae8bb4efd"
+    },
+    {
+      "path": "node_modules/better-sqlite3/src/util/data-converter.cpp",
+      "mode": 384,
+      "size": 485,
+      "sha256": "fcf9330201153edd17890db79e47f9136f9567f95d671c3c889a87e97d468d98"
+    },
+    {
+      "path": "node_modules/better-sqlite3/src/util/data.cpp",
+      "mode": 384,
+      "size": 7248,
+      "sha256": "6775b7bec12dc96a5458a3fee81ae91e75e8ff631949eb77c4d63934f61ff9ee"
+    },
+    {
+      "path": "node_modules/better-sqlite3/src/util/helpers.cpp",
+      "mode": 384,
+      "size": 8440,
+      "sha256": "71a730d8d2493bd334699335360bf0667a41bff67acd0ffe1191440bae074c8c"
+    },
+    {
+      "path": "node_modules/better-sqlite3/src/util/macros.cpp",
+      "mode": 384,
+      "size": 4128,
+      "sha256": "c6c715a26eb112fe09236fb2adab4495852d529b27dbb0049d720939439bf0e4"
+    },
+    {
+      "path": "node_modules/better-sqlite3/src/util/query-macros.cpp",
+      "mode": 384,
+      "size": 4201,
+      "sha256": "454bb3ef1ed5c1c0549de8d8e69b7a96565bf24d275cc3a8def5cdee08368835"
+    },
+    {
+      "path": "node_modules/better-sqlite3/src/util/row-builder.cpp",
+      "mode": 384,
+      "size": 1797,
+      "sha256": "80536267e48ee672e294d23ac430edd960075aafc892d9d31f86a992ee67068a"
+    },
+    {
+      "path": "node_modules/better-sqlite3/src/util/row-builder.hpp",
+      "mode": 384,
+      "size": 693,
+      "sha256": "64819ffd40337de825fd3a7c3627d58c72117255ea0d4efa68f0b1da438dfaeb"
+    },
+    {
+      "path": "node_modules/node-addon-api/LICENSE.md",
+      "mode": 384,
+      "size": 1150,
+      "sha256": "89024017b88a9f2b763f79b941a4f2db3b4428edfcacdc0b23866b2da633ad0c"
+    },
+    {
+      "path": "node_modules/node-addon-api/README.md",
+      "mode": 384,
+      "size": 4994,
+      "sha256": "9c9fcf38e120933aac37fe2cbdcb85abb59ecb1a674abe944c9b627dff8539a6"
+    },
+    {
+      "path": "node_modules/node-addon-api/common.gypi",
+      "mode": 384,
+      "size": 833,
+      "sha256": "c2588f59f1d4eebe14331b2cfabcfdff85e8c282f9f66028385cffece8aa85e9"
+    },
+    {
+      "path": "node_modules/node-addon-api/except.gypi",
+      "mode": 384,
+      "size": 560,
+      "sha256": "ddbc09f5b66fe24dd898fbe659085a6ff72e9575025004fc3762271dba781e8b"
+    },
+    {
+      "path": "node_modules/node-addon-api/index.js",
+      "mode": 384,
+      "size": 435,
+      "sha256": "afbfa96b5c40c643828f212610129d2911095eff1e86e63ccfe81658d6fe61d9"
+    },
+    {
+      "path": "node_modules/node-addon-api/napi-inl.deprecated.h",
+      "mode": 384,
+      "size": 6323,
+      "sha256": "b66ed1e565e735bbfabcc2f72d466ab7c5414d3ef8851d1af440b81be7f2375c"
+    },
+    {
+      "path": "node_modules/node-addon-api/napi-inl.h",
+      "mode": 384,
+      "size": 243635,
+      "sha256": "83f7520e9028cee918ca876def8cd982ee67906f2b587c60a9d8d79183b881eb"
+    },
+    {
+      "path": "node_modules/node-addon-api/napi.h",
+      "mode": 384,
+      "size": 125611,
+      "sha256": "5e0eff20229ba021fa7c5ff6f62dfecc36f8c29f2da365b25cde3d6489d8b924"
+    },
+    {
+      "path": "node_modules/node-addon-api/node_addon_api.gyp",
+      "mode": 384,
+      "size": 1097,
+      "sha256": "6d34b9bae562103233f650d8a041edc0ca6b44d90898cd232b38745adfb7edfc"
+    },
+    {
+      "path": "node_modules/node-addon-api/node_api.gyp",
+      "mode": 384,
+      "size": 132,
+      "sha256": "3cd2c44fb0974f016376b676d46bbebbca7c89d4383b09ece30e4cb4122a1499"
+    },
+    {
+      "path": "node_modules/node-addon-api/noexcept.gypi",
+      "mode": 384,
+      "size": 649,
+      "sha256": "0e815179b5d2697e0acdc8f3c3a5d0a1ed050d48a295ee000454cf5352357f66"
+    },
+    {
+      "path": "node_modules/node-addon-api/nothing.c",
+      "mode": 384,
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "node_modules/node-addon-api/package-support.json",
+      "mode": 384,
+      "size": 467,
+      "sha256": "b1cb7da23cca1681c7392a3c889eb0cc4916c53d2d7692d4b654ae751f3442f3"
+    },
+    {
+      "path": "node_modules/node-addon-api/package.json",
+      "mode": 384,
+      "size": 11032,
+      "sha256": "f26c85879016dd0cd6c2599d4cc79d579383051a82fc2684837cff2e1b6a0d29"
+    },
+    {
+      "path": "node_modules/node-addon-api/tools/README.md",
+      "mode": 384,
+      "size": 3217,
+      "sha256": "65e9ea918538f453166b10a1d609cf44cec3d2d01f23fecb5265fb3a4bf303d5"
+    },
+    {
+      "path": "node_modules/node-addon-api/tools/check-napi.js",
+      "mode": 384,
+      "size": 3176,
+      "sha256": "9e1207808023cd998fe9e377aefbe77d6c59fa129f94e6acbf24907149d8c11e"
+    },
+    {
+      "path": "node_modules/node-addon-api/tools/clang-format.js",
+      "mode": 384,
+      "size": 2002,
+      "sha256": "3e0b5e6d6f1a0c5ed106115871d0fd48f37bac5554effdacaf8d2439f4ed0c65"
+    },
+    {
+      "path": "node_modules/node-addon-api/tools/conversion.js",
+      "mode": 448,
+      "size": 15001,
+      "sha256": "9f375b0f9d9ec93c2ded07470478b3f523a2661c6ca707c28b0e9dae15009002"
+    },
+    {
+      "path": "package.json",
+      "mode": 384,
+      "size": 2648,
+      "sha256": "3d4b073da6dec8bae62de908ede258f82e2d4fe73773cbf264ca32ea68be30dd"
+    },
+    {
+      "path": "scripts/install-native-binding.mjs",
+      "mode": 384,
+      "size": 3566,
+      "sha256": "dd7880dab21160b12eae4fb4728be5a01ae3a42071039f26ad620791bbbfeb24"
+    },
+    {
+      "path": "scripts/native-source-manifest.mjs",
+      "mode": 384,
+      "size": 863,
+      "sha256": "de65e107c476a7bef4871fd58f5720575e0b40520c157f19347c2c7245073a89"
+    },
+    {
+      "path": "scripts/verify-native-binding.mjs",
+      "mode": 384,
+      "size": 2133,
+      "sha256": "9bdae870f25d453306df0d53a3963ef22f00796ee6f2d844a0972e74de8443d3"
+    },
+    {
+      "path": "skills/keyclasp-agent/SKILL.md",
+      "mode": 384,
+      "size": 6732,
+      "sha256": "efde96b8ad9280e5a07c90fc7cd52431a98247dc5ca2802a447d177bd1c35a3b"
+    },
+    {
+      "path": "skills/keyclasp-agent/agents/openai.yaml",
+      "mode": 384,
+      "size": 234,
+      "sha256": "f1c0597fbcf67d9bde0b6f45ee48a2959bd959823a896e7c5df3e06b86d5dd5e"
+    },
+    {
+      "path": "software-beta-better-sqlite3-source.json",
+      "mode": 384,
+      "size": 9259,
+      "sha256": "5adeec8e325f9c76f70e107a4b69c43965da4c51ea6f982567fc0c6a196f5bee"
+    },
+    {
+      "path": "software-beta-dependencies.json",
+      "mode": 384,
+      "size": 700,
+      "sha256": "0ae267b546499a7d78bfd5c55609a2d7f3ecd55ccbce8687afd10e1a77db71ed"
+    },
+    {
+      "path": "software-beta-native-prebuilds.json",
+      "mode": 384,
+      "size": 437,
+      "sha256": "2bd61d602e433e5a826f476fb6f33791ffe8ca9d9da78513f674651343920b1e"
+    },
+    {
+      "path": "software-beta-node-addon-api-source.json",
+      "mode": 384,
+      "size": 2375,
+      "sha256": "b2b0ab050585230c1609c563c8170c196c884c201780b3af628587d2aa4d171c"
+    }
+  ]
+}

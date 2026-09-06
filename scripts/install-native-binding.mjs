@@ -9,6 +9,10 @@ import { verifyBundledNativeSource, verifyNativeBinding } from "./verify-native-
 const packageRoot = path.resolve(import.meta.dirname, "..");
 const dependencyRoot = path.join(packageRoot, "node_modules", "better-sqlite3");
 const nodeAddonApiRoot = path.join(packageRoot, "node_modules", "node-addon-api");
+const nodeMajor = Number.parseInt(process.versions.node.split(".", 1)[0] ?? "", 10);
+if (![24, 26].includes(nodeMajor)) {
+  throw new Error(`Keyclasp requires Node.js 24 or 26; found ${process.versions.node}. No vault state was created or changed.`);
+}
 const sourceBuild = ![undefined, "", "0", "false"].includes(process.env.npm_config_build_from_source?.toLowerCase());
 const glibcLinux = process.platform !== "linux" || Boolean(process.report.getReport().header?.glibcVersionRuntime);
 const target = `${process.platform}-${process.arch}`;

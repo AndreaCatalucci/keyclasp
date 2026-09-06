@@ -2,7 +2,7 @@
 
 Scope: managed software-vault backup, restore, interrupted-restore recovery, and post-transition SQLite sanitization. Hardware custody and ordinary secret execution are outside this view.
 
-Verification basis: KC-W02 working tree based on `c0d96fc9f4fc79db4da44d64d8c9e48421d24b9f`; inspected `src/cli.ts`, `src/recovery.ts`, `src/vault-files.ts`, `src/vault.ts`, `src/policy.ts`, `src/software/key-bundle.ts`, `src/lifecycle-lock.ts`, and the focused recovery, custody-sanitization, lifecycle, and authorization tests. The source check is recorded in the canonical production-readiness plan.
+Verification basis: KC-Q01 blocker-remediation implementation `e6e2de43b7d6a4168ab7a16278487fe20eb3b100`; inspected `src/cli.ts`, `src/recovery.ts`, `src/vault-files.ts`, `src/vault.ts`, `src/policy.ts`, `src/software/key-bundle.ts`, `src/lifecycle-lock.ts`, and the complete recovery, custody-sanitization, lifecycle, and authorization source coverage. The lifecycle implementation did not change during blocker remediation. The view matches the combined W2/W3 implementation, but this source basis is not a replacement qualification receipt.
 
 ```mermaid
 C4Container

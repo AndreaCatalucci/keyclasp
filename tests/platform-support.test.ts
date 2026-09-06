@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   assertSoftwarePlatformSupported,
   MUSL_UNSUPPORTED_MESSAGE,
+  SUPPORTED_NODE_MAJORS,
   SUPPORTED_SOFTWARE_TARGETS,
   SUPPORTED_SOFTWARE_PLATFORMS,
   WINDOWS_UNSUPPORTED_MESSAGE,
@@ -12,12 +13,24 @@ import {
 
 describe("software platform support", () => {
   it("freezes macOS and Linux as the software-beta platforms", () => {
+    expect(SUPPORTED_NODE_MAJORS).toEqual([24, 26]);
     expect(SUPPORTED_SOFTWARE_PLATFORMS).toEqual(["darwin", "linux"]);
     expect(SUPPORTED_SOFTWARE_TARGETS).toEqual(["darwin-arm64", "linux-arm64", "linux-x64"]);
     expect(() => assertSoftwarePlatformSupported("darwin", "glibc", "arm64")).not.toThrow();
     expect(() => assertSoftwarePlatformSupported("linux", "glibc", "arm64")).not.toThrow();
     expect(() => assertSoftwarePlatformSupported("linux", "glibc", "x64")).not.toThrow();
     expect(() => assertSoftwarePlatformSupported("linux", "other")).toThrow(MUSL_UNSUPPORTED_MESSAGE);
+  });
+
+  it("fails closed on Node releases outside the supported matrix", () => {
+    expect(() => assertSoftwarePlatformSupported("darwin", "glibc", "arm64", "24.20.0")).not.toThrow();
+    expect(() => assertSoftwarePlatformSupported("linux", "glibc", "x64", "26.8.1")).not.toThrow();
+    expect(() => assertSoftwarePlatformSupported("darwin", "glibc", "arm64", "22.23.2")).toThrow(
+      "Keyclasp requires Node.js 24 or 26; found 22.23.2. No vault state was created or changed.",
+    );
+    expect(() => assertSoftwarePlatformSupported("linux", "glibc", "arm64", "25.1.0")).toThrow(
+      "Keyclasp requires Node.js 24 or 26; found 25.1.0. No vault state was created or changed.",
+    );
   });
 
   it("fails closed on macOS x64 and every undeclared CPU architecture", () => {
