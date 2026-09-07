@@ -1,123 +1,95 @@
 # Keyclasp: Runtime Secrets for Coding Agents
 
-You want to run your cli tool, and there's no MCP wrapping it. So you might be tempted to copypaste your api key into the agent's prompt to let it call this CLI.
-Don't do that! Keyclasp lets you safely invoke any cli and pass secrets without the agent ever seeing them!
+Keyclasp stores credentials in a local encrypted vault and injects selected values into commands your coding agent runs. The agent works with secret names instead of copying API keys into prompts or project files.
 
-Keyclasp stores credentials in a local encrypted vault and injects selected values into a trusted child process. Keyclasp keeps values out of project files, prompts, its own command arguments, and its own output. A trusted child can deliberately copy an injected value into a downstream process argument; that degraded fallback can expose the value through process inspection, accounting, telemetry, or crash reports.
+**Run only trusted commands.** The child receives the actual credential and can send it over the network, write it to disk, or pass it to another process. Keyclasp catches some accidental output leaks; it does not sandbox the child or isolate secrets from other processes running as your OS user.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-Keyclasp supports macOS `arm64` and glibc Linux `arm64` or `x64` on Node.js 24 or 26. macOS `x64` and Windows are unsupported at the moment
+## Try it with a dummy credential
 
-## Install
+Requires Node.js 24 or 26 on macOS arm64 or glibc Linux arm64/x64. Windows, Intel Macs, and Alpine/musl Linux are unsupported. This is a software beta; hardware custody is unavailable.
 
-```bash
-# After protected beta publication and registry-integrity verification:
-npm install -g keyclasp@beta
-keyclasp init
-```
-
-`keyclasp init` requires a non-empty passphrase and makes unmatched new records interactive. Use `keyclasp init --machine-only` only when unattended machine custody is an explicit requirement.
-
-## Store and use a secret
+Install the published version explicitly. The npm `latest` tag still points to `0.1.1` as of September 7, 2026.
 
 ```bash
-keyclasp set SECRET_API_KEY - --project myapp --environment prod
-keyclasp list --project myapp --environment prod
-keyclasp run --project myapp --environment prod --env SECRET_API_KEY -- npm test
+npm install -g keyclasp@0.2.0-beta.2
+keyclasp version
 ```
 
-Map a stored name to the variable expected by the child:
+The version output should identify `0.2.0-beta.2`. If npm reports blocked install scripts, allow Keyclasp's install script under your npm policy and rerun installation; it verifies the bundled native binding. See [installation details](docs/getting-started.md).
+
+Run this block in Bash or Zsh. It uses a temporary vault, a dummy value, and explicit unattended **machine custody**. No passphrase or Touch ID prompt is expected. The subshell leaves your usual vault setting unchanged.
 
 ```bash
-keyclasp run --project myapp --environment prod \
-  --env STORED_API_KEY:OPENAI_API_KEY -- npm test
+(
+  set -eu
+  demo_vault=$(mktemp -d)
+  export KEYCLASP_HOME="$demo_vault"
+  trap 'rm -rf -- "$demo_vault"' EXIT
+
+  keyclasp init --machine-only
+  printf '%s' 'dummy-key-for-keyclasp' | \
+    keyclasp set DEMO_KEY --project demo --environment local
+  keyclasp run --project demo --environment local --env DEMO_KEY -- \
+    node -e 'if (!process.env.DEMO_KEY) process.exit(1); console.log("Credential received")'
+)
 ```
 
-Keyclasp launches the command without a shell. It rejects secret strings that cannot be represented unchanged as UTF-8, blocks common environment-dump commands, and scans stdout and stderr for injected values of at least eight characters. On a match it prints `[KEYCLASP_REDACTED]`, stops forwarding child output, terminates every supervised process-group member that the invoking user can signal, and returns a nonzero result. If the operating system refuses a descendant signal, Keyclasp reports that containment could not be confirmed. This catches accidental exact-value output; it cannot stop a trusted child from sending, storing, transforming, or privilege-elevating with a credential.
+After initialization and storage messages, expect `Credential received` and exit status 0. The temporary vault is then deleted. This checks injection without printing the credential.
 
+For real credentials, start with `keyclasp init` in your own terminal and enter a non-empty passphrase. New records then require interactive custody. A locked run requires Touch ID followed by the vault passphrase on macOS, or one passphrase entry on Linux. [Getting started](docs/getting-started.md) covers secure entry, opting a record into unattended use, and the fresh-machine checklist.
 
-## How custody works
+## Configure your coding agent
 
-Each software vault holds two independent AES-256-GCM data keys:
+Installing the CLI does not configure an agent. Give the agent the packaged [Keyclasp skill](skills/keyclasp-agent/SKILL.md); find its installed path with `printf '%s/keyclasp/skills/keyclasp-agent/SKILL.md\n' "$(npm root -g)"`. Load it through your agent's skill mechanism, or add the following to the project's agent instructions:
 
-- The machine key supports unattended agent work.
-- The interactive key is wrapped by a non-empty passphrase. Any access to such keys requires interactive authorization, preventing the agent from accessing secrets in this portion without explicit human authorization.
+```text
+Use Keyclasp for credentials. Read its installed skills/keyclasp-agent/SKILL.md.
+Use project myapp and environment dev explicitly. Inspect names with list and
+custody with status. Inject only the required named secrets with run --env.
+Stop for locked records or authorization prompts; ask me to handle setup in
+my terminal. Never retrieve plaintext with get or request a secret in chat.
+```
 
-On macOS, interactive operations require Touch ID in a dialog. On Linux, one passphrase entry authorizes the operation and unlocks the interactive key.
-
-A machine-only vault is an explicit unattended-storage choice. It can run an explicitly selected, unlocked secret without a prompt, but cannot perform `get`, broad runs, policy changes, backup, or restore until interactive custody is enrolled.
-
-Fresh passphrase vaults default unmatched records to interactive custody. Existing upgraded vaults retain their prior unattended behavior as a visible `legacy machine default` until the operator makes an authorized `lock --default` or `unlock --default` choice. More-specific rules continue to take precedence.
-
-`lock`, `unlock`, and `inherit` change rules and record custody under exclusive lifecycle control. A machine-to-interactive change does not complete until SQLite free pages and sidecars have been sanitized and the closed vault has been verified. If no machine records remain, Keyclasp also rotates and retires the old machine data key.
-
-## Move records between custody classes
+Replace `myapp` and `dev` with your chosen scope and give the agent the resolved skill path. In your terminal, store credentials and explicitly unlock only the records the agent may use unattended. Then ask the agent to run your trusted command:
 
 ```bash
-keyclasp passphrase set
-keyclasp lock --project myapp --environment prod SECRET_API_KEY
-keyclasp unlock --project myapp --environment prod SECRET_API_KEY
-keyclasp inherit --project myapp --environment prod SECRET_API_KEY
-keyclasp lock --default
-keyclasp unlock --default
-keyclasp passphrase rotate
+keyclasp run --project myapp --environment dev --env API_KEY -- npm test
 ```
 
-Rules can target one project, one environment, an exact project/environment, or one exact secret. Resolution prefers exact secret, exact project/environment, project-only or environment-only, then the vault-wide default. Locked wins when project-only and environment-only rules have equal specificity. `inherit` removes the exact override and applies the next matching rule.
+Mapping `--env STORED_KEY:API_KEY` changes the child's variable name, not the value's format. The child also inherits the caller's environment: `--env` limits vault selection, not credentials already exported in the shell. Project and environment names are namespaces, not isolation boundaries.
 
-## Backup and restore
+## What Keyclasp protects
 
-```bash
-keyclasp backup create /secure/path/keyclasp-backup
-keyclasp backup restore /secure/path/keyclasp-backup
-```
+- Values are encrypted locally with AES-256-GCM. Keyclasp has no account, cloud service, or runtime telemetry.
+- Explicit `--env` selections keep unrelated vault records out of a run.
+- The default guard blocks common environment dumps. On an exact injected-value match in stdout or stderr, it emits `[KEYCLASP_REDACTED]`, stops forwarding output, terminates the supervised process group where OS permissions allow, and exits with status 2.
 
-Managed backups bind the database, dual-key bundle, policy, custody inventory, and manifest. A mixed backup containing machine records restores only on the source machine. A backup containing only interactive records can move to another supported machine with its passphrase; restore creates a fresh target-machine key without reclassifying records. Restore never drops or downgrades a record whose key is unavailable.
+Output scanning covers values of at least eight characters. Transformed values, fragments, files, and network traffic are outside that protection. `--allow-unsafe` disables command preflight and output scanning; it does not bypass authorization. A child that changes privilege may become impossible for Keyclasp to terminate.
 
-Backup authentication proves that a saved set is genuine and internally consistent; it does not prove that it is the newest state. Locking, changing a passphrase, sanitizing the live vault, or retiring a machine key cannot erase external snapshots, copied backups, child-process copies, logs, swap, or crash captures. Keep an explicit retention policy for every copy and rotate the provider credential when revocation matters.
+Machine custody uses software-derived machine identity, not Secure Enclave or TPM, and does not provide theft resistance. Passphrase custody uses a separate key. Neither protects against root or a compromised OS. Names and policy metadata remain plaintext, and memory cleanup is best effort. Keyclasp has not received a professional third-party security audit. See the [security model](docs/security.md).
 
-## Coding-agent contract
+## How does it compare with 1Password `op run`?
 
-Agents should inspect names with explicit scope, then run only effectively unlocked named selections:
+Both inject credentials into subprocess environments and mask secret output. These are already features of [1Password `op run`](https://www.1password.dev/cli/reference/commands/run).
 
-```bash
-keyclasp status --project myapp --environment prod
-keyclasp list --project myapp --environment prod
-keyclasp run --project myapp --environment prod --env SECRET_API_KEY -- npm test
-```
+| | Keyclasp | 1Password `op run` |
+|---|---|---|
+| Credential source | Local software vault; no account | 1Password secret references or Environments |
+| Selection | Explicit project, environment, and secret names | References; service accounts can restrict access to vaults or Environments |
+| Output behavior | Detects exact values of at least eight characters and stops the run | Conceals secrets on stdout and stderr by default |
 
-There is a packaged agent skill in [`skills/keyclasp-agent`](skills/keyclasp-agent).
+If you already keep project credentials in 1Password, `op run` may be enough. Keyclasp is for a local-only workflow with explicit per-record machine or passphrase custody. Both still entrust credentials to the child; 1Password also documents the [same-user environment-access limit](https://www.1password.dev/cli/secrets-environment-variables).
 
-## Commands
+## Guides
 
-| Command | Purpose |
-|---|---|
-| `init [--machine-only]` | Create an interactive-default vault, or explicitly choose machine-only custody |
-| `set`, `list`, `delete` | Manage scoped secret records |
-| `run --env SOURCE[:TARGET] -- <command>` | Inject selected secrets into one child |
-| `get` | Print one value after operator authorization |
-| `lock`, `unlock`, `inherit`; `lock\|unlock --default` | Change authenticated rules, fallback, and record custody |
-| `passphrase set\|rotate` | Enroll or rotate interactive custody; removal is unavailable |
-| `backup create\|restore` | Create or restore one authenticated vault set |
-| `status` | Report custody and policy metadata after any required startup recovery |
-| `doctor` | Report the disabled, status-only hardware boundary |
+- [Getting started and fresh-machine trial](docs/getting-started.md)
+- [Command reference](docs/commands.md)
+- [CI, containers, and moving a vault](docs/recipes.md)
+- [Security model](docs/security.md), [FAQ](docs/faq.md), and [supported platforms](docs/software-beta-support.md)
 
-See the [command reference](docs/commands.md), [getting started guide](docs/getting-started.md), [security model](docs/security.md), and [FAQ](docs/faq.md).
-
-## Security limits
-
-- Keyclasp relies on the OS user boundary. It does not isolate secrets from root, a compromised OS, or another process running as the same user.
-- The machine key is software-bound and weaker than a passphrase. It is not Secure Enclave, TPM, hardware attestation, or theft resistance.
-- The interactive key is portable with its passphrase when no machine-key record is present in the backup.
-- `get` prints plaintext into terminal output. Agents must never invoke it.
-- `--allow-unsafe` disables command preflight and output scanning for that invocation; it never bypasses authorization.
-- On macOS, Keyclasp validates the packaged Touch ID helper's path, ownership, mode bits, write-granting ACLs, manifest hash, signature, hardened-runtime flag, identifier, and designated requirement before launch. It starts the helper with a fixed minimal environment. These checks detect a damaged or replaced package but do not isolate Keyclasp from arbitrary code already running as the same user.
-- Project, environment, secret names, and policy metadata are not encrypted.
-- Keyclasp overwrites its owned key buffers on a best-effort basis, but JavaScript strings, child environments, OS caches, swap, crash collectors, filesystem snapshots, and prior copies cannot be reliably erased in place.
-- Keyclasp has not received a professional third-party security audit.
-
-## Development
+## Development and attribution
 
 ```bash
 git clone https://github.com/AndreaCatalucci/keyclasp.git
@@ -126,6 +98,4 @@ npm ci
 npm test
 ```
 
-Keyclasp began as a fork of [Keyblind](https://github.com/aarifmms/keyblind), created by Mohammed Aarif Shaikh. Attribution is retained in [LICENSE](LICENSE) and [NOTICE](NOTICE).
-
-Keyclasp is available under the [MIT License](LICENSE).
+Keyclasp began as a fork of [Keyblind](https://github.com/aarifmms/keyblind), created by Mohammed Aarif Shaikh. Attribution is retained in [LICENSE](LICENSE) and [NOTICE](NOTICE). Keyclasp is available under the [MIT License](LICENSE).

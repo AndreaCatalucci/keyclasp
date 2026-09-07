@@ -1,5 +1,7 @@
 # Keyclasp security hardening checklist
 
+> Historical hardware-release planning reference; the requirements below are not a software-beta installation guide or a claim of completed controls. For the published `0.2.0-beta.2` software beta, use [getting started](getting-started.md) and the [support matrix](software-beta-support.md).
+
 This checklist gates Slice 5, the optional macOS hardware-backed release described in [`docs/plans/2026-08-22-001-macos-hardware-beta-to-ga-plan.md`](plans/2026-08-22-001-macos-hardware-beta-to-ga-plan.md). The canonical release order and separate software-beta milestone are defined in [`docs/plans/2026-08-23-001-software-beta-and-optional-hardware-mode-plan.md`](plans/2026-08-23-001-software-beta-and-optional-hardware-mode-plan.md). Unchecked hardware controls do not block that software beta, and the software beta must make no hardware-custody claim.
 
 The distribution assumption is explicit:

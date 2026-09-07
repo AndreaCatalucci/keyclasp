@@ -1,6 +1,6 @@
 # Software beta security model
 
-This document describes the `0.2.0-beta.1` dual-key software vault. Hardware mode is unavailable and status-only.
+This document describes the `0.2.0-beta.2` dual-key software vault. Hardware mode is unavailable and status-only.
 
 ## Supported boundary
 
@@ -20,16 +20,14 @@ Every record is encrypted with its assigned data key. AES-GCM associated data bi
 
 `lock`, `unlock`, and `inherit` update authenticated policy and re-encrypt matching existing records inside one exclusive lifecycle operation. Fresh passphrase vaults use interactive fallback custody; machine-only initialization requires the explicit `--machine-only` choice. Existing vaults migrate without reclassification to a labelled `legacy-machine` fallback until the operator explicitly runs `lock --default` or `unlock --default`. Exact-secret, exact-scope, project-only, and environment-only rules retain precedence over that fallback.
 
-A machine-to-interactive database commit also records `custody_sanitization_required`. Normal dispatch cannot report the change complete while that phase exists. Recovery repeats secure deletion, WAL checkpoint/truncation, database compaction, explicit WAL/SHM cleanup, closed-file integrity checking, and cryptographic record validation. When no machine records remain, the active bundle and database key check advance to a fresh machine key before the phase clears. If machine records remain, their existing key stays active and those records are revalidated after cleanup.
-
-Vaults created before this sanitation contract, including legacy vaults upgraded to dual-key storage, enter the same one-time pending phase before their first ordinary command. A machine-only inventory completes without an interactive prompt; an inventory containing interactive records requires the passphrase so every current record can be authenticated, and an all-interactive inventory retires the obsolete machine key in that invocation.
+A machine-to-interactive change completes only after obsolete live SQLite data is cleaned up and the remaining records are authenticated. If no machine records remain, Keyclasp also retires the old machine key. Interrupted cleanup resumes before ordinary commands. Older vaults undergo this cleanup during upgrade; interactive records require the passphrase even when the requested command is `status` or `list`.
 
 ## Authorization
 
 Broad runs, `get`, custody changes, passphrase rotation, backup, and restore require operator authorization. A named run requires authorization when any selected record is interactive.
 
-- macOS evaluates Touch ID in a short-lived, hardened-runtime `Keyclasp.app` helper with no passphrase-only fallback, then requests the interactive passphrase when that key is needed. Every stateful CLI command validates the packaged helper before vault access, and an operation that needs Touch ID validates it again immediately before launch. Keyclasp rejects an unexpected bundle layout, symlink, owner, writable group/other mode, write-granting ACL, executable mode, manifest hash, code signature, identifier, designated requirement, architecture, or entitlement. It starts the helper with only fixed `PATH`, locale, and temporary-directory values, so loader, runtime, credential, and unrelated `KEYCLASP_*` variables are not inherited. For a run, the dialog identifies Keyclasp and shows the command, scope, complete selected secret-name mappings, and output-protection state. The helper receives metadata only, never a secret value, passphrase, or data key.
-- Linux requires one non-empty passphrase entry that both authorizes and unlocks the interactive key. A machine-only or non-interactive gated request fails before decryption, mutation, or child launch.
+- macOS uses Touch ID through a packaged helper, with no passphrase-only fallback for operator authorization. It then requests the passphrase if an interactive key is needed. Before stateful vault access and again before authorization, Keyclasp checks the helper's path, ownership, permissions, ACLs, hashes, signature, identity, architecture, and entitlements. The helper runs with a fixed minimal environment and receives operation metadata only. The run dialog shows the command, scope, selected names and mappings, and output-protection state.
+- Linux uses one non-empty passphrase entry to authorize and unlock. A machine-only or non-interactive gated request fails before the requested operation proceeds. macOS can authorize machine-only operations with Touch ID when no interactive key is needed.
 
 First Linux enrollment confirms a new passphrase because no previous interactive credential exists. This protects future interactive custody but does not authenticate enrollment against another same-user process with terminal access.
 
@@ -39,7 +37,11 @@ Policy resolution prefers exact secret, exact project/environment, project-only 
 
 Keyclasp validates the complete selection before decrypting any selected value and launches the child without a shell. Explicit `--env SOURCE[:TARGET]` mappings limit disclosure; they do not authenticate the caller.
 
-The default guard rejects secret strings whose UTF-8 round trip would change their value, blocks common environment-dump commands, and scans stdout and stderr for injected values of at least eight characters. Each stream has its own incremental UTF-8 decoder and matcher. The matcher retains only a suffix that could become a selected value, so complete values remain detectable across arbitrary chunks and EOF. A match emits one redaction marker, stops both streams from forwarding later child output, terminates every process-group member the invoking user can signal with `SIGTERM` followed by `SIGKILL` if needed, and returns a nonzero leak result even when the child exits successfully. If the operating system returns `EPERM` while Keyclasp checks the group, Keyclasp reports that descendant termination could not be confirmed; it does not classify the group as gone. Shorter values cannot be scanned reliably. `--allow-unsafe` disables command preflight and output scanning, but never authorization.
+The child inherits the caller's environment, with the selected vault variables added or replaced. `--env` does not remove credentials already exported by the caller.
+
+The default guard rejects values containing null bytes or text that cannot round-trip through UTF-8, blocks common environment-dump commands, and scans stdout and stderr for exact injected values of at least eight characters. Matching works across output chunks. On a match, it emits `[KEYCLASP_REDACTED]`, stops forwarding both streams, signals the supervised process group with `SIGTERM` and then `SIGKILL` if needed, and returns exit status 2 even if the child succeeds. If OS permissions prevent signaling a descendant, Keyclasp reports that termination could not be confirmed.
+
+Fragments, transformed values, shorter values, files, and network traffic are outside the scan. `--allow-unsafe` disables command preflight and output scanning, but never authorization.
 
 The selected child is trusted. It can deliberately send, persist, transform, or indirectly disclose its credentials. Keyclasp cannot make untrusted code safe.
 
@@ -63,21 +65,16 @@ The lifecycle lock excludes cooperating Keyclasp processes, not arbitrary SQLite
 
 The public package exports parsing, context, biometric-result classification, path reporting, and scope validation only. It does not export data keys, generic decryption, policy mutation, plaintext resolution, or child launch.
 
-`better-sqlite3@13.0.3` is the only direct runtime dependency; `node-addon-api` is its only production transitive dependency. Their complete reviewed production tree, including native prebuilds, is bundled in the Keyclasp tarball. The default install verifies the selected prebuild against the packaged OS-and-architecture SHA-256 allowlist, so it downloads no native code. An explicit `npm_config_build_from_source=true` request compiles the bundled source with npm's `node-gyp`, removes the target prebuild, and verifies that the compiled path will be loaded. The package also carries the thin arm64 `Keyclasp.app` Touch ID helper and separate candidate metadata for source hashes, bundle hashes, signature requirements, explicit build inputs, and the observed compiler, linker, SDK, codesign, architecture, and flags. Historical beta manifests and receipts remain historical evidence and do not qualify this candidate. Package qualification covers both SQLite paths, helper identity and signature, install scripts, lockfile advisories, licenses, N-API support on Node 24 and 26, public exports, package contents, and exact tarball contents. Native hardware experiments, tests, vaults, transcripts, and release credentials are excluded from the npm package.
+`better-sqlite3@13.0.3` is the direct runtime dependency; `node-addon-api` is its production transitive dependency. The package bundles their production source and native prebuilds. Installation verifies the selected binding's hash and downloads no separate native code. An explicit source build compiles the bundled source with npm's `node-gyp`.
 
-## Explicit limitations
+The macOS Touch ID helper is ad hoc signed with hardened runtime, without Developer ID signing or notarization. Integrity checks can detect a damaged package; they cannot establish publisher identity or defend against coordinated replacement of Keyclasp and its metadata. The [release notes](releases/0.2.0-beta.2.md) retain qualification limits and artifact details.
 
-- Machine custody is software-bound and weaker than passphrase custody.
-- Interactive custody is portable with its passphrase when a backup contains no machine record.
-- Authenticated backups provide authenticity, not newest-state freshness or revocation of older valid copies.
-- Best-effort owned-buffer cleanup does not establish erasure from JavaScript strings, process environments, swap, crash data, snapshots, or prior copies.
-- The same-user boundary permits another local process to request an unlocked known secret.
-- Output scanning is accidental-leak containment, not an exfiltration boundary.
-- A trusted child that changes privilege may become impossible for the invoking user to terminate. Keyclasp reports this condition but cannot kill a process the operating system forbids it to signal.
-- Helper validation is package-integrity defense in depth. It does not prevent another same-user process from modifying Keyclasp itself or replacing both the helper and its metadata.
-- `get` prints plaintext into terminal scrollback after authorization.
-- Hardware mode, Windows, passphrase removal, registry-install evidence, and publication are unavailable or unverified at this checkpoint.
-- Keyclasp has not received a professional third-party security audit.
+## Remaining limits
+
+- A child that changes privilege may become impossible for Keyclasp to terminate.
+- `get` deliberately prints plaintext after authorization; agents must not use it.
+- Hardware mode, Windows, and passphrase removal are unavailable.
+- Keyclasp has not received a professional third-party security audit. Publication does not establish production-security certification; physical authorization and fresh-machine onboarding remain unverified in this documentation pass.
 
 ## Cryptographic inventory
 

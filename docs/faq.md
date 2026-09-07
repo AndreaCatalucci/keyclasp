@@ -24,11 +24,11 @@ Only when every record is interactive. A mixed or machine-only backup requires i
 
 ## What happens if I lose the passphrase?
 
-There is no recovery email, bypass, or passphrase removal. Recover the underlying credentials from their issuers or restore a tested eligible backup. Keep the database, key bundle, policy, and manifest together through `keyclasp backup`.
+There is no recovery email, bypass, or passphrase removal. Recover the underlying credentials from their issuers. A backup of interactive records still requires its passphrase. Keep the database, key bundle, policy, and manifest together through `keyclasp backup`.
 
 ## Does locking revoke old backups or copied credentials?
 
-No. Completed locking sanitizes the current database free space and SQLite sidecars; when no machine records remain it also retires the live machine key. It cannot revoke external snapshots, copied backups, values retained by a child, logs, swap, or crash captures. Backup MACs prove authenticity, not newest-state freshness. Apply a retention policy to saved copies and rotate the credential with its provider when revocation matters.
+No. Completed locking sanitizes the current database free space and SQLite sidecars; when no machine records remain it also retires the live machine key. It cannot revoke external snapshots, copied backups, values retained by a child, logs, swap, or crash captures. Backup authentication does not prove that a copy is the newest. Apply a retention policy to saved copies and rotate the credential with its provider when revocation matters.
 
 ## Does Keyclasp erase secrets from memory?
 
@@ -40,11 +40,11 @@ No. The child receives usable credentials. Keyclasp blocks common environment du
 
 ## Why was `[KEYCLASP_REDACTED]` printed?
 
-The child wrote an injected value to stdout or stderr. Keyclasp replaced the value and terminated the child. Fix the child's logging. `--allow-unsafe` disables the guard and should be used only for a specifically authorized invocation.
+The child wrote an injected value to stdout or stderr. Keyclasp redacted it, stopped forwarding output, and tried to terminate the supervised process group. It reports if OS permissions prevent confirmed termination. Fix the child's logging. `--allow-unsafe` disables the guard and should be used only for a specifically authorized invocation.
 
 ## Is hardware mode available?
 
-No. The native macOS component is status-only. It cannot enroll, open a vault, decrypt a record, accept recovery material, or launch a child. Hardware qualification is a later protected slice.
+No. The optional hardware adapter is status-only: it cannot enroll, open a vault, decrypt, recover, or launch a child. The software beta has a separate Touch ID authorization helper, which does not provide hardware key custody.
 
 ## How do I report a security issue?
 

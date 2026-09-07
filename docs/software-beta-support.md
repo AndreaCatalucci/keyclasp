@@ -1,6 +1,6 @@
 # Software beta support matrix
 
-This matrix is frozen for `0.2.0-beta.1`.
+Supported targets for the published `0.2.0-beta.2` software beta:
 
 | Operating system | Node.js | Status | Authorization |
 |---|---:|---|---|
@@ -10,10 +10,12 @@ This matrix is frozen for `0.2.0-beta.1`.
 | Windows | Any | Unsupported; install and stateful use fail closed | Not qualified |
 | Other platforms | Any | Unsupported; stateful use fails closed | Not qualified |
 
-Node 24 is the current LTS line. Node 26 is the current release line at beta qualification. Node 25 is end-of-life and excluded. The package engine range is exact: `24.x || 26.x`; both the install hook and stateful CLI reject other Node releases before vault creation.
+The package accepts Node.js `24.x || 26.x`. Other Node versions, Alpine/musl Linux, and platforms outside this table are unsupported. Install and stateful CLI checks reject unsupported environments before vault creation.
 
-The package carries one N-API `better-sqlite3` prebuild for each supported OS-and-architecture pair and enforces their SHA-256 values. The same reviewed binaries cover Node 24 and 26. The Linux qualification is for glibc; Alpine and other musl environments fail closed outside the beta matrix. An explicit source build from the bundled reviewed sources requires a supported compiler toolchain and is recorded separately. Physical authorization qualification remains limited to the host architectures named in the release receipt.
+The package bundles SQLite native bindings for the supported OS/architecture pairs and verifies their SHA-256 hashes. Source builds require a supported compiler toolchain. See [installation](getting-started.md#install).
 
-Windows missed the qualification cutline because Unix modes do not prove NTFS ACL ownership and no Windows operator-authorization mechanism passed. The package declares only `darwin` and `linux`; npm returns `EBADPLATFORM` on a normal Windows install. A forced diagnostic install still rejects every stateful CLI command before creating the lifecycle database or vault directory.
+“Supported” describes the intended platform matrix, not completion of every physical trial. The published beta passed isolated macOS arm64/Node 26 machine-custody injection and output-leak checks. Physical Touch ID, Linux execution, and fresh-machine human onboarding remain unverified in this documentation pass. The macOS helper is ad hoc signed; Developer ID signing and notarization are not included.
+
+Windows is unsupported because owner-only ACL handling and operator authorization have not been qualified.
 
 Hardware mode is outside this matrix. `keyclasp doctor` is status-only and cannot enroll, decrypt, recover, or launch a secret-bearing child.
