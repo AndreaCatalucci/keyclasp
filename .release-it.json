@@ -1,0 +1,25 @@
+{
+  "$schema": "https://unpkg.com/release-it/schema/release-it.json",
+  "git": {
+    "requireBranch": "main",
+    "pushRepo": "origin",
+    "addUntrackedFiles": false,
+    "commitMessage": "chore: release ${version}",
+    "tagName": "v${version}"
+  },
+  "npm": {
+    "tag": "beta",
+    "publishPath": "release-artifacts/keyclasp.tgz",
+    "publishArgs": [
+      "--ignore-scripts"
+    ],
+    "versionArgs": [
+      "--ignore-scripts"
+    ]
+  },
+  "hooks": {
+    "after:bump": "node scripts/prepare-software-beta.mjs",
+    "before:npm:release": "node scripts/prepare-software-beta.mjs --check",
+    "before:git:release": "git add -- docs/releases/${version}.md docs/releases/${version}-package-manifest.json docs/releases/${version}-licenses.json docs/releases/${version}-sbom.spdx.json"
+  }
+}

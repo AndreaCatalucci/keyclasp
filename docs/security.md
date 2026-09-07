@@ -1,6 +1,6 @@
 # Software beta security model
 
-This document describes the `0.2.0-beta.2` dual-key software vault. Hardware mode is unavailable and status-only.
+This document describes the dual-key software vault. Hardware mode is unavailable and status-only.
 
 ## Supported boundary
 

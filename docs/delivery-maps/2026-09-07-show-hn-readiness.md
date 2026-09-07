@@ -133,3 +133,9 @@ Candidate checkout: `/Users/andreacatalucci/Developer/keyclasp-beta3-release`, b
 The primary checkout now also contains uncommitted documentation changes covering local-machine positioning and the 1Password comparison, plus changes to AGENTS.md and index.html. These were not reviewed by this status update and are not included in the frozen beta.3 tarball. The earlier statement that no further documentation integration was needed applied to PR21 only.
 
 Before publishing beta.3, reconcile whether those newer edits belong in it and resolve or explicitly disposition the source-test failures. If the package contents change, build and verify a new tarball and record its hash. Publish the selected artifact with `--tag beta`; updating `latest` is separate. Complete the human trial when available, and keep production qualification open until its own gates are met.
+
+## Release automation migration — 2026-09-07
+
+The user requested a single-command beta release workflow. The local migration adds release-it and `npm run release:beta`, automates version and inventory updates, source and exact-package checks, and publication of the tested tarball. Current installation instructions use `@beta`; release qualification selects the checkout version's manifest. See [releasing](../releasing.md).
+
+This replaces the manual preparation commands for future releases. The older beta.3 candidate remains historical local evidence and is not the package this command will publish. No version bump, Git release, or npm publication was performed by this migration. Source-test failures still stop release preparation; automation does not waive them.

@@ -15,11 +15,11 @@ Requires Node.js 24 or 26 on macOS arm64 or glibc Linux arm64/x64. Windows, Inte
 ### 1. Install
 
 ```bash
-npm install -g keyclasp@0.2.0-beta.2
+npm install -g keyclasp@beta
 keyclasp version
 ```
 
-The version output should identify `0.2.0-beta.2`. If npm blocks install scripts, follow the [installation notes](docs/getting-started.md#install).
+The version output should identify the current beta release. If npm blocks install scripts, follow the [installation notes](docs/getting-started.md#install).
 
 ### 2. Create a demo vault
 
@@ -124,3 +124,5 @@ npm test
 ```
 
 Keyclasp began as a fork of [Keyblind](https://github.com/aarifmms/keyblind), created by Mohammed Aarif Shaikh. Attribution is retained in [LICENSE](LICENSE) and [NOTICE](NOTICE). Keyclasp is available under the [MIT License](LICENSE).
+
+Maintainers: [publish a beta with one command](docs/releasing.md).

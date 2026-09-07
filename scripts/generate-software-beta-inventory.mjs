@@ -121,6 +121,8 @@ fs.writeFileSync(betterSqliteSourceManifestPath, betterSqliteSourceManifest, { m
 fs.writeFileSync(nodeAddonApiSourceManifestPath, nodeAddonApiSourceManifest, { mode: 0o644 });
 fs.writeFileSync(nativePrebuildManifestPath, nativePrebuildManifest, { mode: 0o644 });
 
+if (process.argv.includes("--runtime-only")) process.exit(0);
+
 const licenses = Object.entries(lockfile.packages)
   .filter(([location]) => location !== "")
   .map(([location, descriptor]) => ({

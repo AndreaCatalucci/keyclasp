@@ -7,7 +7,7 @@ Start with the [isolated dummy demo](../README.md#try-it-with-a-dummy-credential
 ## Install
 
 ```bash
-npm install -g keyclasp@0.2.0-beta.2
+npm install -g keyclasp@beta
 keyclasp version
 ```
 
@@ -77,7 +77,7 @@ Use the managed command to keep the database, keys, policy, and manifest togethe
 
 The minimum human trial is installation, a successful demo, and an interactive run that starts only after approval. Use a fresh supported machine and dummy credentials throughout.
 
-- [ ] Install `keyclasp@0.2.0-beta.2` and confirm the version. Record the OS, architecture, and Node version.
+- [ ] Install `keyclasp@beta` and confirm the version. Record the OS, architecture, and Node version.
 - [ ] Follow the README demo. The run prints `Credential available: true`. Use the optional cleanup above, then close the demo terminal.
 - [ ] In a new terminal, create a separate temporary vault for interactive checks. If `mktemp` fails, stop before continuing:
 

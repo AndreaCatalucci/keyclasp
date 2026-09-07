@@ -11,7 +11,7 @@ jobs:
     uses: ./.github/workflows/software-source.yml
 
   pack-once:
-    name: reproduce the qualified rc6 package contents
+    name: reproduce the current release package contents
     needs: source-tests
     runs-on: macos-15
     outputs:
@@ -25,7 +25,7 @@ jobs:
         with:
           node-version: 26.7.0
           cache: npm
-      - name: Require the rc6 npm pack toolchain
+      - name: Require the release npm pack toolchain
         run: test "$(npm --version)" = 11.19.0
       - run: npm ci --ignore-scripts
       - run: npm run build
@@ -33,7 +33,7 @@ jobs:
         run: node scripts/build-macos-biometric-helper.mjs --check
       - run: npm run release:inventory:check
       - id: pack
-        name: Repack source and require the qualified rc6 contents
+        name: Repack source and require the recorded release contents
         shell: bash
         run: |
           set -euo pipefail
@@ -41,9 +41,10 @@ jobs:
           npm pack --ignore-scripts --json --pack-destination artifact > artifact/npm-pack.json
           filename=$(node -e "const r=require('./artifact/npm-pack.json')[0]; if(!r?.filename) process.exit(1); process.stdout.write(r.filename)")
           sha256=$(shasum -a 256 "artifact/$filename" | cut -d ' ' -f 1)
+          version=$(node -p "require('./package.json').version")
           node scripts/release-package-manifest.mjs \
             "artifact/$filename" \
-            --check docs/releases/0.2.0-beta.1-package-manifest.json
+            --check "docs/releases/$version-package-manifest.json"
           printf 'filename=%s\nartifact_sha256=%s\n' "$filename" "$sha256" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         with:

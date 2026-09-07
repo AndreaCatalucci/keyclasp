@@ -1,6 +1,6 @@
 # CLI command reference
 
-Keyclasp `0.2.0-beta.2` supports macOS `arm64` and glibc Linux `arm64` or `x64` on Node.js 24 or 26. macOS `x64` and Windows installation and stateful commands fail closed. Every coding-agent command should pass `--project`, `--environment`, and the minimum required `--env` mappings explicitly.
+The software beta supports macOS `arm64` and glibc Linux `arm64` or `x64` on Node.js 24 or 26. macOS `x64` and Windows installation and stateful commands fail closed. Every coding-agent command should pass `--project`, `--environment`, and the minimum required `--env` mappings explicitly.
 
 ## Vault and passphrase
 

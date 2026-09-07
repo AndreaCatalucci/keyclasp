@@ -52,7 +52,9 @@
     "test:source": "vitest run --reporter=dot",
     "release:inventory": "node scripts/generate-software-beta-inventory.mjs",
     "release:inventory:check": "node scripts/generate-software-beta-inventory.mjs --check",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "release:beta": "release-it prerelease --preRelease=beta",
+    "release:prepare": "node scripts/prepare-software-beta.mjs"
   },
   "keywords": [
     "secrets",
@@ -88,6 +90,7 @@
   "devDependencies": {
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^26.2.0",
+    "release-it": "21.0.2",
     "typescript": "^7.0.2",
     "vitest": "^4.1.11"
   },
