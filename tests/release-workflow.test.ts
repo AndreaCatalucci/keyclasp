@@ -11,6 +11,8 @@ function fixture(failTests = false) {
   temporary.push(root);
   for (const folder of ["scripts", "bin", "docs/releases"]) fs.mkdirSync(path.join(root, folder), { recursive: true });
   fs.copyFileSync("scripts/prepare-software-beta.mjs", path.join(root, "scripts/prepare-software-beta.mjs"));
+  fs.copyFileSync("scripts/npm-publish-beta.mjs", path.join(root, "scripts/npm-publish-beta.mjs"));
+  fs.chmodSync(path.join(root, "scripts/npm-publish-beta.mjs"), 0o755);
   fs.writeFileSync(path.join(root, "package.json"), JSON.stringify({ name: "keyclasp", version: "0.2.0-beta.37" }));
   for (const script of ["build-macos-biometric-helper.mjs", "release-package-manifest.mjs", "verify-packed-software-beta.mjs"]) {
     fs.writeFileSync(path.join(root, "scripts", script), "// External check succeeds in this orchestration fixture.\n");

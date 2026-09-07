@@ -8,6 +8,7 @@
     "tagName": "v${version}"
   },
   "npm": {
+    "publishPackageManager": "./scripts/npm-publish-beta.mjs",
     "tag": "beta",
     "publishPath": "./release-artifacts/keyclasp.tgz",
     "publishArgs": [
