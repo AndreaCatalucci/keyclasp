@@ -9,7 +9,7 @@
   },
   "npm": {
     "tag": "beta",
-    "publishPath": "release-artifacts/keyclasp.tgz",
+    "publishPath": "./release-artifacts/keyclasp.tgz",
     "publishArgs": [
       "--ignore-scripts"
     ],

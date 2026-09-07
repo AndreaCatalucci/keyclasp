@@ -94,13 +94,29 @@ describe("beta release orchestration", () => {
       expect(calls).not.toContain("publish");
     } else {
       expect(result.status, result.stdout + result.stderr).toBe(0);
-      expect(calls).toContain("publish release-artifacts/keyclasp.tgz --tag beta --ignore-scripts");
+      expect(calls).toContain("publish ./release-artifacts/keyclasp.tgz --tag beta --ignore-scripts");
     }
+  });
+  it("lets npm resolve the configured publish path as a local tarball", () => {
+    const { root } = fixture();
+    const config = JSON.parse(fs.readFileSync(".release-it.json", "utf8"));
+    const directory = path.join(root, "release-artifacts");
+    fs.mkdirSync(directory);
+    const options = {
+      cwd: root, encoding: "utf8" as const,
+      env: { ...process.env, GIT_SSH_COMMAND: "false" },
+    };
+    const packed = spawnSync("npm", ["pack", "--ignore-scripts", "--offline", "--json", "--pack-destination", directory], options);
+    expect(packed.status, packed.stderr).toBe(0);
+    fs.copyFileSync(path.join(directory, JSON.parse(packed.stdout)[0].filename), path.join(directory, "keyclasp.tgz"));
+    const published = spawnSync("npm", ["publish", config.npm.publishPath, "--tag", config.npm.tag, "--ignore-scripts", "--dry-run", "--offline"], options);
+    expect(published.status, published.stdout + published.stderr).toBe(0);
+    expect(published.stdout).toContain("keyclasp@0.2.0-beta.37");
   });
   it("publishes only the prepared tarball to beta with scripts disabled", () => {
     const config = JSON.parse(fs.readFileSync(".release-it.json", "utf8"));
     expect(config.git.addUntrackedFiles).toBe(false);
-    expect(config.npm.publishPath).toBe("release-artifacts/keyclasp.tgz");
+    expect(config.npm.publishPath).toBe("./release-artifacts/keyclasp.tgz");
     expect(config.npm.tag).toBe("beta");
     expect(config.npm.publishArgs).toContain("--ignore-scripts");
     expect(config.hooks["before:npm:release"]).toBe("node scripts/prepare-software-beta.mjs --check");
