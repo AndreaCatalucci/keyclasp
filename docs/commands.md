@@ -1,6 +1,6 @@
 # CLI command reference
 
-Keyclasp `0.2.0-beta.1` supports macOS `arm64` and glibc Linux `arm64` or `x64` on Node.js 24 or 26. macOS `x64` and Windows installation and stateful commands fail closed. Every coding-agent command should pass `--project`, `--environment`, and the minimum required `--env` mappings explicitly.
+Keyclasp `0.2.0-beta.2` supports macOS `arm64` and glibc Linux `arm64` or `x64` on Node.js 24 or 26. macOS `x64` and Windows installation and stateful commands fail closed. Every coding-agent command should pass `--project`, `--environment`, and the minimum required `--env` mappings explicitly.
 
 ## Vault and passphrase
 
@@ -19,7 +19,7 @@ Passphrase removal is unavailable in this beta. macOS requires Touch ID before e
 
 | Command | Behavior |
 |---|---|
-| `keyclasp set NAME` | Read a value from stdin and create or replace one scoped record |
+| `keyclasp set NAME` | Read a piped value, or prompt in a terminal, and create or replace one scoped record |
 | `keyclasp set NAME -` | Prompt without echoing the value |
 | `keyclasp list [--all]` | List names; `--all` includes each project and environment |
 | `keyclasp get NAME` | Print one value after operator authorization |
@@ -40,9 +40,9 @@ keyclasp run --project myapp --environment prod --env STORED:EXPECTED -- npm sta
 
 A named run is unattended when every selected record is effectively unlocked and machine-key protected. If any selected record is interactive, the complete request requires authorization and interactive-key unlock before any value is decrypted. Omitting `--env` requests the whole scope and always requires authorization.
 
-macOS authorizes with Touch ID and then requests the interactive passphrase. Linux uses one passphrase entry for both authorization and unlock. A machine-only vault cannot satisfy an operator gate.
+macOS authorizes with Touch ID and requests the passphrase when interactive records are selected. Linux uses one passphrase entry for both authorization and unlock; machine-only vaults cannot satisfy that gate.
 
-Keyclasp blocks common environment dumps and scans stdout and stderr for injected values of at least eight characters. `--allow-unsafe` disables those two safeguards for one invocation; it never bypasses authorization. The child remains trusted code and may transmit or persist a credential.
+The child inherits the caller's environment in addition to selected vault values. Keyclasp blocks common environment dumps and scans stdout and stderr for injected values of at least eight characters. `--allow-unsafe` disables those two safeguards for one invocation; it never bypasses authorization. The child remains trusted code and may transmit or persist a credential.
 
 ## Custody rules
 
@@ -58,7 +58,7 @@ keyclasp unlock --default
 
 Scoped commands require at least one explicit scope flag. An exact secret requires both project and environment. Rules resolve in this order: exact secret, exact project/environment, project-only or environment-only, then the vault-wide default. Locked wins an equal-specificity project/environment conflict. `lock --default` selects the interactive fallback; `unlock --default` explicitly selects the machine fallback. Upgraded vaults report `legacy machine default` until one of those authorized choices is made.
 
-`lock` moves matching existing records into interactive custody. `unlock` moves them into machine custody. `inherit` removes the exact matching override and moves records according to the next effective rule. The authorization prompt previews machine-to-interactive, interactive-to-machine, and unchanged counts for a default choice. A tightening records a durable pending phase in the same database transaction, then enables secure deletion, checkpoints and truncates WAL, compacts the database, removes obsolete sidecars, and validates the closed state before success. If no machine records remain, it advances the bundle generation and retires the prior machine key.
+`lock` moves matching existing records into interactive custody. `unlock` moves them into machine custody. `inherit` removes the exact matching override and moves records according to the next effective rule. Default changes preview how many records move in each direction. Tightening completes only after obsolete live SQLite data is cleaned up and verified; interrupted cleanup resumes on the next command. When no machine records remain, the old machine key is retired.
 
 ## Managed backup and restore
 
@@ -69,12 +69,10 @@ keyclasp backup restore /secure/path/keyclasp-backup
 
 Both commands require operator authorization. A backup contains one consistent database snapshot, the complete key bundle, authorization policy, custody inventory, and a manifest authenticated by every data-key class used by records.
 
-- Backup creation requests only the classes present in its consistent inventory: machine-only does not prompt for an unused interactive key; mixed requests both; all-interactive requests only the interactive key. Linux machine-only management remains blocked by the platform authorization policy.
-- Mixed or machine-only backups require the source machine identity and restore only on that machine.
-- An all-interactive backup can restore on another supported machine with its passphrase. Restore creates a new target-machine key and keeps every record interactive.
-- Emergency restore is dispatched before ordinary live-vault migration or journal recovery, so an authenticated backup can replace a damaged key, database, policy, or pending journal. No unsafe bypass is available: authorization and complete backup validation still precede live mutation.
-- Healthy restore copies the exact DB/WAL/SHM state, checkpoints and validates only that transaction-owned copy, then preserves the byte-identical raw live set as rollback material before publication. Proven damaged state is quarantined as owner-only evidence. Busy or changing live files stop without replacement.
-- Restore validates the published database, key classes, policy anchor, and every record before commit. Its per-operation journal makes publication, rollback, and cleanup restartable after repeated interruption.
+- macOS uses Touch ID; Linux needs an enrolled passphrase. Key unlock requests follow the record classes present in the backup, so unused interactive keys do not add a macOS passphrase prompt.
+- Mixed or machine-only backups restore only on the source machine. An all-interactive backup can move with its passphrase; records stay interactive and receive a fresh target-machine key.
+- Restore can replace a damaged vault after authorization and complete backup validation. It preserves damaged files as owner-only evidence and reports their location.
+- Stop external SQLite clients first. Busy or changing live files stop restore without replacement. Restore treats the database, WAL, and SHM as a set, validates the result, and resumes interrupted publication or rollback.
 
 The manifest authenticates one internally consistent backup; it does not prove that the backup is the newest valid copy. Retained backups and external filesystem snapshots remain usable after a live-vault lock or passphrase change. Delete them only under an explicit retention decision, and rotate provider credentials when an earlier copy must be revoked.
 

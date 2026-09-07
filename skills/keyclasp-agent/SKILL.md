@@ -5,11 +5,11 @@ description: Keyclasp process-boundary injection. Use when a command needs crede
 
 # Keyclasp Agent
 
-**Secret names** only. Values cross the **process boundary** inside `keyclasp run`, never this conversation.
+Work with secret names. Inject values through `keyclasp run` into trusted commands; keep plaintext out of the conversation. The child receives usable credentials and can disclose them. Output scanning catches accidental exact-value leaks, not fragments or transformed values.
 
 ## 1. Name the command, env vars, and scope
 
-Read project config, docs, and error output. Pass `--project` and `--environment` on every Keyclasp command. Never `keyclasp use`, never ambient context. If scope is unknown:
+Read project config, docs, and error output. Pass `--project` and `--environment` explicitly for scoped operations; do not change persisted context with `keyclasp use`. If scope is unknown, discover names first:
 
 ```bash
 keyclasp projects
@@ -28,7 +28,9 @@ keyclasp status --project <project> --environment <environment>
 keyclasp list --project <project> --environment <environment>
 ```
 
-`list` prints names. Once startup recovery is complete, `status` is metadata-only: it does not decrypt a value. A pre-versioned or interrupted vault may first resume exclusive sanitation, which can load data keys or request interactive unlock before `status` runs. A machine-only or dual-key vault can serve a named request unattended when every selected secret is effectively unlocked and machine-key protected. Fresh passphrase vaults default to interactive custody. `legacy machine default` means an upgraded vault retained unattended compatibility but still needs an explicit operator default decision; it does not authorize the agent to change that choice. Stop when a selected record is locked or interactive, when cleanup is pending, or when any command prompts. Map each required env var to a listed name (`--env STORE:EXPECTED` when they differ).
+`list` prints names; `status` shows custody and policy. Startup recovery of an older or interrupted vault may load keys or request a passphrase before metadata appears. Stop for pending cleanup or any prompt.
+
+A named run is unattended only when every selected record is effectively unlocked and in machine custody. Fresh passphrase vaults default to interactive custody. An upgraded vault's `legacy machine default` preserves earlier unattended behavior; it does not authorize the agent to change that default. Map each required variable to a listed name, using `--env STORE:EXPECTED` when names differ.
 
 Done when the binary exists, status and list show that every requested name is eligible for an unattended named run, or the missing or locked state has been reported.
 
@@ -38,21 +40,13 @@ Done when the binary exists, status and list show that every requested name is e
 
 When the child expects the secret as a command argument, inject it under a shell-safe target name (`--env SOURCE:SAFE_NAME` when necessary) and expand that target inside the Keyclasp-launched child shell. Quote the child command so the calling shell passes `$SAFE_NAME` literally and Keyclasp injects it before expansion. This degraded fallback exposes the value through downstream process arguments and potentially process accounting, telemetry, or crash reports. Use it only in software mode, when the child has no compatible environment, stdin, or file-descriptor input and the project or operator accepts that exposure. Stop instead of using this fallback when `keyclasp status` reports hardware mode.
 
-For example, a PostgreSQL connection URI must reach `psql` as its dbname or connection-string input, such as through `-d`; mapping that URI to `PGDATABASE` can make libpq fall back to a local socket:
-
-```bash
-keyclasp run --project myapp --environment prod --env DATABASE_URL -- \
-  sh -c 'psql -d "$DATABASE_URL" "$@" 2>/dev/null || { status=$?; printf "%s\n" "psql probe failed" >&2; exit "$status"; }' sh \
-  -X -v ON_ERROR_STOP=1 -At -c 'SELECT 1'
-```
-
-The second `sh` supplies `$0`; the remaining arguments become `"$@"`. The probe suppresses raw connection diagnostics because `psql` can echo fragments of a malformed URI that exact-value redaction will not catch. Run the smallest safe probe that exercises the same connection path before a consequential command.
+Run a small probe that exercises the child's input contract and reports success without credentials or raw connection diagnostics. A malformed connection string can expose fragments that exact-value scanning will miss.
 
 Done when each mapping or child-side expansion matches the child's documented input contract and a safe probe has run when practical.
 
 ## 4. Run at the process boundary
 
-Keyclasp options before `--`. Repeat `--env` once per secret.
+Place Keyclasp options before `--`. Repeat `--env` once per secret. The child inherits the caller's environment; this flag limits vault selection, not other exported credentials.
 
 ```bash
 keyclasp run --project <project> --environment <environment> --env OPENAI_API_KEY -- npm test
@@ -66,7 +60,7 @@ Done when this form has run, or a failure below was handled without exposing a v
 - Never run `keyclasp get`. If the user needs plaintext, give them the exact operator command to run in their terminal.
 - Never omit `--env` (broad runs are operator-only).
 - Never pass `--allow-unsafe` unless the user authorizes that one invocation.
-- Never write a secret value into prompts, files, agent-authored arguments, logs, snapshots, commits, or summaries. Never inspect injection with `env`, `printenv`, or debug dumps. Verify through child behavior, or a check that reports only set vs length. If a trusted child requires the secret as an argument, expand it only inside the Keyclasp-launched child as described above and account for process-list exposure. Locking and key retirement do not revoke a credential copied elsewhere; provider-side rotation is required when revocation matters.
+- Never write a secret value into prompts, files, agent-authored arguments, logs, snapshots, commits, or summaries. Never inspect injection with `env`, `printenv`, or debug dumps. Verify through child behavior, or a check that reports only whether the variable is set. If a trusted child requires the secret as an argument, expand it only inside the Keyclasp-launched child as described above and account for process-list exposure. Locking and key retirement do not revoke a credential copied elsewhere; provider-side rotation is required when revocation matters.
 - Never invent a value or read one from a project file. Do not run `init`, `set`, `delete`, `rename`, `lock`, `unlock`, `inherit`, `passphrase`, or `backup`. Give the user the exact operator command for a requested state change.
 - The child is trusted code and receives every injected secret. Keyclasp does not authorize the child's external actions.
 

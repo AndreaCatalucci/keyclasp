@@ -1,5 +1,7 @@
 # Keyclasp macOS hardware beta
 
+> Historical hardware-release planning reference; the requirements below are not a software-beta installation guide or a claim of completed controls. For the published `0.2.0-beta.2` software beta, use [getting started](getting-started.md) and the [support matrix](software-beta-support.md).
+
 **Status: blocked draft. There is no installable hardware beta yet.** The current native artifact is status-only, and the tested ad-hoc harness failed permanent Secure Enclave creation with `errSecMissingEntitlement`. Do not use this guide to package or advertise the current artifact as hardware mode.
 
 If a later physical test accepts an ad-hoc direct archive, macOS will identify it as coming from an unidentified developer. Developer ID remains a general-availability requirement, but the pre-GA signing and persistence path must pass hardware-custody, recovery, authorization, and release-evidence gates first.

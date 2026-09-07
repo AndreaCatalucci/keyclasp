@@ -1,59 +1,68 @@
 # Recipes
 
-Common patterns and workflows.
+## CI
 
-## CI/CD
-
-Run the vault-backed command through `keyclasp run` instead of exporting secrets into the job environment directly:
+Create an ephemeral machine-custody vault inside the job. Supply `SECRET_API_KEY` from the CI secret store, turn off shell tracing, and remove that bootstrap variable before launching the child:
 
 ```bash
-keyclasp init <<< ""
-echo "$SECRET_API_KEY" | keyclasp set SECRET_API_KEY --project myapp --environment ci
-keyclasp run --project myapp --environment ci --env SECRET_API_KEY -- npm test
+(
+  set -eu
+  set +x
+  ci_vault=$(mktemp -d)
+  export KEYCLASP_HOME="$ci_vault"
+  trap 'rm -rf -- "$ci_vault"' EXIT
+
+  keyclasp init --machine-only
+  printf '%s' "$SECRET_API_KEY" | \
+    keyclasp set API_KEY --project myapp --environment ci
+  unset SECRET_API_KEY
+  keyclasp run --project myapp --environment ci --env API_KEY -- npm test
+)
 ```
 
-CI should `init` as machine-only **inside** the job (empty passphrase). Unattended jobs can use only records in machine custody; interactive-custody records require a passphrase entry in a TTY. Do not mount a laptop vault into CI or a container and assume its custody and machine binding match the job.
+Install `keyclasp@0.2.0-beta.2` first. An empty passphrase does not select machine custody; `--machine-only` is required. Interactive records cannot serve unattended jobs.
 
-Treat the CI job's own secret store as the source of truth; Keyclasp only narrows what the test/build process itself can see and print.
+The CI store remains the credential source. Keyclasp does not protect against a compromised job. The child inherits the caller's environment, so remove other exported credentials too; `--env` selects vault records only. Never print or trace the bootstrap value.
 
-## Container Use
+## Containers
+
+Use a supported glibc image and install the pinned beta without credentials:
 
 ```dockerfile
 FROM node:24-slim
-COPY keyclasp-0.2.0-beta.1.tgz /tmp/keyclasp-0.2.0-beta.1.tgz
-RUN npm install -g /tmp/keyclasp-0.2.0-beta.1.tgz
+RUN npm install -g keyclasp@0.2.0-beta.2
 ```
 
-Before publication, use only the exact candidate tarball and SHA-256 from the release-candidate receipt. After protected publication, `keyclasp@beta` may replace the local path only after the registry artifact passes the receipt integrity check.
+At runtime, provision a new temporary vault inside the container using the CI recipe. Supply the bootstrap credential through your orchestrator's secret facility; do not put it in the Dockerfile, build arguments, image layers, or command-line literals. Apply the same install-script policy as other npm installations.
 
-Mount the vault at runtime instead of copying credentials into the image:
+Do not mount a laptop vault into the container. Machine custody depends on the source machine identity, and copying the files does not make that vault portable. Treat each ephemeral container as a new vault and discard it at job completion. An all-interactive managed backup can move between supported machines, but it requires interactive authorization and its passphrase, so it is not an unattended provisioning recipe.
+
+## Select only required credentials
 
 ```bash
-docker run --mount type=bind,source="$HOME/.keyclasp",target=/root/.keyclasp your-image \
-  keyclasp run --project myapp --environment ci --env SECRET_API_KEY -- npm test
+keyclasp run --project myapp --environment prod \
+  --env API_KEY --env DATABASE_URL -- npm test
 ```
 
-## Least-Privilege Injection
+The child must accept those variables in the stored format. `--env SOURCE:TARGET` renames a variable; it does not convert its value.
 
-Prefer explicit `--env` mappings so a command only receives the secrets it actually needs:
+## Moving a vault
+
+Use a managed backup rather than copying a live vault directory:
 
 ```bash
-keyclasp run --project myapp --environment prod --env SECRET_API_KEY --env DATABASE_URL -- npm test
+# On the source machine:
+keyclasp backup create /secure/path/keyclasp-backup
+# On the destination, after transferring that complete directory securely:
+keyclasp backup restore /secure/path/keyclasp-backup
 ```
 
-## Moving a Vault to Another Machine
+Every record must be interactive to restore on another supported machine. Review `status`, enroll a passphrase if necessary, and lock the intended records on the source before creating the backup. `lock --default` alone does not override more-specific unlock rules. Mixed and machine-only backups require the source machine identity. Both backup commands require operator authorization; Linux machine-only management is blocked.
 
-Create and restore a managed backup instead of copying a live `~/.keyclasp/` directory:
+Stop other Keyclasp processes and external SQLite clients before restoring. Restore validates the backup before replacing live files and preserves damaged live state in a reported owner-only evidence directory. Keep that evidence until you decide its retention. After restore, check `status` and perform a named run with a dummy record prepared for this purpose.
 
-```bash
-keyclasp backup create ./keyclasp-backup
-keyclasp backup restore ./keyclasp-backup
-```
+Store and transfer backups with owner-only access. A valid backup can still be outdated. Locking the live vault or changing its passphrase cannot revoke earlier backups and snapshots; rotate credentials at their providers when those copies must lose access.
 
-The backup command snapshots the database, key bundle, and policy consistently and authenticates them during restore. Mixed-custody and machine-only backups remain bound to the source machine. Only an all-interactive backup is portable, and restore requires its managed backup passphrase. Use owner-only transport and storage for every backup.
+## Older key formats
 
-Before restore, stop every Keyclasp process and any tool that opens `vault.db` directly. The Keyclasp lifecycle lock coordinates Keyclasp, while observable external SQLite holders or changing files cause restore to stop before replacement. Healthy classification copies the exact DB/WAL/SHM set and checkpoints only that transaction-owned copy; the raw live bytes remain unchanged until journaled publication and become rollback material, so an old WAL cannot attach to the restored database. If the live key, database, policy, or recovery journal is damaged, the ordinary `backup restore` command is the authorized emergency path; it validates the backup independently and retains the damaged raw file set in the reported owner-only evidence directory. Keep that directory for incident analysis until an explicit retention decision.
-
-After restore, run `keyclasp status` and a narrowly scoped synthetic readback appropriate to the environment. Do not place real credential values in logs or receipts. A backup authenticator proves integrity and custody-key possession, not that the backup is the newest state; inventory retained snapshots separately and rotate provider credentials when an older copy must be revoked.
-
-Old XOR (`keyclasp:v2`) key files are refused. On the original machine, clone this repository and run `scripts/migrate-vault-key-wrap.mjs` before using a new CLI. After you confirm the new wrap, shred `.keyclasp.key.*.bak`. Those backups are still the old wrap. The script is not shipped in the published npm package.
+Old XOR (`keyclasp:v2`) key files are refused. On the original machine, use the repository's `scripts/migrate-vault-key-wrap.mjs`; it is not included in the npm package. Keep the old-format `.bak` copies protected until you have verified the new wrap and decided their retention. Deleting a file does not guarantee erasure from snapshots or storage media.

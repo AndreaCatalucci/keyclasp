@@ -409,7 +409,7 @@ async function executePreparedRun(
   }
 
   if (prepared.allowUnsafe) {
-    options.stderr("WARNING: keyclasp run exfiltration protection disabled by --allow-unsafe.\n");
+    options.stderr("WARNING: --allow-unsafe disables command preflight and output scanning for this run.\n");
     const outcome = await spawnRaw(prepared.commandArgs, env);
     reportSpawnError(outcome, options.stderr);
     return outcome;
