@@ -63,18 +63,19 @@ describe("beta release orchestration", () => {
     fs.writeFileSync(path.join(root, "package.json"), JSON.stringify({ name: "keyclasp", version: "0.2.0-beta.38" }));
     expect(run("--check").status).not.toBe(0);
   });
-  it("runs release-it's real version bump and hooks without publishing", () => {
+  it.each([false, true])("runs the configured release command without publishing (resume=%s)", resume => {
     const { root } = fixture();
     const config = JSON.parse(fs.readFileSync(".release-it.json", "utf8"));
     config.git = false;
     config.npm.publish = false;
     fs.writeFileSync(path.join(root, ".release-it.json"), JSON.stringify(config));
-    const result = spawnSync(process.execPath, [path.resolve("node_modules/release-it/bin/release-it.js"), "prerelease", "--preRelease=beta", "--ci"], {
+    const releaseArgs = JSON.parse(fs.readFileSync("package.json", "utf8")).scripts["release:beta"].split(" ").slice(1);
+    const result = spawnSync(process.execPath, [path.resolve("node_modules/release-it/bin/release-it.js"), ...releaseArgs, ...(resume ? ["--no-increment"] : []), "--ci"], {
       cwd: root, encoding: "utf8", env: { ...process.env, PATH: `${root}/bin:${process.env.PATH}` },
     });
     expect(result.status, result.stdout + result.stderr).toBe(0);
-    expect(JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")).version).toBe("0.2.0-beta.38");
-    expect(JSON.parse(fs.readFileSync(path.join(root, "release-artifacts/verified.json"), "utf8")).version).toBe("0.2.0-beta.38");
+    expect(JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")).version).toBe(resume ? "0.2.0-beta.37" : "0.2.0-beta.38");
+    expect(JSON.parse(fs.readFileSync(path.join(root, "release-artifacts/verified.json"), "utf8")).version).toBe(resume ? "0.2.0-beta.37" : "0.2.0-beta.38");
     expect(fs.readFileSync(path.join(root, "calls.log"), "utf8")).not.toContain("publish");
   });
   it.each([false, true])("gates release-it publication on successful preparation (failure=%s)", failTests => {

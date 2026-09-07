@@ -1,6 +1,6 @@
 {
   "name": "keyclasp",
-  "version": "0.2.0-beta.2",
+  "version": "0.2.0-beta.3",
   "description": "Local encrypted credential vault for coding agents. Inject selected secrets into trusted commands.",
   "engines": {
     "node": "24.x || 26.x"
@@ -53,7 +53,7 @@
     "release:inventory": "node scripts/generate-software-beta-inventory.mjs",
     "release:inventory:check": "node scripts/generate-software-beta-inventory.mjs --check",
     "test:watch": "vitest",
-    "release:beta": "release-it prerelease --preRelease=beta",
+    "release:beta": "release-it --preRelease=beta",
     "release:prepare": "node scripts/prepare-software-beta.mjs"
   },
   "keywords": [
