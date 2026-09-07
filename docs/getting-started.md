@@ -1,5 +1,7 @@
 # Getting started
 
+These instructions are for coding agents running on local developer machines.
+
 Start with the [isolated dummy demo](../README.md#try-it-with-a-dummy-credential). It needs no real credential and leaves your existing vault alone.
 
 ## Install

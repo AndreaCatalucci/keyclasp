@@ -1,12 +1,24 @@
 ---
 title: "security: production readiness after the 2026-09-05 audit"
 type: delivery
-status: planned
+status: in_progress
 date: 2026-09-05
 packet: KC-P01
 ---
 
 # Security production readiness after the 2026-09-05 audit
+
+## Current status — 2026-09-07
+
+**Not complete.** Remediation and beta shipment have progressed, but this plan's production completion gates remain open. The implementation descriptions and initial failures below describe the planning baseline, not the current source.
+
+- Remediation PRs #15–18 and beta.2 release PR #19 are merged. The delivery map records their bounded source and artifact evidence; this does not establish Gates A–D for a new artifact.
+- The public npm registry currently contains only `0.2.0-beta.2`, with both `beta` and `latest` pointing to it. Beta shipment is complete.
+- Beta.3 is prepared locally and unpublished. Its exact-package checks passed on macOS arm64/Node 26.8.1, but its source run has unresolved timeouts and was stopped. No complete platform or physical qualification is claimed.
+- Final-artifact qualification, independent assurance, and operator rollout remain incomplete. Historical failed qualification evidence remains valid for the artifact it tested.
+- The [Show HN documentation scope](../delivery-maps/2026-09-07-show-hn-readiness.md) is complete for merged PRs #20–21. Its pending human trial and newer local edits are tracked there. Show HN readiness does not close this production plan.
+
+See the [delivery map](../delivery-maps/2026-09-05-security-production-readiness.md) for merged work and release receipts. No production gate is marked complete by this status update.
 
 ## Desired outcome
 

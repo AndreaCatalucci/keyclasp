@@ -2,6 +2,8 @@
 
 Keyclasp stores credentials in a local encrypted vault and injects selected values into commands your coding agent runs. The agent works with secret names instead of copying API keys into prompts or project files.
 
+Keyclasp currently targets coding agents running on local developer machines.
+
 **Run only trusted commands.** The child receives the actual credential and can send it over the network, write it to disk, or pass it to another process. Keyclasp catches some accidental output leaks; it does not sandbox the child or isolate secrets from other processes running as your OS user.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
@@ -87,23 +89,29 @@ Output scanning covers values of at least eight characters. Transformed values, 
 
 Machine custody uses software-derived machine identity, not Secure Enclave or TPM, and does not provide theft resistance. Passphrase custody uses a separate key. Neither protects against root or a compromised OS. Names and policy metadata remain plaintext, and memory cleanup is best effort. Keyclasp has not received a professional third-party security audit. See the [security model](docs/security.md).
 
-## How does it compare with 1Password `op run`?
+## Why not just use 1Password `op run`?
 
-Both inject credentials into subprocess environments and mask secret output. These are already features of [1Password `op run`](https://www.1password.dev/cli/reference/commands/run).
+`op run` is a capable subprocess secret injector, but it is not a coding-agent workflow by itself. Its [documented inputs](https://www.1password.dev/cli/reference/commands/run) are environment variables or `.env` entries containing `op://vault/item/field` references, or a preconfigured 1Password Environment selected by UUID using the current beta CLI. The agent still needs that mapping before it launches the command.
+
+1Password also offers a separate [MCP server for coding agents](https://www.1password.dev/environments/mcp-server). It can manage Environments, list variable names, and create locally mounted `.env` files without returning secret values to the agent. That flow requires a 1Password account, desktop app, Environment, MCP configuration, and authorization. It is additional integration around Environments, not behavior provided by `op run` alone.
+
+Keyclasp takes a narrower local-first approach. After the operator initializes the vault and installs the packaged skill, an agent can inspect names and custody with `list` and `status`, then select the exact records for one command with `keyclasp run --env API_KEY`. It needs no vault/item/field placeholders, Environment UUID, cloud account, or agent-accessible plaintext file. Neither tool infers which credentials a command needs; Keyclasp makes the required list explicit at launch.
 
 | | Keyclasp | 1Password `op run` |
 |---|---|---|
-| Credential source | Local software vault; no account | 1Password secret references or Environments |
-| Selection | Explicit project, environment, and secret names | References; service accounts can restrict access to vaults or Environments |
-| Output behavior | Detects exact values of at least eight characters and stops the run | Conceals secrets on stdout and stderr by default |
+| Credential source | Local software vault; no account or cloud service | Hosted 1Password account accessed through the CLI |
+| Agent setup | Packaged skill plus explicit local vault scope | Predeclared references or Environment; optional agent integrations are separate |
+| Per-command selection | Names exact records on the command line | Resolves predeclared references or loads a selected Environment |
+| Agent-visible discovery | `list` and `status` expose scoped names and custody metadata | `op run` has no discovery interface; the separate MCP server can list Environment and variable names |
+| Output behavior | Detects exact values of at least eight characters, stops forwarding output, and tries to terminate the process group | Conceals secrets on stdout and stderr by default; `--no-masking` disables concealment |
 
-If you already keep project credentials in 1Password, `op run` may be enough. Keyclasp is for a local-only workflow with explicit per-record machine or passphrase custody. Both still entrust credentials to the child; 1Password also documents the [same-user environment-access limit](https://www.1password.dev/cli/secrets-environment-variables).
+If your team already uses 1Password and is comfortable maintaining references or Environments, `op run` may be the better choice. Keyclasp is for a local developer who wants an agent-oriented command boundary, explicit per-run selection, and no account or cloud dependency. Both still entrust credentials to the child, and both share the [same-user environment-access limit](https://www.1password.dev/cli/secrets-environment-variables).
 
 ## Guides
 
 - [Getting started and fresh-machine trial](docs/getting-started.md)
 - [Command reference](docs/commands.md)
-- [CI, containers, and moving a vault](docs/recipes.md)
+- [Local-use recipes and moving a vault](docs/recipes.md)
 - [Security model](docs/security.md), [FAQ](docs/faq.md), and [supported platforms](docs/software-beta-support.md)
 
 ## Development and attribution

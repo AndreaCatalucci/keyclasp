@@ -40,7 +40,7 @@ npx tsc --watch  # Dev mode
 ```bash
 npm i -g keyclasp  # Install
 keyclasp init            # Non-empty passphrase; interactive custody by default
-keyclasp init --machine-only # Explicit unattended machine custody (agents/CI)
+keyclasp init --machine-only # Explicit unattended machine custody for local agents
 keyclasp set API_KEY - # Store a secret securely
 keyclasp run --env API_KEY -- npm test # Inject only the named secret
 ```

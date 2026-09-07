@@ -1,5 +1,7 @@
 # Software beta support matrix
 
+This beta targets coding agents running on local developer machines.
+
 Supported targets for the published `0.2.0-beta.2` software beta:
 
 | Operating system | Node.js | Status | Authorization |

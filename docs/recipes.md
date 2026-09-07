@@ -1,41 +1,6 @@
-# Recipes
+# Local developer recipes
 
-## CI
-
-Create an ephemeral machine-custody vault inside the job. Supply `SECRET_API_KEY` from the CI secret store, turn off shell tracing, and remove that bootstrap variable before launching the child:
-
-```bash
-(
-  set -eu
-  set +x
-  ci_vault=$(mktemp -d)
-  export KEYCLASP_HOME="$ci_vault"
-  trap 'rm -rf -- "$ci_vault"' EXIT
-
-  keyclasp init --machine-only
-  printf '%s' "$SECRET_API_KEY" | \
-    keyclasp set API_KEY --project myapp --environment ci
-  unset SECRET_API_KEY
-  keyclasp run --project myapp --environment ci --env API_KEY -- npm test
-)
-```
-
-Install `keyclasp@0.2.0-beta.2` first. An empty passphrase does not select machine custody; `--machine-only` is required. Interactive records cannot serve unattended jobs.
-
-The CI store remains the credential source. Keyclasp does not protect against a compromised job. The child inherits the caller's environment, so remove other exported credentials too; `--env` selects vault records only. Never print or trace the bootstrap value.
-
-## Containers
-
-Use a supported glibc image and install the pinned beta without credentials:
-
-```dockerfile
-FROM node:24-slim
-RUN npm install -g keyclasp@0.2.0-beta.2
-```
-
-At runtime, provision a new temporary vault inside the container using the CI recipe. Supply the bootstrap credential through your orchestrator's secret facility; do not put it in the Dockerfile, build arguments, image layers, or command-line literals. Apply the same install-script policy as other npm installations.
-
-Do not mount a laptop vault into the container. Machine custody depends on the source machine identity, and copying the files does not make that vault portable. Treat each ephemeral container as a new vault and discard it at job completion. An all-interactive managed backup can move between supported machines, but it requires interactive authorization and its passphrase, so it is not an unattended provisioning recipe.
+These recipes are for coding agents running on local developer machines.
 
 ## Select only required credentials
 

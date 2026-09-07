@@ -1,5 +1,14 @@
 # Keyclasp security remediation and production readiness
 
+## Current status — 2026-09-07
+
+**Production readiness remains incomplete; beta.2 shipment is complete.** The public registry contains only `0.2.0-beta.2`; `beta` and `latest` both point to it. Earlier registry statements below are historical snapshots.
+
+Beta.3 is prepared locally but unpublished. Exact-package checks passed on macOS arm64/Node 26.8.1; source-test timeouts remain unresolved, and the broader run was stopped. No complete replacement-artifact qualification, physical authorization, independent assurance, or operator rollout is established. See the [Show HN readiness map](2026-09-07-show-hn-readiness.md) for the candidate hash, evidence location, and pending documentation integration.
+
+The original production completion gates remain open. This update records current status without changing historical receipts or accepting failed checks.
+
+
 Outcome: repair every finding in the 2026-09-05 audit, establish safe credential-custody behavior, and qualify the resulting software artifact for a clearly stated production threat model. Software implementation, physical/platform qualification, independent professional assurance, and operator rollout have separate completion evidence. Hardware custody remains unavailable unless separately chosen and qualified.
 
 State: **waiting** on separately deferred production-assurance gates. The user-authorized beta shipment is complete: 0.2.0-beta.2 is published on npm beta and as a GitHub prerelease. KC-Q02 was superseded before launch by the explicit instruction to ship and release. No implementation or qualification packet is active; no further qualification or CI-repair work is scheduled.
