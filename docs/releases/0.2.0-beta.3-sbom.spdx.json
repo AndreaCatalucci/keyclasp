@@ -3,9 +3,9 @@
   "dataLicense": "CC0-1.0",
   "SPDXID": "SPDXRef-DOCUMENT",
   "name": "keyclasp@0.2.0-beta.3",
-  "documentNamespace": "http://spdx.org/spdxdocs/keyclasp-0.2.0-beta.3-b0db8cab-af96-4841-8be6-f44315d06900",
+  "documentNamespace": "http://spdx.org/spdxdocs/keyclasp-0.2.0-beta.3-49d8566c-eab2-43db-b666-b24477bf91ad",
   "creationInfo": {
-    "created": "2026-09-07T15:48:30.469Z",
+    "created": "2026-09-07T18:34:50.153Z",
     "creators": [
       "Tool: npm/cli-11.19.0"
     ]
