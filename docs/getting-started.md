@@ -9,11 +9,21 @@ npm install -g keyclasp@0.2.0-beta.2
 keyclasp version
 ```
 
-The published beta supports macOS arm64 and glibc Linux arm64/x64 with Node.js 24 or 26. The npm `latest` tag is still `0.1.1` as of September 7, 2026; use the pinned command above. See the [support matrix](software-beta-support.md) for exclusions.
+The published beta supports macOS arm64 and glibc Linux arm64/x64 with Node.js 24 or 26. See the [support matrix](software-beta-support.md) for exclusions.
 
 Keyclasp bundles its SQLite native bindings and checks their hashes during installation. Its install script must be allowed by your npm configuration. A normal install does not download native code separately. To build the bundled source instead, set `npm_config_build_from_source=true` for installation; this requires Xcode Command Line Tools on macOS, or Python and a C++ toolchain on Linux.
 
 The macOS Touch ID helper is ad hoc signed, without Developer ID signing or notarization. Fresh-machine approval and physical Touch ID checks remain outstanding for this beta. Do not disable Gatekeeper or change the package to work around a failure; record the error and stop.
+
+## After the demo
+
+The README demo leaves a temporary vault containing only a dummy credential. To remove it, run this in the same demo terminal while `demo_vault` still names the directory you created:
+
+```bash
+rm -r -- "$demo_vault"
+```
+
+Then close that terminal. This discards its `KEYCLASP_HOME` override; a new terminal uses your normal configuration. Closing the terminal without cleanup leaves the dummy vault in temporary storage.
 
 ## Create your vault and store a credential
 
@@ -63,15 +73,38 @@ Use the managed command to keep the database, keys, policy, and manifest togethe
 
 ## Fresh-machine trial and completion checklist
 
-Use dummy values only. On a supported machine, install the pinned beta and run the README demo. Then open a separate terminal for an interactive trial, set `KEYCLASP_HOME` to a new `mktemp -d` directory, and follow the create/store/run steps above using a dummy `API_KEY`. Keep that directory until the checks are complete, then delete only that trial directory.
+The minimum human trial is installation, a successful demo, and an interactive run that starts only after approval. Use a fresh supported machine and dummy credentials throughout.
 
-- [ ] Record OS, architecture, Node version, and `keyclasp version`; installation succeeds.
-- [ ] README demo prints `Credential received`, exits 0, and removes its temporary vault.
-- [ ] Interactive initialization rejects an empty passphrase; secure entry does not echo the dummy value.
-- [ ] Approving the locked run succeeds; cancelling it prevents child output. On macOS, check the physical Touch ID dialog; on Linux, check the terminal passphrase flow.
-- [ ] Unlocking the dummy record allows a named unattended run; locking it restores the prompt.
-- [ ] Configure the agent and ask it to run the dummy check. It uses explicit scope and `--env`, and stops when the record is locked.
-- [ ] With a machine-custody dummy record, run the leak check below. Expect `[KEYCLASP_REDACTED]`, a blocked-output error, and exit status 2; the dummy value must not appear.
+- [ ] Install `keyclasp@0.2.0-beta.2` and confirm the version. Record the OS, architecture, and Node version.
+- [ ] Follow the README demo. The run prints `Credential available: true`. Use the optional cleanup above, then close the demo terminal.
+- [ ] In a new terminal, create a separate temporary vault for interactive checks. If `mktemp` fails, stop before continuing:
+
+```bash
+trial_vault=$(mktemp -d)
+export KEYCLASP_HOME="$trial_vault"
+keyclasp init
+keyclasp set API_KEY - --project myapp --environment dev
+```
+
+Choose a non-empty trial passphrase and enter `dummy-key-for-keyclasp` at the credential prompt. Follow the prompts yourself; do not give the passphrase to an agent.
+
+- [ ] Run the command below and approve authorization. Expect `Credential received`.
+- [ ] Run it again and cancel authorization. The child must not print `Credential received`. On macOS, check the physical Touch ID dialog; on Linux, check the terminal passphrase flow.
+
+```bash
+keyclasp run --project myapp --environment dev --env API_KEY -- \
+  node -e 'if (!process.env.API_KEY) process.exit(1); console.log("Credential received")'
+```
+
+Record each result and any safe error output. After testing, remove only this trial directory with `rm -r -- "$trial_vault"` and close the terminal.
+
+Automated checks of injection and output-leak handling have passed on macOS arm64/Node 26. They do not complete this human trial. Physical Touch ID, Linux execution, and fresh-machine human onboarding remain unverified in this documentation pass.
+
+### Optional follow-up checks
+
+Before deleting the trial vault, you can also test the [unattended agent setup](#allow-a-record-for-unattended-agent-use): unlock the dummy record, verify a named run needs no prompt, and lock it again to restore interaction. A configured agent should use explicit scope and `--env`, and stop for locked records.
+
+To check output protection, use only the dummy record in the trial vault:
 
 ```bash
 keyclasp run --project myapp --environment dev --env API_KEY -- \
@@ -79,6 +112,4 @@ keyclasp run --project myapp --environment dev --env API_KEY -- \
 printf 'Exit status: %s\n' "$?"
 ```
 
-The leak check needs a dummy value at least eight characters long. Run it only in the trial vault. Record failed steps and their safe error output; a successful injection check does not complete the human checks.
-
-Automated isolated macOS arm64/Node 26 injection and leak checks have passed for the published beta. Physical Touch ID, Linux execution, and fresh-machine human onboarding remain unverified in this documentation pass. The checklist above is a trial procedure, not a completed acceptance record.
+Authorize the run if the record is locked. Expect `[KEYCLASP_REDACTED]`, a blocked-output error, and exit status 2. The dummy value must not appear. This check needs a value at least eight characters long.

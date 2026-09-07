@@ -10,35 +10,52 @@ Keyclasp stores credentials in a local encrypted vault and injects selected valu
 
 Requires Node.js 24 or 26 on macOS arm64 or glibc Linux arm64/x64. Windows, Intel Macs, and Alpine/musl Linux are unsupported. This is a software beta; hardware custody is unavailable.
 
-Install the published version explicitly. The npm `latest` tag still points to `0.1.1` as of September 7, 2026.
+### 1. Install
 
 ```bash
 npm install -g keyclasp@0.2.0-beta.2
 keyclasp version
 ```
 
-The version output should identify `0.2.0-beta.2`. If npm reports blocked install scripts, allow Keyclasp's install script under your npm policy and rerun installation; it verifies the bundled native binding. See [installation details](docs/getting-started.md).
+The version output should identify `0.2.0-beta.2`. If npm blocks install scripts, follow the [installation notes](docs/getting-started.md#install).
 
-Run this block in Bash or Zsh. It uses a temporary vault, a dummy value, and explicit unattended **machine custody**. No passphrase or Touch ID prompt is expected. The subshell leaves your usual vault setting unchanged.
+### 2. Create a demo vault
+
+Open a new Bash or Zsh terminal for this demo. Select a temporary directory so these commands leave your existing vault alone. Run the commands in order; if `mktemp` fails, stop before continuing:
 
 ```bash
-(
-  set -eu
-  demo_vault=$(mktemp -d)
-  export KEYCLASP_HOME="$demo_vault"
-  trap 'rm -rf -- "$demo_vault"' EXIT
-
-  keyclasp init --machine-only
-  printf '%s' 'dummy-key-for-keyclasp' | \
-    keyclasp set DEMO_KEY --project demo --environment local
-  keyclasp run --project demo --environment local --env DEMO_KEY -- \
-    node -e 'if (!process.env.DEMO_KEY) process.exit(1); console.log("Credential received")'
-)
+demo_vault=$(mktemp -d)
+export KEYCLASP_HOME="$demo_vault"
+keyclasp init --machine-only
 ```
 
-After initialization and storage messages, expect `Credential received` and exit status 0. The temporary vault is then deleted. This checks injection without printing the credential.
+Expect `Keyclasp vault created at …` with a temporary path. `--machine-only` explicitly allows unattended use, so this demo needs no passphrase or Touch ID prompt. Use dummy credentials only.
 
-For real credentials, start with `keyclasp init` in your own terminal and enter a non-empty passphrase. New records then require interactive custody. A locked run requires Touch ID followed by the vault passphrase on macOS, or one passphrase entry on Linux. [Getting started](docs/getting-started.md) covers secure entry, opting a record into unattended use, and the fresh-machine checklist.
+### 3. Store a dummy credential
+
+```bash
+printf '%s' 'dummy-key-for-keyclasp' | \
+  keyclasp set DEMO_KEY --project demo --environment local
+```
+
+Expect `Stored "DEMO_KEY" (demo/local)`. The dummy value is now in the encrypted demo vault.
+
+### 4. Give a command access by name
+
+```bash
+keyclasp run --project demo --environment local --env DEMO_KEY -- \
+  node -e 'console.log("Credential available:", Boolean(process.env.DEMO_KEY))'
+```
+
+Expected output:
+
+```text
+Credential available: true
+```
+
+The command receives the credential; the agent only needs its name, `DEMO_KEY`. This check reports availability without printing the value or calling an external service.
+
+Close this demo terminal before configuring your real vault. [Getting started](docs/getting-started.md#after-the-demo) covers optional cleanup and passphrase custody. Real locked runs require Touch ID followed by the passphrase on macOS, or one passphrase entry on Linux.
 
 ## Configure your coding agent
 
