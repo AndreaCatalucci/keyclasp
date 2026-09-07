@@ -44,7 +44,7 @@ import {
   authorizationDefaultSeedRequiresUnlock,
   type ScopedSecret,
 } from "./vault.js";
-import { parseRunArgs } from "./run.js";
+import { MIN_LEAK_VALUE_LENGTH, parseRunArgs } from "./run.js";
 import { createSoftwareRunRuntime } from "./software/runtime.js";
 import { getDisplayVersion } from "./version.js";
 import { extractGlobalFlags, resolveContext, writeContext, clearContext } from "./context.js";
@@ -752,6 +752,12 @@ async function main(): Promise<void> {
         }
         storeSecret(project, environment, name, value, keyClass);
         console.log(`Stored "${name}" (${project}/${environment})`);
+        if (value.length < MIN_LEAK_VALUE_LENGTH) {
+          console.error(
+            `WARNING: "${name}" is shorter than ${MIN_LEAK_VALUE_LENGTH} characters. ` +
+            "Keyclasp cannot detect this value in child stdout or stderr.",
+          );
+        }
         break;
       }
 

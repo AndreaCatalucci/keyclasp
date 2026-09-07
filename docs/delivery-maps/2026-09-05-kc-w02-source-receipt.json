@@ -1,0 +1,33 @@
+{
+  "packet": "KC-W02",
+  "base": "c0d96fc9f4fc79db4da44d64d8c9e48421d24b9f",
+  "checkout": "/Users/andreacatalucci/.codex/worktrees/1024/keyclasp",
+  "status": "uncommitted source snapshot",
+  "files": {
+    "AGENTS.md": "967ea94c19721f4e37c4abec0a575b5e58dc39708d27ed0cf257cc824bfe4e71",
+    "README.md": "60d365a792d5441efe46b3391d23a5d0a9f68857b63b355a373d29423d85b75c",
+    "docs/architecture/software-vault-lifecycle.md": "80b1f789fb30eeaca5f37faa24a5007494c64a9f41da75eace8ccc97e45b8022",
+    "docs/architecture/system-context.md": "1d839ced441d58067c05ec05c4e8177f6133e9698342a857792fa0879db0e4b8",
+    "docs/commands.md": "7e62417a1f1708092d13132eed47ef8482234b342945fce30a0eed226fcd4d56",
+    "docs/faq.md": "ebe9ebe46a35426bfe8608125ce939512129583cfb2831f9802ff8cd2aff4b65",
+    "docs/getting-started.md": "0069a8be7ccff577274f5da4bbd69425d0088dc2facd68435ec52b15623682aa",
+    "docs/plans/2026-09-05-security-production-readiness-plan.md": "1f0e54fb471b2d67954431e82de8e75ae28dce615a63960d69ebb3746f090679",
+    "docs/security.md": "3b380acb5c1acfa0b0db7bbcb0fb84e8726cac6aaf7291fe1e3b8f72149617f1",
+    "skills/keyclasp-agent/SKILL.md": "efde96b8ad9280e5a07c90fc7cd52431a98247dc5ca2802a447d177bd1c35a3b",
+    "src/cli.ts": "c4e6fad0946769c79eb1ea550722b818a320bcaf3fb4732b11f19b17880ba23d",
+    "src/policy.ts": "a0ab6cc1962eff7531f3d0140fb82d7b25af7623cd62a346dfc7745e26cba9fb",
+    "src/software/key-bundle.ts": "ccb2087a46003933e697fa799abd0277800054596056e7136eee22bb25cecae5",
+    "src/vault-files.ts": "b08a0cf8f87422755e128de071cf52967f04f6dfe38efbfa7a720a8bd9d83f81",
+    "src/vault.ts": "9367309c166dc3434b5d3ed0412af7798639c97c07eb05461b6d2620e69f0f75",
+    "tests/custody-sanitization.test.ts": "f8e092c7e5cf52d9081213cb5481614c0af6e11de7a592cd5781572d114717d8",
+    "tests/dual-key-custody.test.ts": "2672b3fe8797c683684cdd9d4bdef938156a50b7eade2dbb9f44ee9e5a920284",
+    "tests/integration.test.ts": "5b50ca5806d0024af219629772d7e1da066a68ca6a4b14b5373de626e3706a35",
+    "tests/key-bundle-v5.test.ts": "f035adc0ef48f674d5e28d80a50c633d002964aa39e9aef921dcc39688013a21",
+    "tests/lifecycle-lock.test.ts": "5c4fcb2653227b6c2be8e127b26da22194268da8481216677cc5529dc12d2fb2",
+    "tests/lock-cli.test.ts": "29030a1f7d7140aa1eca72e690486ee49767f56e4b7f255ad37d8530c77db925",
+    "tests/policy.test.ts": "26ee1ccda793db6307cb0dd2ffac59d3b2d539fcbb0bb65bf149ce41fc7d155d",
+    "tests/recovery.test.ts": "1e054e6c503eb5727d2e4cc7923dc98366fa0397ea1355ec9942671c094c8682",
+    "tests/vault-format.test.ts": "e8d9b12d5452648d4e3e282e04ad36df6ee68208e25da5547e13010f9258ef47",
+    "tests/vault.test.ts": "3efac1f6381a4a26f6faf1a60a134b6d9e76b01176340cf80958ee19511d85a7"
+  }
+}

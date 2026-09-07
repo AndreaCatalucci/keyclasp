@@ -212,6 +212,27 @@ describe("CLI end-to-end flow", () => {
     expect(runMissingSecret("API_KEY").status).toBe(1);
   });
 
+  it("warns when a stored secret is too short for output leak detection", () => {
+    expect(run(["init", "--machine-only"]).status).toBe(0);
+
+    const short = run(["set", "SHORT_SECRET"], { input: "1234567\n" });
+
+    expect(short.status).toBe(0);
+    expect(short.stdout).toContain('Stored "SHORT_SECRET"');
+    expect(short.stderr).toContain(
+      'WARNING: "SHORT_SECRET" is shorter than 8 characters. Keyclasp cannot detect this value in child stdout or stderr.',
+    );
+  });
+
+  it("does not warn when a stored secret meets the output leak detection threshold", () => {
+    expect(run(["init", "--machine-only"]).status).toBe(0);
+
+    const boundary = run(["set", "EIGHT_CHAR_SECRET"], { input: "12345678\n" });
+
+    expect(boundary.status).toBe(0);
+    expect(boundary.stderr).not.toContain("shorter than 8 characters");
+  });
+
   it("upgrades a pre-versioned machine-only vault without blocking status or named runs", () => {
     expect(run(["init", "--machine-only"]).status).toBe(0);
     expect(run(["set", "API_KEY"], { input: "upgrade-value\n" }).status).toBe(0);
