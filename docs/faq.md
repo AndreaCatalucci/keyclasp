@@ -4,6 +4,25 @@
 
 The software beta supports macOS `arm64` and glibc Linux `arm64` or `x64` on Node.js 24 and 26. macOS `x64`, Node 25, and musl Linux are outside the beta matrix. Windows is unsupported because the beta does not verify owner-only Windows ACLs or provide a qualified operator-authorization mechanism. Unsupported installs and forced diagnostic stateful use fail closed before vault creation.
 
+## Why does `keyclasp init` report an unsafe macOS biometric helper ancestor path?
+
+Before creating a vault, Keyclasp validates the packaged Touch ID helper and every directory from its package root to `/`. It rejects symbolic links, directories owned by anyone other than root or the current user, and directories writable by a group or by everyone. This error concerns the installation path; it can occur on a new machine before vault creation or a Touch ID prompt.
+
+For a global npm installation under `/opt/homebrew`, one possible cause is `/opt/homebrew/lib` having permissions `775` (`drwxrwxr-x`). Check it with:
+
+```sh
+ls -ld /opt/homebrew/lib
+```
+
+If it shows `drwxrwxr-x`, remove group write permission and retry:
+
+```sh
+chmod g-w /opt/homebrew/lib
+keyclasp init
+```
+
+This changes permissions on a shared Homebrew directory: other members of its group will no longer be able to write there through group permissions. The directory owner retains write access. If the permissions differ or the error persists, another directory in the installation path may be responsible; the current error does not identify which one.
+
 ## Is the machine key hardware-backed?
 
 No. It is wrapped with a value derived from local machine identity. That value is not secret, attested, or protected by Secure Enclave or TPM. The mode supports unattended local agents; it does not provide theft resistance against someone who can reproduce the source machine identity.
